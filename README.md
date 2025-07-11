@@ -1,7 +1,40 @@
-Project Management Backend
-## Overview
-The Project Management Backend is a Node.js-based RESTful API designed to manage projects, tasks, teams, reports, and clients for a project management system. Built with Express.js and Sequelize ORM, it connects to a MySQL database and includes features such as user authentication, role-based access control (admin, manager, staff), task assignments, report generation, and email notifications. The API is documented using Swagger for easy exploration and testing.
-Features
+# 🛠️ Project Management Backend
+
+A powerful Node.js-based RESTful API designed to manage **projects**, **tasks**, **teams**, **reports**, and **clients**. Built with **Express.js**, **Sequelize ORM**, and **MySQL**, this backend includes features like JWT authentication, role-based access control, automated email notifications, file uploads, and Swagger API docs.
+
+---
+
+## 🚀 Features
+
+- 🔐 **User Authentication** – JWT-based login and access control
+- 👥 **Role-Based Access** – Admin, Manager, and Staff permissions
+- 📁 **Project Management** – CRUD projects, assign teams and clients
+- ✅ **Task Tracking** – Assign, update, and track task status (To Do, In Progress, Review, Done)
+- 📝 **Reports** – Users submit reports tied to specific projects
+- 📧 **Email Notifications** – Triggered on key actions like task assignments
+- 📎 **File Uploads** – Support for user avatars, documents, etc.
+- ⏰ **Scheduled Jobs** – Automated reminders using `node-cron`
+- 📚 **API Documentation** – Fully documented via Swagger UI
+
+---
+
+## ⚙️ Prerequisites
+
+- **Node.js** v22.9.0+
+- **MySQL** v8.0+
+- **npm** v10.8.1+
+- **`.env`** file – Based on `.env.example` for config
+
+---
+
+## 📦 Installation
+
+### 1. Clone the Repo
+
+```bash
+git clone https://github.com/Jite-Jahswill/project-manager.git
+cd project-manager
+
 
 User Authentication: JWT-based authentication for secure access.
 Role-Based Access Control: Admins and managers can create/update/delete projects, tasks, and teams, while staff can view assigned tasks and submit reports.
@@ -12,19 +45,6 @@ Email Notifications: Sends emails for task assignments, project updates, and oth
 File Uploads: Supports file uploads via Multer (e.g., for user profiles or project documents).
 Scheduled Tasks: Uses node-cron for automated tasks (e.g., reminders or cleanup).
 API Documentation: Swagger UI available at /api-docs for interactive API exploration.
-
-Prerequisites
-
-Node.js: Version 22.9.0 or higher
-MySQL: Version 8.0 or higher
-NPM: Version 10.8.1 or higher
-Environment Variables: A .env file configured with database credentials and other settings (see .env.example)
-
-Installation
-
-Clone the Repository:
-git clone https://github.com/Jite-Jahswill/project-manager.git
-cd project-management-backend
 
 
 Install Dependencies:
@@ -37,8 +57,6 @@ DB_USER=root
 DB_PASSWORD=yourpassword
 DB_NAME=project_management
 JWT_SECRET=your_jwt_secret
-EMAIL_HOST=smtp.example.com
-EMAIL_PORT=587
 EMAIL_USER=your_email@example.com
 EMAIL_PASS=your_email_password
 
