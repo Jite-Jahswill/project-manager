@@ -11,7 +11,7 @@ const options = {
     },
     servers: [
       {
-        url: "http://localhost:8000/api-docs", // Adjust if your API prefix is different
+        url: "https://project-manager-xapf.onrender.com/api-docs/", // Adjust if your API prefix is different
       },
     ],
     components: {
