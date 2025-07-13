@@ -17,110 +17,118 @@ module.exports = (app) => {
    */
 
   /**
-   * @swagger
-   * /api/auth/register:
-   *   post:
-   *     summary: Register a new user
-   *     tags: [Auth]
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         multipart/form-data:
-   *           schema:
-   *             type: object
-   *             required:
-   *               - firstName
-   *               - lastName
-   *               - email
-   *               - password
-   *             properties:
-   *               firstName:
-   *                 type: string
-   *                 example: "John"
-   *                 description: User's first name
-   *               lastName:
-   *                 type: string
-   *                 example: "Doe"
-   *                 description: User's last name
-   *               email:
-   *                 type: string
-   *                 example: "john.doe@example.com"
-   *                 description: User's email address
-   *               password:
-   *                 type: string
-   *                 example: "StrongPass123"
-   *                 description: User's password (minimum 8 characters)
-   *               image:
-   *                 type: string
-   *                 format: binary
-   *                 description: Optional user profile image
-   *     responses:
-   *       201:
-   *         description: User registered successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User registered successfully"
-   *                 user:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     firstName:
-   *                       type: string
-   *                       example: "John"
-   *                     lastName:
-   *                       type: string
-   *                       example: "Doe"
-   *                     email:
-   *                       type: string
-   *                       example: "john.doe@example.com"
-   *                     image:
-   *                       type: string
-   *                       example: "uploads/profiles/user1.jpg"
-   *                       nullable: true
-   *                     role:
-   *                       type: string
-   *                       example: "staff"
-   *       400:
-   *         description: Missing required fields or invalid input
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "firstName, lastName, email, and password are required"
-   *       409:
-   *         description: Email already exists
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Email already exists"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to register user"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
-   */
+ * @swagger
+ * /api/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - firstName
+ *               - lastName
+ *               - email
+ *               - password
+ *               - phoneNumber  // Added phoneNumber as a required field
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *                 example: "John"
+ *                 description: User's first name
+ *               lastName:
+ *                 type: string
+ *                 example: "Doe"
+ *                 description: User's last name
+ *               email:
+ *                 type: string
+ *                 example: "john.doe@example.com"
+ *                 description: User's email address
+ *               password:
+ *                 type: string
+ *                 example: "StrongPass123"
+ *                 description: User's password (minimum 8 characters)
+ *               phoneNumber:  // Added phoneNumber property
+ *                 type: string
+ *                 example: "+1234567890"
+ *                 description: User's phone number
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Optional user profile image
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User registered successfully"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     firstName:
+ *                       type: string
+ *                       example: "John"
+ *                     lastName:
+ *                       type: string
+ *                       example: "Doe"
+ *                     email:
+ *                       type: string
+ *                       example: "john.doe@example.com"
+ *                     phoneNumber:  // Added phoneNumber to response
+ *                       type: string
+ *                       example: "+1234567890"
+ *                     image:
+ *                       type: string
+ *                       example: "uploads/profiles/user1.jpg"
+ *                       nullable: true
+ *                     role:
+ *                       type: string
+ *                       example: "staff"
+ *       400:
+ *         description: Missing required fields or invalid input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "firstName, lastName, email, password, and phoneNumber are required"
+ *       409:
+ *         description: Email already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Email already exists"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to register user"
+ *                 details:
+ *                   type: string
+ *                   example: "Database error"
+ */
   router.post("/register", authController.register);
 
   /**
@@ -602,121 +610,128 @@ module.exports = (app) => {
   router.get("/users/:id", verifyToken, authController.getUserById);
 
   /**
-   * @swagger
-   * /api/auth/users/{id}:
-   *   put:
-   *     summary: Update user information (except role)
-   *     tags: [Auth]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: integer
-   *         description: User ID
-   *         example: 1
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         multipart/form-data:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               firstName:
-   *                 type: string
-   *                 example: "John"
-   *                 description: User's first name
-   *               lastName:
-   *                 type: string
-   *                 example: "Doe"
-   *                 description: User's last name
-   *               email:
-   *                 type: string
-   *                 example: "john.doe@example.com"
-   *                 description: User's email address
-   *               image:
-   *                 type: string
-   *                 format: binary
-   *                 description: Optional user profile image
-   *     responses:
-   *       200:
-   *         description: User updated successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User updated successfully"
-   *                 user:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     firstName:
-   *                       type: string
-   *                       example: "John"
-   *                     lastName:
-   *                       type: string
-   *                       example: "Doe"
-   *                     email:
-   *                       type: string
-   *                       example: "john.doe@example.com"
-   *                     image:
-   *                       type: string
-   *                       example: "uploads/profiles/user1.jpg"
-   *                       nullable: true
-   *                     role:
-   *                       type: string
-   *                       example: "staff"
-   *       400:
-   *         description: Invalid user ID or input
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid user ID"
-   *       403:
-   *         description: Unauthorized to update this user
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this user"
-   *       404:
-   *         description: User not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "User not found"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to update user"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
-   */
+ * @swagger
+ * /api/auth/users/{id}:
+ *   put:
+ *     summary: Update user information (except role)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: User ID
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *                 example: "John"
+ *                 description: User's first name
+ *               lastName:
+ *                 type: string
+ *                 example: "Doe"
+ *                 description: User's last name
+ *               email:
+ *                 type: string
+ *                 example: "john.doe@example.com"
+ *                 description: User's email address
+ *               phoneNumber:  // Added phoneNumber property
+ *                 type: string
+ *                 example: "+1234567890"
+ *                 description: User's phone number
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Optional user profile image
+ *     responses:
+ *       200:
+ *         description: User updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User updated successfully"
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                       example: 1
+ *                     firstName:
+ *                       type: string
+ *                       example: "John"
+ *                     lastName:
+ *                       type: string
+ *                       example: "Doe"
+ *                     email:
+ *                       type: string
+ *                       example: "john.doe@example.com"
+ *                     phoneNumber:  // Added phoneNumber to response
+ *                       type: string
+ *                       example: "+1234567890"
+ *                     image:
+ *                       type: string
+ *                       example: "uploads/profiles/user1.jpg"
+ *                       nullable: true
+ *                     role:
+ *                       type: string
+ *                       example: "staff"
+ *       400:
+ *         description: Invalid user ID or input
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid user ID"
+ *       403:
+ *         description: Unauthorized to update this user
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized to update this user"
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "User not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to update user"
+ *                 details:
+ *                   type: string
+ *                   example: "Database error"
+ */
   router.put(
     "/users/:id",
     verifyToken,
