@@ -237,7 +237,7 @@ module.exports = (app) => {
    * @swagger
    * /api/auth/verify-email:
    *   post:
-   *     summary: Verify a user's email address using OTP and optionally update password
+   *     summary: Verify a user's email address using OTP
    *     tags: [Auth]
    *     requestBody:
    *       required: true
@@ -257,13 +257,9 @@ module.exports = (app) => {
    *                 type: string
    *                 example: "123456"
    *                 description: 6-digit OTP sent to the user's email
-   *               newPassword:
-   *                 type: string
-   *                 example: NewPass123
-   *                 description: Optional new password (minimum 8 characters)
    *     responses:
    *       200:
-   *         description: Email verified successfully, with optional password update
+   *         description: Email verified successfully
    *         content:
    *           application/json:
    *             schema:
@@ -271,7 +267,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: Email verified successfully and password updated
+   *                   example: Email verified successfully
    *                 user:
    *                   type: object
    *                   properties:
@@ -288,7 +284,7 @@ module.exports = (app) => {
    *                       type: string
    *                       example: Doe
    *       400:
-   *         description: Invalid or expired OTP, email already verified, or invalid password
+   *         description: Invalid or expired OTP, or email already verified
    *         content:
    *           application/json:
    *             schema:
