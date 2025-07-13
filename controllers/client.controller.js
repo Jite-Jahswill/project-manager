@@ -6,6 +6,7 @@ const { Op, sequelize } = require("sequelize");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const sequelize = db.sequelize;
 
 // Generate a 6-digit OTP
 const generateOTP = () => {
@@ -350,11 +351,13 @@ exports.updateClient = async (req, res) => {
     const { firstName, lastName, email } = req.body;
     const image = req.file ? req.file.filename : client.image;
 
+    // Delete old image if new one is uploaded
     if (req.file && client.image) {
       const oldPath = path.join(__dirname, "../uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
+    // Check if email is changing and already exists
     if (email && email !== client.email) {
       const existingClient = await Client.findOne({ where: { email } });
       if (existingClient) {
@@ -362,8 +365,14 @@ exports.updateClient = async (req, res) => {
       }
     }
 
+    // Update with raw SQL
     await sequelize.query(
-      "UPDATE Clients SET firstName = :firstName, lastName = :lastName, email = :email, image = :image WHERE id = :id",
+      `UPDATE Clients 
+       SET firstName = :firstName, 
+           lastName = :lastName, 
+           email = :email, 
+           image = :image 
+       WHERE id = :id`,
       {
         replacements: {
           firstName: firstName || client.firstName,
@@ -376,9 +385,8 @@ exports.updateClient = async (req, res) => {
       }
     );
 
-    // Fetch updated client to return
+    // Return the updated client
     const updatedClient = await Client.findByPk(id);
-
     res.json({ message: "Client updated", client: updatedClient });
   } catch (err) {
     console.error("Update client error:", {
@@ -388,9 +396,10 @@ exports.updateClient = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Error updating client", details: err.message });
+    res.status(500).json({
+      error: "Error updating client",
+      details: err.message,
+    });
   }
 };
 
