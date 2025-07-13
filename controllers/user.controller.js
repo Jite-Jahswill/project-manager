@@ -1,4 +1,3 @@
-// controllers/user.controller.js
 const db = require("../models");
 const User = db.User;
 const UserTeam = db.UserTeam;
@@ -8,10 +7,10 @@ const Project = db.Project;
 exports.getAllUsers = async (req, res) => {
   try {
     if (!["admin"].includes(req.user.role)) {
-      return res.status(403).json({ error: "Only admins can view all users" });
+      return res.status(403).json({ message: "Only admins can view all users" });
     }
 
-    const { role, firstName, lastName } = req.query;
+    const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
     const whereClause = {};
 
     if (role) {
@@ -30,50 +29,85 @@ exports.getAllUsers = async (req, res) => {
       };
     }
 
-    const users = await User.findAll({
+    const { count, rows } = await User.findAndCountAll({
       where: whereClause,
       attributes: { exclude: ["password"] },
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    res.json(users);
-  } catch (err) {
-    console.error("Get all users error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      query: req.query,
-      timestamp: new Date().toISOString(),
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      users: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
     });
+  } catch (err) {
+    // Log error to errors table (assumed)
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to fetch users", details: err.message });
+      .json({ message: "Failed to fetch users", details: err.message });
   }
 };
 
 // Get one user (Authenticated)
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id, {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ message: "id is required" });
+    }
+
+    const user = await User.findByPk(id, {
       attributes: { exclude: ["password"] },
     });
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(user);
+    if (req.user.role === "staff" && req.user.id !== parseInt(id)) {
+      return res.status(403).json({ message: "Unauthorized to view this user" });
+    }
+
+    res.status(200).json(user);
   } catch (err) {
-    console.error("Get user error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      timestamp: new Date().toISOString(),
-    });
+    // Log error to errors table (assumed)
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ targetUserId: req.params.id }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to fetch user", details: err.message });
+      .json({ message: "Failed to fetch user", details: err.message });
   }
 };
 
@@ -81,13 +115,24 @@ exports.getUserById = async (req, res) => {
 exports.getUserProjects = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
 
     const user = await User.findByPk(userId);
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const userTeams = await UserTeam.findAll({
+    if (req.user.role === "staff" && req.user.id !== parseInt(userId)) {
+      return res
+        .status(403)
+        .json({ message: "Unauthorized to view this user's projects" });
+    }
+
+    const { count, rows } = await UserTeam.findAndCountAll({
       where: {
         userId,
         projectId: { [db.Sequelize.Op.ne]: null }, // Exclude null projectId
@@ -99,9 +144,12 @@ exports.getUserProjects = async (req, res) => {
           required: true, // Ensure Project exists
         },
       ],
+      order: [[{ model: Project }, "createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    const projects = userTeams.map((ut) => ({
+    const projects = rows.map((ut) => ({
       project: {
         id: ut.Project.id,
         name: ut.Project.name,
@@ -111,17 +159,34 @@ exports.getUserProjects = async (req, res) => {
       note: ut.note,
     }));
 
-    res.json(projects);
-  } catch (err) {
-    console.error("Get user projects error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.userId,
-      timestamp: new Date().toISOString(),
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      projects,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
     });
+  } catch (err) {
+    // Log error to errors table (assumed)
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ targetUserId: req.params.userId, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to fetch user projects", details: err.message });
+      .json({ message: "Failed to fetch user projects", details: err.message });
   }
 };
