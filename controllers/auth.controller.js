@@ -387,7 +387,7 @@ exports.deleteUser = async (req, res) => {
 // Verify Email
 exports.verifyEmail = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, newPassword } = req.body;
     if (!email || !otp) {
       return res.status(400).json({ error: "Email and OTP are required" });
     }
@@ -414,20 +414,28 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
+    // Prepare updates
+    const updates = {
+      emailVerified: true,
+      otp: null,
+      otpExpiresAt: null,
+    };
+
+    // If newPassword is provided, hash and update it
+    if (newPassword) {
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "New password must be at least 8 characters" });
+      }
+      updates.password = await bcrypt.hash(newPassword, 10);
+    }
+
     // Update user within a transaction
     await sequelize.transaction(async (t) => {
-      await user.update(
-        {
-          emailVerified: true,
-          otp: null,
-          otpExpiresAt: null,
-        },
-        { transaction: t }
-      );
+      await user.update(updates, { transaction: t });
     });
 
     res.json({
-      message: "Email verified successfully",
+      message: `Email verified successfully${newPassword ? " and password updated" : ""}`,
       user: {
         id: user.id,
         email: user.email,
@@ -460,7 +468,7 @@ exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
-      return res.status(400).json({ error: "email is required" });
+      return res.status(400).json({ error: "Email is required" });
     }
 
     const user = await User.findOne({ where: { email } });
