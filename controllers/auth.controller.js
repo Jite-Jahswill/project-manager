@@ -16,37 +16,29 @@ exports.register = async (req, res) => {
     const { firstName, lastName, email, password, role, phoneNumber } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
-    // Check for required fields
     if (!firstName || !lastName || !email || !password || !phoneNumber) {
       return res.status(400).json({ error: "All fields are required" });
     }
 
-    // Validate role
     if (role && !["admin", "manager", "staff"].includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
 
-    // Check for existing user by email
     const existingUserByEmail = await User.findOne({ where: { email } });
     if (existingUserByEmail) {
       return res.status(409).json({ error: "Email already exists" });
     }
 
-    // Check for existing user by phone number
     const existingUserByPhone = await User.findOne({ where: { phoneNumber } });
     if (existingUserByPhone) {
       return res.status(409).json({ error: "Phone number already in use" });
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Generate OTP
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Create the user
     const user = await User.create({
       firstName,
       lastName,
@@ -60,7 +52,6 @@ exports.register = async (req, res) => {
       otpExpiresAt,
     });
 
-    // Send OTP email
     await sendMail({
       to: user.email,
       subject: "Verify Your Email with OTP",
@@ -72,7 +63,6 @@ exports.register = async (req, res) => {
       `,
     });
 
-    // Respond with user information
     res.status(201).json({
       message: "User registered successfully, OTP sent to email",
       user: {
@@ -187,7 +177,6 @@ exports.getUserById = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Authorization check
     if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
       return res.status(403).json({ message: "Unauthorized to view this user" });
     }
@@ -220,7 +209,6 @@ exports.updateUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Authorization check
     if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
       return res.status(403).json({ message: "Unauthorized to update this user" });
     }
@@ -228,7 +216,6 @@ exports.updateUser = async (req, res) => {
     const { firstName, lastName, email, phoneNumber } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : user.image;
 
-    // Delete old image if a new one is uploaded
     if (req.file && user.image && user.image !== image) {
       const oldImagePath = path.join(__dirname, "../", user.image);
       if (fs.existsSync(oldImagePath)) {
@@ -236,7 +223,6 @@ exports.updateUser = async (req, res) => {
       }
     }
 
-    // Check for email uniqueness if email is being updated
     if (email && email !== user.email) {
       const existingUser = await User.findOne({ where: { email } });
       if (existingUser) {
@@ -244,7 +230,6 @@ exports.updateUser = async (req, res) => {
       }
     }
 
-    // Check for phone number uniqueness if phoneNumber is being updated
     if (phoneNumber && phoneNumber !== user.phoneNumber) {
       const existingUser = await User.findOne({ where: { phoneNumber } });
       if (existingUser) {
@@ -287,7 +272,7 @@ exports.updateUser = async (req, res) => {
   }
 };
 
-// Update User Role (Admin and manager only)
+// Update User Role
 exports.updateUserRole = async (req, res) => {
   try {
     const { id } = req.params;
@@ -356,7 +341,6 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Authorization check
     if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
       return res.status(403).json({ message: "Unauthorized to delete this user" });
     }
@@ -414,7 +398,6 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
-    // Use raw SQL to update user
     await sequelize.query(
       "UPDATE Users SET emailVerified = true, otp = NULL, otpExpiresAt = NULL WHERE email = :email",
       {
@@ -458,18 +441,18 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Generate OTP
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Update user with new OTP
-    await user.update({
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
+    await sequelize.query(
+      "UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE email = :email",
+      {
+        replacements: { otp: hashedOTP, otpExpiresAt, email },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
 
-    // Send OTP email
     await sendMail({
       to: user.email,
       subject: "Reset Your Password with OTP",
@@ -526,17 +509,14 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
-    // Update password and clear OTP within a transaction
-    await sequelize.transaction(async (t) => {
-      await user.update(
-        {
-          password: await bcrypt.hash(password, 10),
-          otp: null,
-          otpExpiresAt: null,
-        },
-        { transaction: t }
-      );
-    });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await sequelize.query(
+      "UPDATE Users SET password = :password, otp = NULL, otpExpiresAt = NULL WHERE email = :email",
+      {
+        replacements: { password: hashedPassword, email },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
 
     res.json({ message: "Password reset successful" });
   } catch (error) {
@@ -564,18 +544,18 @@ exports.resendVerification = async (req, res) => {
       return res.status(400).json({ message: "Email already verified" });
     }
 
-    // Generate OTP
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Update user with new OTP
-    await user.update({
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
+    await sequelize.query(
+      "UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE id = :id",
+      {
+        replacements: { otp: hashedOTP, otpExpiresAt, id: req.user.id },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
 
-    // Send OTP email
     await sendMail({
       to: user.email,
       subject: "Verify Your Email with OTP",
