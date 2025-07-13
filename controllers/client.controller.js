@@ -7,6 +7,11 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 
+// Generate a 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 exports.createClient = async (req, res) => {
   try {
     const { firstName, lastName, email } = req.body;
