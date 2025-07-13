@@ -33,27 +33,27 @@ module.exports = (app) => {
  *               - lastName
  *               - email
  *               - password
- *               - phoneNumber  // Added phoneNumber as a required field
+ *               - phoneNumber
  *             properties:
  *               firstName:
  *                 type: string
- *                 example: "John"
+ *                 example: John
  *                 description: User's first name
  *               lastName:
  *                 type: string
- *                 example: "Doe"
+ *                 example: Doe
  *                 description: User's last name
  *               email:
  *                 type: string
- *                 example: "john.doe@example.com"
+ *                 example: john.doe@example.com
  *                 description: User's email address
  *               password:
  *                 type: string
- *                 example: "StrongPass123"
+ *                 example: StrongPass123
  *                 description: User's password (minimum 8 characters)
- *               phoneNumber:  // Added phoneNumber property
+ *               phoneNumber:
  *                 type: string
- *                 example: "+1234567890"
+ *                 example: +1234567890
  *                 description: User's phone number
  *               image:
  *                 type: string
@@ -69,7 +69,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "User registered successfully"
+ *                   example: User registered successfully
  *                 user:
  *                   type: object
  *                   properties:
@@ -78,23 +78,23 @@ module.exports = (app) => {
  *                       example: 1
  *                     firstName:
  *                       type: string
- *                       example: "John"
+ *                       example: John
  *                     lastName:
  *                       type: string
- *                       example: "Doe"
+ *                       example: Doe
  *                     email:
  *                       type: string
- *                       example: "john.doe@example.com"
- *                     phoneNumber:  // Added phoneNumber to response
+ *                       example: john.doe@example.com
+ *                     phoneNumber:
  *                       type: string
- *                       example: "+1234567890"
+ *                       example: +1234567890
  *                     image:
  *                       type: string
- *                       example: "uploads/profiles/user1.jpg"
+ *                       example: uploads/profiles/user1.jpg
  *                       nullable: true
  *                     role:
  *                       type: string
- *                       example: "staff"
+ *                       example: staff
  *       400:
  *         description: Missing required fields or invalid input
  *         content:
@@ -104,7 +104,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "firstName, lastName, email, password, and phoneNumber are required"
+ *                   example: firstName, lastName, email, password, and phoneNumber are required
  *       409:
  *         description: Email already exists
  *         content:
@@ -114,7 +114,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "Email already exists"
+ *                   example: Email already exists
  *       500:
  *         description: Internal server error
  *         content:
@@ -124,10 +124,10 @@ module.exports = (app) => {
  *               properties:
  *                 error:
  *                   type: string
- *                   example: "Failed to register user"
+ *                   example: Failed to register user
  *                 details:
  *                   type: string
- *                   example: "Database error"
+ *                   example: Database error
  */
   router.post("/register", authController.register);
 
@@ -609,7 +609,7 @@ module.exports = (app) => {
    */
   router.get("/users/:id", verifyToken, authController.getUserById);
 
-  /**
+ /**
  * @swagger
  * /api/auth/users/{id}:
  *   put:
@@ -634,19 +634,19 @@ module.exports = (app) => {
  *             properties:
  *               firstName:
  *                 type: string
- *                 example: "John"
+ *                 example: John
  *                 description: User's first name
  *               lastName:
  *                 type: string
- *                 example: "Doe"
+ *                 example: Doe
  *                 description: User's last name
  *               email:
  *                 type: string
- *                 example: "john.doe@example.com"
+ *                 example: john.doe@example.com
  *                 description: User's email address
- *               phoneNumber:  // Added phoneNumber property
+ *               phoneNumber:
  *                 type: string
- *                 example: "+1234567890"
+ *                 example: +1234567890
  *                 description: User's phone number
  *               image:
  *                 type: string
@@ -662,7 +662,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "User updated successfully"
+ *                   example: User updated successfully
  *                 user:
  *                   type: object
  *                   properties:
@@ -671,23 +671,23 @@ module.exports = (app) => {
  *                       example: 1
  *                     firstName:
  *                       type: string
- *                       example: "John"
+ *                       example: John
  *                     lastName:
  *                       type: string
- *                       example: "Doe"
+ *                       example: Doe
  *                     email:
  *                       type: string
- *                       example: "john.doe@example.com"
- *                     phoneNumber:  // Added phoneNumber to response
+ *                       example: john.doe@example.com
+ *                     phoneNumber:
  *                       type: string
- *                       example: "+1234567890"
+ *                       example: +1234567890
  *                     image:
  *                       type: string
- *                       example: "uploads/profiles/user1.jpg"
+ *                       example: uploads/profiles/user1.jpg
  *                       nullable: true
  *                     role:
  *                       type: string
- *                       example: "staff"
+ *                       example: staff
  *       400:
  *         description: Invalid user ID or input
  *         content:
@@ -697,7 +697,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "Invalid user ID"
+ *                   example: Invalid user ID
  *       403:
  *         description: Unauthorized to update this user
  *         content:
@@ -707,7 +707,7 @@ module.exports = (app) => {
  *               properties:
  *                 message:
  *                   type: string
- *                   example: "Unauthorized to update this user"
+ *                   example: Unauthorized to update this user
  *       404:
  *         description: User not found
  *         content:
@@ -717,7 +717,7 @@ module.exports = (app) => {
  *               properties:
  *                 error:
  *                   type: string
- *                   example: "User not found"
+ *                   example: User not found
  *       500:
  *         description: Internal server error
  *         content:
@@ -727,10 +727,10 @@ module.exports = (app) => {
  *               properties:
  *                 error:
  *                   type: string
- *                   example: "Failed to update user"
+ *                   example: Failed to update user
  *                 details:
  *                   type: string
- *                   example: "Database error"
+ *                   example: Database error
  */
   router.put(
     "/users/:id",
