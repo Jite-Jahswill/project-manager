@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { User, sequelize } = require("../models");
+const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
 const sendMail = require("../utils/mailer");
@@ -150,14 +151,16 @@ exports.getAllUsers = async (req, res) => {
   try {
     const { role, firstName, lastName } = req.query;
     const where = {};
+
     if (role) where.role = role;
-    if (firstName) where.firstName = { [sequelize.Op.like]: `%${firstName}%` };
-    if (lastName) where.lastName = { [sequelize.Op.like]: `%${lastName}%` };
+    if (firstName) where.firstName = { [Op.like]: `%${firstName}%` };
+    if (lastName) where.lastName = { [Op.like]: `%${lastName}%` };
 
     const users = await User.findAll({
       where,
       attributes: { exclude: ["password", "otp"] },
     });
+
     res.json(users);
   } catch (error) {
     console.error("Get all users error:", {
@@ -166,9 +169,7 @@ exports.getAllUsers = async (req, res) => {
       userId: req.user?.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch users", details: error.message });
+    res.status(500).json({ error: "Failed to fetch users", details: error.message });
   }
 };
 
