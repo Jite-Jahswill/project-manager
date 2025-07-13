@@ -1,4 +1,3 @@
-// controllers/project.controller.js
 const db = require("../models");
 const Project = db.Project;
 const User = db.User;
@@ -32,7 +31,14 @@ module.exports = {
         .status(201)
         .json({ message: "Project created successfully", project });
     } catch (err) {
-      console.error("Create project error:", err);
+      console.error("Create project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
       return res
         .status(500)
         .json({ message: "Failed to create project", details: err.message });
@@ -84,13 +90,16 @@ module.exports = {
           await sendMail({
             to: user.email,
             subject: `You've been assigned to Project: ${project.name}`,
-            text: `Hello ${
-              user.firstName
-            },\n\nYou've been assigned to the project "${
-              project.name
-            }" as a ${role}.\n\nStart Date: ${project.startDate}\nEnd Date: ${
-              project.endDate || "TBD"
-            }\n\nPlease log in to view your tasks.\n\nBest,\nTeam`,
+            html: `
+              <p>Hello ${user.firstName},</p>
+              <p>You've been assigned to the project <strong>${
+                project.name
+              }</strong> as a <strong>${role}</strong>.</p>
+              <p>Start Date: ${project.startDate}</p>
+              <p>End Date: ${project.endDate || "TBD"}</p>
+              <p>Please log in to view your tasks.</p>
+              <p>Best,<br>Team</p>
+            `,
           });
         }
       }
@@ -104,7 +113,14 @@ module.exports = {
         })),
       });
     } catch (err) {
-      console.error("Assign team error:", err);
+      console.error("Assign team error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to assign team to project",
         details: err.message,
@@ -116,27 +132,54 @@ module.exports = {
   async getProjectMembers(req, res) {
     try {
       const { projectId } = req.params;
+      const { page = 1, limit = 20 } = req.query;
+
       if (!projectId)
         return res.status(400).json({ message: "projectId is required" });
+
       const project = await Project.findByPk(projectId);
       if (!project)
         return res.status(404).json({ message: "Project not found" });
-      const members = await UserTeam.findAll({
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { count, rows } = await UserTeam.findAndCountAll({
         where: { projectId },
         include: [
           { model: User, attributes: ["id", "firstName", "lastName", "email"] },
         ],
+        limit: parseInt(limit),
+        offset,
       });
-      const formattedMembers = members.map((member) => ({
+
+      const totalPages = Math.ceil(count / limit);
+
+      const formattedMembers = rows.map((member) => ({
         userId: member.userId,
         firstName: member.User.firstName,
         lastName: member.User.lastName,
         email: member.User.email,
         role: member.role,
       }));
-      return res.status(200).json({ members: formattedMembers });
+
+      return res.status(200).json({
+        members: formattedMembers,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
     } catch (err) {
-      console.error("Get members error:", err);
+      console.error("Get members error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        projectId: req.params.projectId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to retrieve project members",
         details: err.message,
@@ -145,10 +188,9 @@ module.exports = {
   },
 
   // Get all projects (All authenticated users)
-
   async getAllProjects(req, res) {
     try {
-      const { projectName, status, startDate } = req.query;
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
       const whereClause = {};
 
       if (projectName) {
@@ -165,7 +207,8 @@ module.exports = {
         whereClause.startDate = startDate;
       }
 
-      const projects = await db.Project.findAll({
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { count, rows } = await db.Project.findAndCountAll({
         where: whereClause,
         include: [
           {
@@ -188,9 +231,13 @@ module.exports = {
             ],
           },
         ],
+        limit: parseInt(limit),
+        offset,
       });
 
-      const formattedProjects = projects.map((project) => ({
+      const totalPages = Math.ceil(count / limit);
+
+      const formattedProjects = rows.map((project) => ({
         id: project.id,
         name: project.name,
         description: project.description,
@@ -221,9 +268,24 @@ module.exports = {
         })),
       }));
 
-      return res.status(200).json({ projects: formattedProjects });
+      return res.status(200).json({
+        projects: formattedProjects,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
     } catch (err) {
-      console.error("Get projects error:", err);
+      console.error("Get projects error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to retrieve projects",
         details: err.message,
@@ -236,14 +298,16 @@ module.exports = {
     try {
       const { projectId } = req.params;
       const { status } = req.body;
-      if (!status)
+      if (!status) {
         return res.status(400).json({ message: "Status is required" });
+      }
 
-      const project = await Project.findByPk(projectId);
-      if (!project)
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
         return res.status(404).json({ message: "Project not found" });
+      }
 
-      const assigned = await UserTeam.findOne({
+      const assigned = await db.UserTeam.findOne({
         where: { userId: req.user.id, projectId },
       });
 
@@ -253,20 +317,25 @@ module.exports = {
         });
       }
 
-      project.status = status;
-      await project.save();
+      await db.sequelize.query(
+        "UPDATE Projects SET status = :status WHERE id = :id",
+        {
+          replacements: { status, id: projectId },
+          type: db.sequelize.QueryTypes.UPDATE,
+        }
+      );
 
       // Notify all assigned users, admins, and managers
-      const allUsers = await User.findAll({
+      const allUsers = await db.User.findAll({
         include: {
-          model: UserTeam,
+          model: db.UserTeam,
           where: { projectId },
         },
       });
 
-      const adminsAndManagers = await User.findAll({
+      const adminsAndManagers = await db.User.findAll({
         where: {
-          role: ["admin", "manager"],
+          role: { [db.Sequelize.Op.in]: ["admin", "manager"] },
         },
       });
 
@@ -275,25 +344,42 @@ module.exports = {
         ...adminsAndManagers.map((u) => u.email),
       ]);
 
-      for (const email of uniqueEmails) {
-        await sendMail({
+      const emailPromises = Array.from(uniqueEmails).map((email) =>
+        sendMail({
           to: email,
           subject: `Project Status Updated: ${project.name}`,
-          text: `Hello,\n\nThe status of project "${project.name}" has been updated to "${status}".\n\nBest regards,\nTeam`,
-        });
-      }
+          html: `
+            <p>Hello,</p>
+            <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
+            <p>Best regards,<br>Team</p>
+          `,
+        })
+      );
 
-      // Notify the client if the project is marked as completed
+      await Promise.all(emailPromises);
+
+      // Notify client if project is completed
       if (status.toLowerCase() === "completed") {
         await notifyClientOnProjectCompletion(projectId);
       }
 
+      // Fetch updated project
+      const updatedProject = await db.Project.findByPk(projectId);
+
       return res.status(200).json({
         message: "Status updated successfully",
-        project,
+        project: updatedProject,
       });
     } catch (err) {
-      console.error("Update status error:", err);
+      console.error("Update status error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        projectId: req.params.projectId,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to update status",
         details: err.message,
@@ -311,57 +397,83 @@ module.exports = {
       }
 
       const { projectId } = req.params;
-      const { name, description, startDate, endDate, status, teamId } =
-        req.body;
+      const { name, description, startDate, endDate, status, teamId } = req.body;
 
-      const project = await Project.findByPk(projectId);
-      if (!project)
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
         return res.status(404).json({ message: "Project not found" });
+      }
 
-      // Update basic fields
-      if (name) project.name = name;
-      if (description) project.description = description;
-      if (startDate) project.startDate = startDate;
-      if (endDate) project.endDate = endDate;
-      if (status) project.status = status;
-      if (teamId) project.teamId = teamId;
-
-      await project.save();
+      await db.sequelize.query(
+        "UPDATE Projects SET name = :name, description = :description, startDate = :startDate, endDate = :endDate, status = :status, teamId = :teamId WHERE id = :id",
+        {
+          replacements: {
+            name: name || project.name,
+            description: description || project.description,
+            startDate: startDate || project.startDate,
+            endDate: endDate || project.endDate,
+            status: status || project.status,
+            teamId: teamId || project.teamId,
+            id: projectId,
+          },
+          type: db.sequelize.QueryTypes.UPDATE,
+        }
+      );
 
       // Assign team to project
       if (teamId) {
-        const team = await Team.findByPk(teamId, {
-          include: [{ model: User }],
+        const team = await db.Team.findByPk(teamId, {
+          include: [{ model: db.User }],
         });
-        if (!team) return res.status(404).json({ message: "Team not found" });
+        if (!team) {
+          return res.status(404).json({ message: "Team not found" });
+        }
 
         // Clear existing UserTeam entries for this project
-        await UserTeam.destroy({ where: { projectId } });
+        await db.UserTeam.destroy({ where: { projectId } });
 
         // Assign each team member to the project
         const userAssignments = team.Users.map((user) =>
-          UserTeam.create({
+          db.UserTeam.create({
             userId: user.id,
             projectId,
-            role: "Developer", // default role
+            role: "Developer",
           })
         );
 
         await Promise.all(userAssignments);
 
         // Notify users
-        for (const user of team.Users) {
-          await sendMail({
+        const emailPromises = team.Users.map((user) =>
+          sendMail({
             to: user.email,
             subject: `Project Updated: ${project.name}`,
-            text: `Hello ${user.firstName},\n\nYou’ve been assigned to the updated project "${project.name}".\n\nCheck your dashboard for details.\n\nBest,\nTeam`,
-          });
-        }
+            html: `
+              <p>Hello ${user.firstName},</p>
+              <p>You’ve been assigned to the updated project <strong>${project.name}</strong>.</p>
+              <p>Check your dashboard for details.</p>
+              <p>Best,<br>Team</p>
+            `,
+          })
+        );
+
+        await Promise.all(emailPromises);
       }
 
-      return res.status(200).json({ message: "Project updated", project });
+      // Fetch updated project
+      const updatedProject = await db.Project.findByPk(projectId);
+
+      return res.status(200).json({ message: "Project updated", project: updatedProject });
     } catch (err) {
-      console.error("Update project error:", err);
+      console.error("Update project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        projectId: req.params.projectId,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
       return res
         .status(500)
         .json({ message: "Failed to update project", details: err.message });
@@ -379,38 +491,52 @@ module.exports = {
 
       const { projectId } = req.params;
 
-      const project = await Project.findByPk(projectId);
-      if (!project)
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
         return res.status(404).json({ message: "Project not found" });
+      }
 
       // Fetch assigned users before deleting
-      const users = await User.findAll({
+      const users = await db.User.findAll({
         include: {
-          model: UserTeam,
+          model: db.UserTeam,
           where: { projectId },
         },
       });
 
       await project.destroy();
 
-      for (const user of users) {
-        await sendMail({
+      // Notify users
+      const emailPromises = users.map((user) =>
+        sendMail({
           to: user.email,
           subject: `Project Deleted: ${project.name}`,
-          text: `Hello ${user.firstName},\n\nThe project "${project.name}" you were assigned to has been deleted.\n\nThank you for your contribution.\n\nBest,\nTeam`,
-        });
-      }
+          html: `
+            <p>Hello ${user.firstName},</p>
+            <p>The project <strong>${project.name}</strong> you were assigned to has been deleted.</p>
+            <p>Thank you for your contribution.</p>
+            <p>Best,<br>Team</p>
+          `,
+        })
+      );
+
+      await Promise.all(emailPromises);
 
       return res.status(200).json({ message: "Project deleted successfully" });
     } catch (err) {
-      console.error("Delete project error:", err);
+      console.error("Delete project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        projectId: req.params.projectId,
+        timestamp: new Date().toISOString(),
+      });
       return res
         .status(500)
         .json({ message: "Failed to delete project", details: err.message });
     }
   },
-
-  // controllers/project.controller.js
 
   // Add client to project
   async addClientToProject(req, res) {
@@ -440,7 +566,14 @@ module.exports = {
         .status(200)
         .json({ message: "Client added to project successfully." });
     } catch (err) {
-      console.error("Add client to project error:", err);
+      console.error("Add client to project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to add client to project",
         details: err.message,
@@ -467,234 +600,18 @@ module.exports = {
         .status(200)
         .json({ message: "Client removed from project successfully." });
     } catch (err) {
-      console.error("Remove client from project error:", err);
+      console.error("Remove client from project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        params: req.params,
+        timestamp: new Date().toISOString(),
+      });
       return res.status(500).json({
         message: "Failed to remove client from project",
         details: err.message,
       });
     }
   },
-};
-exports.updateProjectStatus = async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    const { status } = req.body;
-    if (!status) {
-      return res.status(400).json({ message: "Status is required" });
-    }
-
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    const assigned = await db.UserTeam.findOne({
-      where: { userId: req.user.id, projectId },
-    });
-
-    if (!assigned) {
-      return res.status(403).json({
-        message: "You're not assigned to this project",
-      });
-    }
-
-    project.status = status;
-    await project.save();
-
-    // Notify all assigned users, admins, and managers
-    const allUsers = await db.User.findAll({
-      include: {
-        model: db.UserTeam,
-        where: { projectId },
-      },
-    });
-
-    const adminsAndManagers = await db.User.findAll({
-      where: {
-        role: { [Op.in]: ["admin", "manager"] },
-      },
-    });
-
-    const uniqueEmails = new Set([
-      ...allUsers.map((u) => u.email),
-      ...adminsAndManagers.map((u) => u.email),
-    ]);
-
-    const emailPromises = Array.from(uniqueEmails).map((email) =>
-      sendMail({
-        to: email,
-        subject: `Project Status Updated: ${project.name}`,
-        html: `
-          <p>Hello,</p>
-          <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
-          <p>Best regards,<br>Team</p>
-        `,
-      })
-    );
-
-    await Promise.all(emailPromises);
-
-    // Notify client if project is completed
-    if (status.toLowerCase() === "completed") {
-      await notifyClientOnProjectCompletion(projectId);
-    }
-
-    return res.status(200).json({
-      message: "Status updated successfully",
-      project,
-    });
-  } catch (err) {
-    console.error("Update status error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      projectId: req.params.projectId,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({
-      message: "Failed to update status",
-      details: err.message,
-    });
-  }
-};
-
-exports.updateProject = async (req, res) => {
-  try {
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res
-        .status(403)
-        .json({ message: "Only admins or managers can update projects." });
-    }
-
-    const { projectId } = req.params;
-    const { name, description, startDate, endDate, status, teamId } = req.body;
-
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    // Update basic fields
-    if (name) project.name = name;
-    if (description) project.description = description;
-    if (startDate) project.startDate = startDate;
-    if (endDate) project.endDate = endDate;
-    if (status) project.status = status;
-    if (teamId) project.teamId = teamId;
-
-    await project.save();
-
-    // Assign team to project
-    if (teamId) {
-      const team = await db.Team.findByPk(teamId, {
-        include: [{ model: db.User }],
-      });
-      if (!team) {
-        return res.status(404).json({ message: "Team not found" });
-      }
-
-      // Clear existing UserTeam entries for this project
-      await db.UserTeam.destroy({ where: { projectId } });
-
-      // Assign each team member to the project
-      const userAssignments = team.Users.map((user) =>
-        db.UserTeam.create({
-          userId: user.id,
-          projectId,
-          role: "Developer",
-        })
-      );
-
-      await Promise.all(userAssignments);
-
-      // Notify users
-      const emailPromises = team.Users.map((user) =>
-        sendMail({
-          to: user.email,
-          subject: `Project Updated: ${project.name}`,
-          html: `
-            <p>Hello ${user.firstName},</p>
-            <p>You’ve been assigned to the updated project <strong>${project.name}</strong>.</p>
-            <p>Check your dashboard for details.</p>
-            <p>Best,<br>Team</p>
-          `,
-        })
-      );
-
-      await Promise.all(emailPromises);
-    }
-
-    return res.status(200).json({ message: "Project updated", project });
-  } catch (err) {
-    console.error("Update project error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      projectId: req.params.projectId,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    return res
-      .status(500)
-      .json({ message: "Failed to update project", details: err.message });
-  }
-};
-
-exports.deleteProject = async (req, res) => {
-  try {
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res
-        .status(403)
-        .json({ message: "Only admins or managers can delete projects." });
-    }
-
-    const { projectId } = req.params;
-
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    // Fetch assigned users before deleting
-    const users = await db.User.findAll({
-      include: {
-        model: db.UserTeam,
-        where: { projectId },
-      },
-    });
-
-    await project.destroy();
-
-    // Notify users
-    const emailPromises = users.map((user) =>
-      sendMail({
-        to: user.email,
-        subject: `Project Deleted: ${project.name}`,
-        html: `
-          <p>Hello ${user.firstName},</p>
-          <p>The project <strong>${project.name}</strong> you were assigned to has been deleted.</p>
-          <p>Thank you for your contribution.</p>
-          <p>Best,<br>Team</p>
-        `,
-      })
-    );
-
-    await Promise.all(emailPromises);
-
-    return res.status(200).json({ message: "Project deleted successfully" });
-  } catch (err) {
-    console.error("Delete project error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      projectId: req.params.projectId,
-      timestamp: new Date().toISOString(),
-    });
-    return res
-      .status(500)
-      .json({ message: "Failed to delete project", details: err.message });
-  }
 };
