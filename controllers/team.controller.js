@@ -16,24 +16,38 @@ exports.createTeam = async (req, res) => {
     }
 
     const team = await Team.create({ name, description });
-    res.status(201).json({ message: "Team created", team });
+    res.status(201).json({ message: "Team created successfully", team });
   } catch (err) {
+    console.error("Create team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to create team", details: err.message });
+      .json({ message: "Failed to create team", details: err.message });
   }
 };
 
 exports.getAllTeams = async (req, res) => {
   try {
-    const { search } = req.query;
+    const { search, page = 1, limit = 20 } = req.query;
     const whereClause = {};
 
     if (search) {
       whereClause.name = { [Op.like]: `%${search}%` };
     }
 
-    const teams = await Team.findAll({
+    // Restrict staff to teams they are part of
+    let userTeamWhere = { projectId: null }; // Exclude projectId to avoid join issues
+    if (req.user.role === "staff") {
+      userTeamWhere.userId = req.user.id;
+    }
+
+    const { count, rows } = await Team.findAndCountAll({
       where: whereClause,
       include: [
         {
@@ -41,17 +55,38 @@ exports.getAllTeams = async (req, res) => {
           attributes: ["id", "firstName", "lastName", "email"],
           through: {
             attributes: ["role", "note"],
-            where: { projectId: null }, // Exclude projectId to avoid join issues
+            where: userTeamWhere,
           },
         },
       ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    res.json(teams);
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      teams: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (err) {
+    console.error("Get all teams error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to fetch teams", details: err.message });
+      .json({ message: "Failed to fetch teams", details: err.message });
   }
 };
 
@@ -59,7 +94,7 @@ exports.getTeamById = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) {
-      return res.status(400).json({ error: "id is required" });
+      return res.status(400).json({ message: "id is required" });
     }
 
     const team = await Team.findByPk(id, {
@@ -69,7 +104,7 @@ exports.getTeamById = async (req, res) => {
           attributes: ["id", "firstName", "lastName", "email"],
           through: {
             attributes: ["role", "note"],
-            where: { projectId: null },
+            where: req.user.role === "staff" ? { userId: req.user.id, projectId: null } : { projectId: null },
           },
         },
         {
@@ -80,14 +115,26 @@ exports.getTeamById = async (req, res) => {
     });
 
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
-    res.json(team);
+    if (req.user.role === "staff" && !team.Users.some(user => user.id === req.user.id)) {
+      return res.status(403).json({ message: "Unauthorized to view this team" });
+    }
+
+    res.status(200).json(team);
   } catch (err) {
+    console.error("Get team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      teamId: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to fetch team", details: err.message });
+      .json({ message: "Failed to fetch team", details: err.message });
   }
 };
 
@@ -107,14 +154,23 @@ exports.updateTeam = async (req, res) => {
 
     const team = await Team.findByPk(id);
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
-    await team.update({
-      name: name || team.name,
-      description: description || team.description,
-    });
+    // Update team details
+    await db.sequelize.query(
+      "UPDATE Teams SET name = :name, description = :description WHERE id = :id",
+      {
+        replacements: {
+          name: name || team.name,
+          description: description || team.description,
+          id,
+        },
+        type: db.sequelize.QueryTypes.UPDATE,
+      }
+    );
 
+    // Update user assignments
     if (users && Array.isArray(users)) {
       for (const user of users) {
         const { id: userId, role, note, projectId } = user;
@@ -122,6 +178,8 @@ exports.updateTeam = async (req, res) => {
           console.warn("Skipping user with missing userId", {
             user,
             teamId: team.id,
+            userId: req.user.id,
+            timestamp: new Date().toISOString(),
           });
           continue;
         }
@@ -131,11 +189,19 @@ exports.updateTeam = async (req, res) => {
         });
 
         if (userTeamEntry) {
-          await userTeamEntry.update({
-            role: role || userTeamEntry.role,
-            note: note || userTeamEntry.note,
-            projectId: projectId || userTeamEntry.projectId,
-          });
+          await db.sequelize.query(
+            "UPDATE UserTeam SET role = :role, note = :note, projectId = :projectId WHERE userId = :userId AND teamId = :teamId AND projectId IS :projectId",
+            {
+              replacements: {
+                role: role || userTeamEntry.role,
+                note: note || userTeamEntry.note,
+                projectId: projectId || userTeamEntry.projectId,
+                userId,
+                teamId: team.id,
+              },
+              type: db.sequelize.QueryTypes.UPDATE,
+            }
+          );
         } else {
           await UserTeam.create({
             userId,
@@ -148,6 +214,7 @@ exports.updateTeam = async (req, res) => {
       }
     }
 
+    // Fetch updated team
     const updatedTeam = await Team.findByPk(id, {
       include: [
         {
@@ -164,11 +231,20 @@ exports.updateTeam = async (req, res) => {
       ],
     });
 
-    res.json({ message: "Team updated", team: updatedTeam });
+    res.status(200).json({ message: "Team updated successfully", team: updatedTeam });
   } catch (err) {
+    console.error("Update team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      teamId: req.params.id,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to update team", details: err.message });
+      .json({ message: "Failed to update team", details: err.message });
   }
 };
 
@@ -182,23 +258,30 @@ exports.deleteTeam = async (req, res) => {
 
     const { id } = req.params;
     if (!id) {
-      return res.status(400).json({ error: "id is required" });
+      return res.status(400).json({ message: "id is required" });
     }
 
     const team = await Team.findByPk(id);
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
     await UserTeam.destroy({ where: { teamId: team.id } });
-    await User.update({ teamId: null }, { where: { teamId: team.id } });
     await team.destroy();
 
-    res.json({ message: "Team deleted" });
+    res.status(200).json({ message: "Team deleted successfully" });
   } catch (err) {
+    console.error("Delete team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      teamId: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to delete team", details: err.message });
+      .json({ message: "Failed to delete team", details: err.message });
   }
 };
 
@@ -219,20 +302,28 @@ exports.assignUsersToTeam = async (req, res) => {
 
     const team = await Team.findByPk(teamId);
     if (!team) {
-      return res.status(404).json({ error: "Team not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
     const currentUser = await User.findByPk(req.user.id, {
       attributes: ["firstName", "lastName"],
     });
     if (!currentUser) {
-      return res.status(404).json({ error: "Current user not found" });
+      return res.status(404).json({ message: "Current user not found" });
     }
+
+    const emailPromises = [];
+    const validUsers = [];
 
     for (const user of users) {
       const { id: userId, role, note, projectId } = user;
       if (!userId) {
-        console.warn("Skipping user with missing userId", { user, teamId });
+        console.warn("Skipping user with missing userId", {
+          user,
+          teamId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString(),
+        });
         continue;
       }
 
@@ -240,7 +331,12 @@ exports.assignUsersToTeam = async (req, res) => {
         attributes: ["id", "email", "firstName", "lastName"],
       });
       if (!userDetails) {
-        console.warn("User not found", { userId, teamId });
+        console.warn("User not found", {
+          userId,
+          teamId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString(),
+        });
         continue;
       }
 
@@ -252,6 +348,8 @@ exports.assignUsersToTeam = async (req, res) => {
           userId,
           teamId,
           projectId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString(),
         });
         continue;
       }
@@ -264,19 +362,27 @@ exports.assignUsersToTeam = async (req, res) => {
         note: note || null,
       });
 
-      await sendMail(
-        userDetails.email,
-        `You’ve been added to the ${team.name} team`,
-        `<p>Hello ${userDetails.firstName},</p>
-         <p>You’ve been added to the <strong>${team.name}</strong> team by ${
-          currentUser.firstName
-        } ${currentUser.lastName}.</p>
-         <p>Role: ${role || "Member"}</p>
-         <p>Note: ${note || "N/A"}</p>
-         <p>Project: ${projectId ? `ID ${projectId}` : "N/A"}</p>
-         <p>Description: ${team.description || "N/A"}</p>`
+      validUsers.push(userDetails);
+
+      emailPromises.push(
+        sendMail({
+          to: userDetails.email,
+          subject: `You’ve been added to the ${team.name} team`,
+          html: `
+            <p>Hello ${userDetails.firstName},</p>
+            <p>You’ve been added to the <strong>${team.name}</strong> team by ${
+              currentUser.firstName
+            } ${currentUser.lastName}.</p>
+            <p>Role: ${role || "Member"}</p>
+            <p>Note: ${note || "N/A"}</p>
+            <p>Project: ${projectId ? `ID ${projectId}` : "N/A"}</p>
+            <p>Description: ${team.description || "N/A"}</p>
+          `,
+        })
       );
     }
+
+    await Promise.all(emailPromises);
 
     const updatedTeam = await Team.findByPk(teamId, {
       include: [
@@ -295,13 +401,21 @@ exports.assignUsersToTeam = async (req, res) => {
     });
 
     res.status(200).json({
-      message: "Users assigned to team",
+      message: "Users assigned to team successfully",
       team: updatedTeam,
-      userCount: users.length,
+      userCount: validUsers.length,
     });
   } catch (err) {
+    console.error("Assign users to team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
-      .json({ error: "Failed to assign users to team", details: err.message });
+      .json({ message: "Failed to assign users to team", details: err.message });
   }
 };
