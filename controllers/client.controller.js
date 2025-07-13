@@ -3,23 +3,67 @@ const path = require("path");
 const fs = require("fs");
 const sendMail = require("../utils/mailer").sendMail;
 const { Op, sequelize } = require("sequelize");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
 exports.createClient = async (req, res) => {
   try {
     const { firstName, lastName, email } = req.body;
-    const image = req.file ? req.file.filename : null;
+    const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
     if (!firstName || !lastName || !email) {
-      return res.status(400).json({ error: "All fields are required" });
+      return res.status(400).json({ message: "firstName, lastName, and email are required" });
     }
 
     const exists = await Client.findOne({ where: { email } });
     if (exists) {
-      return res.status(400).json({ error: "Client already exists" });
+      return res.status(409).json({ message: "Client with this email already exists" });
     }
 
-    const client = await Client.create({ firstName, lastName, email, image });
-    res.status(201).json({ message: "Client created", client });
+    // Auto-generate a secure password
+    const autoPassword = crypto.randomBytes(8).toString("hex");
+    const hashedPassword = await bcrypt.hash(autoPassword, 10);
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    const client = await Client.create({
+      firstName,
+      lastName,
+      email,
+      password: hashedPassword,
+      image,
+      emailVerified: false,
+      otp: hashedOTP,
+      otpExpiresAt,
+    });
+
+    await sendMail({
+      to: client.email,
+      subject: "Welcome! Verify Your Client Account",
+      html: `
+        <p>Hello ${client.firstName},</p>
+        <p>Your client account has been created successfully. Below are your login details:</p>
+        <p><strong>Email:</strong> ${client.email}</p>
+        <p><strong>Password:</strong> ${autoPassword}</p>
+        <p><strong>OTP for email verification:</strong> ${otp}</p>
+        <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
+        <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
+        <p>Best,<br>Team</p>
+      `,
+    });
+
+    res.status(201).json({
+      message: "Client created successfully, OTP and password sent to email",
+      client: {
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        image: client.image,
+      },
+    });
   } catch (err) {
     console.error("Create client error:", {
       message: err.message,
@@ -29,7 +73,59 @@ exports.createClient = async (req, res) => {
     });
     res
       .status(500)
-      .json({ error: "Error creating client", details: err.message });
+      .json({ message: "Failed to create client", details: err.message });
+  }
+};
+
+exports.loginClient = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "email and password are required" });
+    }
+
+    const client = await Client.findOne({ where: { email } });
+    if (!client) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    const isMatch = await bcrypt.compare(password, client.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    if (!client.emailVerified) {
+      return res.status(403).json({ message: "Email not verified" });
+    }
+
+    const token = jwt.sign(
+      { id: client.id, role: "client" },
+      process.env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    res.status(200).json({
+      message: "Client logged in successfully",
+      token,
+      client: {
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        image: client.image,
+      },
+    });
+  } catch (err) {
+    console.error("Client login error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ message: "Failed to login client", details: err.message });
   }
 };
 
