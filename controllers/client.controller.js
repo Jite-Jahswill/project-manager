@@ -134,6 +134,155 @@ exports.loginClient = async (req, res) => {
   }
 };
 
+exports.verifyClient = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: "email and otp are required" });
+    }
+
+    const client = await Client.findOne({ where: { email } });
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    if (client.emailVerified) {
+      return res.status(400).json({ message: "Email already verified" });
+    }
+
+    if (new Date() > client.otpExpiresAt) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    const isMatch = await bcrypt.compare(otp, client.otp);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    await client.update({ emailVerified: true, otp: null, otpExpiresAt: null });
+
+    await sendMail({
+      to: client.email,
+      subject: "Email Verification Successful",
+      html: `
+        <p>Hello ${client.firstName},</p>
+        <p>Your email has been successfully verified. You can now log in to your account.</p>
+        <p>For security, we recommend reviewing your account settings at <a href="http://<your-app-url>/dashboard">Dashboard</a>.</p>
+        <p>Best,<br>Team</p>
+      `,
+    });
+
+    res.status(200).json({ message: "Email verified successfully" });
+  } catch (err) {
+    console.error("Verify client error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ message: "Failed to verify email", details: err.message });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "email is required" });
+    }
+
+    const client = await Client.findOne({ where: { email } });
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await client.update({ otp: hashedOTP, otpExpiresAt });
+
+    await sendMail({
+      to: client.email,
+      subject: "Password Reset Request",
+      html: `
+        <p>Hello ${client.firstName},</p>
+        <p>We received a request to reset your password. Use the OTP below to proceed:</p>
+        <p><strong>OTP:</strong> ${otp}</p>
+        <p>This OTP expires in 10 minutes.</p>
+        <p>If you did not request a password reset, please ignore this email or contact support.</p>
+        <p>Best,<br>Team</p>
+      `,
+    });
+
+    res.status(200).json({ message: "Password reset OTP sent to email" });
+  } catch (err) {
+    console.error("Forgot password error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ message: "Failed to process password reset", details: err.message });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: "email, otp, and newPassword are required" });
+    }
+
+    const client = await Client.findOne({ where: { email } });
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    if (new Date() > client.otpExpiresAt) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    const isMatch = await bcrypt.compare(otp, client.otp);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await client.update({ password: hashedPassword, otp: null, otpExpiresAt: null });
+
+    await sendMail({
+      to: client.email,
+      subject: "Password Reset Successful",
+      html: `
+        <p>Hello ${client.firstName},</p>
+        <p>Your password has been successfully reset.</p>
+        <p>For security, you can review your account settings at <a href="http://<your-app-url>/dashboard">Dashboard</a>.</p>
+        <p>Best,<br>Team</p>
+      `,
+    });
+
+    res.status(200).json({ message: "Password reset successfully" });
+  } catch (err) {
+    console.error("Reset password error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ message: "Failed to reset password", details: err.message });
+  }
+};
+
 exports.getAllClients = async (req, res) => {
   try {
     const { firstName, lastName, email, page = 1, limit = 20 } = req.query;
@@ -202,7 +351,7 @@ exports.updateClient = async (req, res) => {
     const image = req.file ? req.file.filename : client.image;
 
     if (req.file && client.image) {
-      const oldPath = path.join(__dirname, "../Uploads", client.image);
+      const oldPath = path.join(__dirname, "../uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
@@ -270,7 +419,6 @@ exports.deleteClient = async (req, res) => {
   }
 };
 
-// Notify client when project is completed (call this from project controller)
 exports.notifyClientOnProjectCompletion = async (projectId) => {
   try {
     const project = await Project.findByPk(projectId, { include: Client });
