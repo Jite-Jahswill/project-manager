@@ -13,28 +13,30 @@ const generateOTP = () => {
 // Register User
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, role, phoneNumber } = req.body;
+    const { firstName, lastName, email, role, phoneNumber } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
-    if (!firstName || !lastName || !email || !password || !phoneNumber) {
-      return res.status(400).json({ error: "All fields are required" });
+    if (!firstName || !lastName || !email || !phoneNumber) {
+      return res.status(400).json({ message: "firstName, lastName, email, and phoneNumber are required" });
     }
 
     if (role && !["admin", "manager", "staff"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
+      return res.status(400).json({ message: "Invalid role" });
     }
 
     const existingUserByEmail = await User.findOne({ where: { email } });
     if (existingUserByEmail) {
-      return res.status(409).json({ error: "Email already exists" });
+      return res.status(409).json({ message: "Email already exists" });
     }
 
     const existingUserByPhone = await User.findOne({ where: { phoneNumber } });
     if (existingUserByPhone) {
-      return res.status(409).json({ error: "Phone number already in use" });
+      return res.status(409).json({ message: "Phone number already in use" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Auto-generate a secure password
+    const autoPassword = crypto.randomBytes(8).toString("hex");
+    const hashedPassword = await bcrypt.hash(autoPassword, 10);
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -54,17 +56,21 @@ exports.register = async (req, res) => {
 
     await sendMail({
       to: user.email,
-      subject: "Verify Your Email with OTP",
+      subject: "Welcome! Verify Your Email and Set Up Your Account",
       html: `
         <p>Hello ${user.firstName},</p>
-        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
+        <p>Your account has been created successfully. Below are your login details:</p>
+        <p><strong>Email:</strong> ${user.email}</p>
+        <p><strong>Password:</strong> ${autoPassword}</p>
+        <p><strong>OTP for email verification:</strong> ${otp}</p>
+        <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
+        <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
         <p>Best,<br>Team</p>
       `,
     });
 
     res.status(201).json({
-      message: "User registered successfully, OTP sent to email",
+      message: "User registered successfully, OTP and password sent to email",
       user: {
         id: user.id,
         firstName: user.firstName,
@@ -84,7 +90,7 @@ exports.register = async (req, res) => {
     });
     res
       .status(500)
-      .json({ error: "Failed to register user", details: error.message });
+      .json({ message: "Failed to register user", details: error.message });
   }
 };
 
