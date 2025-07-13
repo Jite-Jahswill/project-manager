@@ -64,7 +64,7 @@ exports.register = async (req, res) => {
         <p><strong>Password:</strong> ${autoPassword}</p>
         <p><strong>OTP for email verification:</strong> ${otp}</p>
         <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
-        <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
+        <p>For security, we recommend changing your password from your dashboard.</p>
         <p>Best,<br>Team</p>
       `,
     });
