@@ -79,7 +79,7 @@ exports.createLeave = async (req, res) => {
 
 exports.getAllLeaves = async (req, res) => {
   try {
-    const { status, userId, startDate, endDate } = req.query;
+    const { status, userId, startDate, endDate, page = 1, limit = 20 } = req.query;
 
     const whereClause = {};
 
@@ -109,7 +109,8 @@ exports.getAllLeaves = async (req, res) => {
       };
     }
 
-    const leaves = await Leave.findAll({
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { count, rows } = await Leave.findAndCountAll({
       where: whereClause,
       include: [
         {
@@ -118,9 +119,21 @@ exports.getAllLeaves = async (req, res) => {
         },
       ],
       order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset,
     });
 
-    res.status(200).json(leaves);
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      leaves: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (error) {
     console.error("Error fetching leaves:", {
       message: error.message,
@@ -201,7 +214,13 @@ exports.updateLeaveStatus = async (req, res) => {
       return res.status(404).json({ message: "Leave not found" });
     }
 
-    await leave.update({ status });
+    await db.sequelize.query(
+      "UPDATE Leaves SET status = :status WHERE id = :id",
+      {
+        replacements: { status, id },
+        type: db.sequelize.QueryTypes.UPDATE,
+      }
+    );
 
     const user = leave.User;
     await sendMail({
@@ -212,8 +231,8 @@ exports.updateLeaveStatus = async (req, res) => {
         <p>Your leave request from <strong>${
           leave.startDate
         }</strong> to <strong>${
-        leave.endDate
-      }</strong> has been <strong>${status}</strong>.</p>
+          leave.endDate
+        }</strong> has been <strong>${status}</strong>.</p>
         <p>${
           status === "approved"
             ? "We hope you enjoy your time off. Take care and come back refreshed!"
@@ -223,9 +242,17 @@ exports.updateLeaveStatus = async (req, res) => {
       `,
     });
 
+    // Fetch updated leave to return
+    const updatedLeave = await Leave.findByPk(id, {
+      include: {
+        model: User,
+        attributes: ["id", "firstName", "lastName", "email"],
+      },
+    });
+
     res
       .status(200)
-      .json({ message: "Leave status updated successfully", leave });
+      .json({ message: "Leave status updated successfully", leave: updatedLeave });
   } catch (error) {
     console.error("Error updating leave status:", {
       message: error.message,
