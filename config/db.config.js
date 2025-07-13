@@ -9,6 +9,17 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST,
     dialect: "mysql",
     logging: false,
+    dialectOptions: {
+      supportBigNumbers: true,
+      bigNumberStrings: true,
+      flags: ['-FOUND_ROWS'], // Optional: reduces unnecessary query prep
+    },
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }
   }
 );
 
