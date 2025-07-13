@@ -1,7 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { User, sequelize } = require("../models");
-const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
 const sendMail = require("../utils/mailer");
@@ -151,16 +150,14 @@ exports.getAllUsers = async (req, res) => {
   try {
     const { role, firstName, lastName } = req.query;
     const where = {};
-
     if (role) where.role = role;
-    if (firstName) where.firstName = { [Op.like]: `%${firstName}%` };
-    if (lastName) where.lastName = { [Op.like]: `%${lastName}%` };
+    if (firstName) where.firstName = { [sequelize.Op.like]: `%${firstName}%` };
+    if (lastName) where.lastName = { [sequelize.Op.like]: `%${lastName}%` };
 
     const users = await User.findAll({
       where,
       attributes: { exclude: ["password", "otp"] },
     });
-
     res.json(users);
   } catch (error) {
     console.error("Get all users error:", {
@@ -169,7 +166,9 @@ exports.getAllUsers = async (req, res) => {
       userId: req.user?.id,
       timestamp: new Date().toISOString(),
     });
-    res.status(500).json({ error: "Failed to fetch users", details: error.message });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch users", details: error.message });
   }
 };
 
@@ -415,17 +414,14 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ error: "Invalid OTP" });
     }
 
-    // Update user within a transaction
-    await sequelize.transaction(async (t) => {
-      await user.update(
-        {
-          emailVerified: true,
-          otp: null,
-          otpExpiresAt: null,
-        },
-        { transaction: t }
-      );
-    });
+    // Use raw SQL to update user
+    await sequelize.query(
+      "UPDATE Users SET emailVerified = true, otp = NULL, otpExpiresAt = NULL WHERE email = :email",
+      {
+        replacements: { email },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
 
     res.json({
       message: "Email verified successfully",
@@ -443,13 +439,6 @@ exports.verifyEmail = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    if (error.message.includes("Prepared statement needs to be re-prepared")) {
-      await sequelize.query("SET SESSION table_open_cache = 1000");
-      return res.status(500).json({
-        error: "Database error",
-        details: "Prepared statement issue, please try again",
-      });
-    }
     res
       .status(500)
       .json({ error: "Failed to verify email", details: error.message });
