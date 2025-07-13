@@ -34,16 +34,24 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    phoneNumber: { // New field added
+    phoneNumber: {
       type: DataTypes.STRING,
-      unique: true, // Ensures uniqueness
-      allowNull: true, // Set to false if you want to make it mandatory
+      unique: true,
+      allowNull: true,
     },
     fullName: {
       type: DataTypes.VIRTUAL,
       get() {
         return `${this.firstName} ${this.lastName}`;
       },
+    },
+    otp: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    otpExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
   });
 
