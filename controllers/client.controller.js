@@ -2,7 +2,7 @@ const { Client, Project } = require("../models");
 const path = require("path");
 const fs = require("fs");
 const sendMail = require("../utils/mailer").sendMail;
-const { Op } = require("sequelize");
+const { Op, sequelize } = require("sequelize");
 
 exports.createClient = async (req, res) => {
   try {
@@ -21,6 +21,12 @@ exports.createClient = async (req, res) => {
     const client = await Client.create({ firstName, lastName, email, image });
     res.status(201).json({ message: "Client created", client });
   } catch (err) {
+    console.error("Create client error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Error creating client", details: err.message });
@@ -29,17 +35,38 @@ exports.createClient = async (req, res) => {
 
 exports.getAllClients = async (req, res) => {
   try {
-    const { firstName, lastName, email } = req.query;
+    const { firstName, lastName, email, page = 1, limit = 20 } = req.query;
 
     const searchCriteria = {};
     if (firstName) searchCriteria.firstName = { [Op.like]: `%${firstName}%` };
     if (lastName) searchCriteria.lastName = { [Op.like]: `%${lastName}%` };
     if (email) searchCriteria.email = { [Op.like]: `%${email}%` };
 
-    const clients = await Client.findAll({ where: searchCriteria });
-    res.json(clients);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { count, rows } = await Client.findAndCountAll({
+      where: searchCriteria,
+      limit: parseInt(limit),
+      offset,
+    });
+
+    const totalPages = Math.ceil(count / limit);
+
+    res.json({
+      clients: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error("Get clients error:", err);
+    console.error("Get all clients error:", {
+      message: err.message,
+      stack: err.stack,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to fetch clients", details: err.message });
@@ -52,26 +79,65 @@ exports.getClientById = async (req, res) => {
     if (!client) return res.status(404).json({ error: "Client not found" });
     res.json(client);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch client" });
+    console.error("Get client error:", {
+      message: err.message,
+      stack: err.stack,
+      clientId: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch client", details: err.message });
   }
 };
 
 exports.updateClient = async (req, res) => {
   try {
-    const client = await Client.findByPk(req.params.id);
+    const { id } = req.params;
+    const client = await Client.findByPk(id);
     if (!client) return res.status(404).json({ error: "Client not found" });
 
     const { firstName, lastName, email } = req.body;
     const image = req.file ? req.file.filename : client.image;
 
     if (req.file && client.image) {
-      const oldPath = path.join(__dirname, "../uploads", client.image);
+      const oldPath = path.join(__dirname, "../Uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
-    await client.update({ firstName, lastName, email, image });
-    res.json({ message: "Client updated", client });
+    if (email && email !== client.email) {
+      const existingClient = await Client.findOne({ where: { email } });
+      if (existingClient) {
+        return res.status(409).json({ error: "Email already in use" });
+      }
+    }
+
+    await sequelize.query(
+      "UPDATE Clients SET firstName = :firstName, lastName = :lastName, email = :email, image = :image WHERE id = :id",
+      {
+        replacements: {
+          firstName: firstName || client.firstName,
+          lastName: lastName || client.lastName,
+          email: email || client.email,
+          image,
+          id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    // Fetch updated client to return
+    const updatedClient = await Client.findByPk(id);
+
+    res.json({ message: "Client updated", client: updatedClient });
   } catch (err) {
+    console.error("Update client error:", {
+      message: err.message,
+      stack: err.stack,
+      clientId: req.params.id,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Error updating client", details: err.message });
@@ -84,26 +150,43 @@ exports.deleteClient = async (req, res) => {
     if (!client) return res.status(404).json({ error: "Client not found" });
 
     if (client.image) {
-      const filePath = path.join(__dirname, "../uploads", client.image);
+      const filePath = path.join(__dirname, "../Uploads", client.image);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
     await client.destroy();
     res.json({ message: "Client deleted" });
   } catch (err) {
-    res.status(500).json({ error: "Error deleting client" });
+    console.error("Delete client error:", {
+      message: err.message,
+      stack: err.stack,
+      clientId: req.params.id,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ error: "Error deleting client", details: err.message });
   }
 };
 
 // Notify client when project is completed (call this from project controller)
 exports.notifyClientOnProjectCompletion = async (projectId) => {
-  const project = await Project.findByPk(projectId, { include: Client });
-  if (project && project.Client) {
-    await sendMail(
-      project.Client.email,
-      `Your project '${project.name}' is complete!`,
-      `<p>Hi ${project.Client.firstName},</p>
-       <p>Your project <strong>${project.name}</strong> has been marked as completed.</p>`
-    );
+  try {
+    const project = await Project.findByPk(projectId, { include: Client });
+    if (project && project.Client) {
+      await sendMail(
+        project.Client.email,
+        `Your project '${project.name}' is complete!`,
+        `<p>Hi ${project.Client.firstName},</p>
+         <p>Your project <strong>${project.name}</strong> has been marked as completed.</p>`
+      );
+    }
+  } catch (err) {
+    console.error("Notify client error:", {
+      message: err.message,
+      stack: err.stack,
+      projectId,
+      timestamp: new Date().toISOString(),
+    });
   }
 };
