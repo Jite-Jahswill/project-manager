@@ -17,119 +17,119 @@ module.exports = (app) => {
    */
 
   /**
- * @swagger
- * /api/auth/register:
- *   post:
- *     summary: Register a new user
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required:
- *               - firstName
- *               - lastName
- *               - email
- *               - password
- *               - phoneNumber
- *             properties:
- *               firstName:
- *                 type: string
- *                 example: John
- *                 description: User's first name
- *               lastName:
- *                 type: string
- *                 example: Doe
- *                 description: User's last name
- *               email:
- *                 type: string
- *                 example: john.doe@example.com
- *                 description: User's email address
- *               password:
- *                 type: string
- *                 example: StrongPass123
- *                 description: User's password (minimum 8 characters)
- *               phoneNumber:
- *                 type: string
- *                 example: +1234567890
- *                 description: User's phone number
- *               image:
- *                 type: string
- *                 format: binary
- *                 description: Optional user profile image
- *     responses:
- *       201:
- *         description: User registered successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: User registered successfully
- *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       example: 1
- *                     firstName:
- *                       type: string
- *                       example: John
- *                     lastName:
- *                       type: string
- *                       example: Doe
- *                     email:
- *                       type: string
- *                       example: john.doe@example.com
- *                     phoneNumber:
- *                       type: string
- *                       example: +1234567890
- *                     image:
- *                       type: string
- *                       example: uploads/profiles/user1.jpg
- *                       nullable: true
- *                     role:
- *                       type: string
- *                       example: staff
- *       400:
- *         description: Missing required fields or invalid input
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: firstName, lastName, email, password, and phoneNumber are required
- *       409:
- *         description: Email already exists
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Email already exists
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: Failed to register user
- *                 details:
- *                   type: string
- *                   example: Database error
- */
-  router.post("/register", authController.register);
+   * @swagger
+   * /api/auth/register:
+   *   post:
+   *     summary: Register a new user
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - firstName
+   *               - lastName
+   *               - email
+   *               - password
+   *               - phoneNumber
+   *             properties:
+   *               firstName:
+   *                 type: string
+   *                 example: John
+   *                 description: User's first name
+   *               lastName:
+   *                 type: string
+   *                 example: Doe
+   *                 description: User's last name
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               password:
+   *                 type: string
+   *                 example: StrongPass123
+   *                 description: User's password (minimum 8 characters)
+   *               phoneNumber:
+   *                 type: string
+   *                 example: +1234567890
+   *                 description: User's phone number
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: Optional user profile image
+   *     responses:
+   *       201:
+   *         description: User registered successfully, OTP sent to email
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User registered successfully, OTP sent to email
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     phoneNumber:
+   *                       type: string
+   *                       example: +1234567890
+   *                     image:
+   *                       type: string
+   *                       example: uploads/profiles/user1.jpg
+   *                       nullable: true
+   *                     role:
+   *                       type: string
+   *                       example: staff
+   *       400:
+   *         description: Missing required fields or invalid input
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: All fields are required
+   *       409:
+   *         description: Email or phone number already exists
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Email already exists
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to register user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/register", upload.single("image"), authController.register);
 
   /**
    * @swagger
@@ -149,11 +149,11 @@ module.exports = (app) => {
    *             properties:
    *               email:
    *                 type: string
-   *                 example: "john.doe@example.com"
+   *                 example: john.doe@example.com
    *                 description: User's email address
    *               password:
    *                 type: string
-   *                 example: "StrongPass123"
+   *                 example: StrongPass123
    *                 description: User's password
    *     responses:
    *       200:
@@ -165,10 +165,10 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Login successful"
+   *                   example: Login successful
    *                 token:
    *                   type: string
-   *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+   *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    *                 user:
    *                   type: object
    *                   properties:
@@ -177,16 +177,16 @@ module.exports = (app) => {
    *                       example: 1
    *                     firstName:
    *                       type: string
-   *                       example: "John"
+   *                       example: John
    *                     lastName:
    *                       type: string
-   *                       example: "Doe"
+   *                       example: Doe
    *                     email:
    *                       type: string
-   *                       example: "john.doe@example.com"
+   *                       example: john.doe@example.com
    *                     role:
    *                       type: string
-   *                       example: "staff"
+   *                       example: staff
    *       400:
    *         description: Missing required fields
    *         content:
@@ -194,9 +194,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 message:
+   *                 error:
    *                   type: string
-   *                   example: "email and password are required"
+   *                   example: Email and password are required
    *       401:
    *         description: Invalid credentials
    *         content:
@@ -204,69 +204,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid email or password"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to login"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
-   */
-  router.post("/login", authController.login);
-
-  /**
-   * @swagger
-   * /api/auth/verify-email/{token}:
-   *   get:
-   *     summary: Verify a user's email address using a token
-   *     tags: [Auth]
-   *     parameters:
-   *       - in: path
-   *         name: token
-   *         required: true
-   *         schema:
-   *           type: string
-   *         description: JWT email verification token
-   *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-   *     responses:
-   *       200:
-   *         description: Email verified successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Email verified successfully"
-   *                 user:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     email:
-   *                       type: string
-   *                       example: "john.doe@example.com"
-   *       400:
-   *         description: Invalid or expired token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid or expired token"
+   *                   example: Invalid credentials
    *       404:
    *         description: User not found
    *         content:
@@ -276,7 +216,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -286,12 +226,167 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to verify email"
+   *                   example: Failed to login
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
-  router.get("/verify-email/:token", authController.verifyEmail);
+  router.post("/login", authController.login);
+
+  /**
+   * @swagger
+   * /api/auth/verify-email:
+   *   post:
+   *     summary: Verify a user's email address using OTP and optionally update password
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *               - otp
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               otp:
+   *                 type: string
+   *                 example: "123456"
+   *                 description: 6-digit OTP sent to the user's email
+   *               newPassword:
+   *                 type: string
+   *                 example: NewPass123
+   *                 description: Optional new password (minimum 8 characters)
+   *     responses:
+   *       200:
+   *         description: Email verified successfully, with optional password update
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Email verified successfully and password updated
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *       400:
+   *         description: Invalid or expired OTP, email already verified, or invalid password
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid OTP
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to verify email
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/verify-email", authController.verifyEmail);
+
+  /**
+   * @swagger
+   * /api/auth/resend-verification:
+   *   post:
+   *     summary: Resend email verification OTP to a logged-in user
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Verification OTP resent successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Verification OTP resent successfully
+   *       400:
+   *         description: Email already verified
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Email already verified
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Unauthorized
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to resend verification OTP
+   *                 details:
+   *                   type: string
+   *                   example: Email service error
+   */
+  router.post("/resend-verification", verifyToken, authController.resendVerification);
 
   /**
    * @swagger
@@ -310,7 +405,7 @@ module.exports = (app) => {
    *             properties:
    *               email:
    *                 type: string
-   *                 example: "john.doe@example.com"
+   *                 example: john.doe@example.com
    *                 description: User's email address
    *     responses:
    *       200:
@@ -322,7 +417,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Password reset email sent"
+   *                   example: Password reset email sent
    *       400:
    *         description: Email is required
    *         content:
@@ -330,9 +425,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 message:
+   *                 error:
    *                   type: string
-   *                   example: "email is required"
+   *                   example: Email is required
    *       404:
    *         description: User not found
    *         content:
@@ -342,7 +437,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -352,10 +447,10 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to send reset email"
+   *                   example: Failed to send reset email
    *                 details:
    *                   type: string
-   *                   example: "Email service error"
+   *                   example: Email service error
    */
   router.post("/forgot-password", authController.forgotPassword);
 
@@ -372,7 +467,7 @@ module.exports = (app) => {
    *         schema:
    *           type: string
    *         description: JWT reset token
-   *         example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+   *         example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
    *     requestBody:
    *       required: true
    *       content:
@@ -384,7 +479,7 @@ module.exports = (app) => {
    *             properties:
    *               password:
    *                 type: string
-   *                 example: "NewStrongPass123"
+   *                 example: NewStrongPass123
    *                 description: New user password (minimum 8 characters)
    *     responses:
    *       200:
@@ -396,7 +491,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Password reset successful"
+   *                   example: Password reset successful
    *       400:
    *         description: Invalid or expired token
    *         content:
@@ -404,9 +499,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 message:
+   *                 error:
    *                   type: string
-   *                   example: "Invalid or expired token"
+   *                   example: Invalid or expired token
    *       404:
    *         description: User not found
    *         content:
@@ -416,7 +511,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -426,10 +521,10 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to reset password"
+   *                   example: Failed to reset password
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
   router.post("/reset-password/:token", authController.resetPassword);
 
@@ -447,19 +542,19 @@ module.exports = (app) => {
    *         schema:
    *           type: string
    *         description: Filter users by role
-   *         example: "staff"
+   *         example: staff
    *       - in: query
    *         name: firstName
    *         schema:
    *           type: string
    *         description: Filter users by first name (partial match)
-   *         example: "John"
+   *         example: John
    *       - in: query
    *         name: lastName
    *         schema:
    *           type: string
    *         description: Filter users by last name (partial match)
-   *         example: "Doe"
+   *         example: Doe
    *     responses:
    *       200:
    *         description: List of all users
@@ -475,19 +570,23 @@ module.exports = (app) => {
    *                     example: 1
    *                   firstName:
    *                     type: string
-   *                     example: "John"
+   *                     example: John
    *                   lastName:
    *                     type: string
-   *                     example: "Doe"
+   *                     example: Doe
    *                   email:
    *                     type: string
-   *                     example: "john.doe@example.com"
+   *                     example: john.doe@example.com
    *                   role:
    *                     type: string
-   *                     example: "staff"
+   *                     example: staff
    *                   image:
    *                     type: string
-   *                     example: "uploads/profiles/user1.jpg"
+   *                     example: uploads/profiles/user1.jpg
+   *                     nullable: true
+   *                   phoneNumber:
+   *                     type: string
+   *                     example: +1234567890
    *                     nullable: true
    *       403:
    *         description: Access denied - Only admins or managers can view users
@@ -498,7 +597,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can view users"
+   *                   example: Only admins or managers can view users
    *       500:
    *         description: Internal server error
    *         content:
@@ -508,10 +607,10 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to fetch users"
+   *                   example: Failed to fetch users
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
   router.get(
     "/users",
@@ -549,19 +648,23 @@ module.exports = (app) => {
    *                   example: 1
    *                 firstName:
    *                   type: string
-   *                   example: "John"
+   *                   example: John
    *                 lastName:
    *                   type: string
-   *                   example: "Doe"
+   *                   example: Doe
    *                 email:
    *                   type: string
-   *                   example: "john.doe@example.com"
+   *                   example: john.doe@example.com
    *                 role:
    *                   type: string
-   *                   example: "staff"
+   *                   example: staff
    *                 image:
    *                   type: string
-   *                   example: "uploads/profiles/user1.jpg"
+   *                   example: uploads/profiles/user1.jpg
+   *                   nullable: true
+   *                 phoneNumber:
+   *                   type: string
+   *                   example: +1234567890
    *                   nullable: true
    *       400:
    *         description: Invalid user ID
@@ -572,7 +675,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Invalid user ID"
+   *                   example: Invalid user ID
    *       403:
    *         description: Unauthorized access to user data
    *         content:
@@ -582,7 +685,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Unauthorized to view this user"
+   *                   example: Unauthorized to view this user
    *       404:
    *         description: User not found
    *         content:
@@ -592,7 +695,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -602,136 +705,136 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to fetch user"
+   *                   example: Failed to fetch user
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
   router.get("/users/:id", verifyToken, authController.getUserById);
 
- /**
- * @swagger
- * /api/auth/users/{id}:
- *   put:
- *     summary: Update user information (except role)
- *     tags: [Auth]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: integer
- *         description: User ID
- *         example: 1
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               firstName:
- *                 type: string
- *                 example: John
- *                 description: User's first name
- *               lastName:
- *                 type: string
- *                 example: Doe
- *                 description: User's last name
- *               email:
- *                 type: string
- *                 example: john.doe@example.com
- *                 description: User's email address
- *               phoneNumber:
- *                 type: string
- *                 example: +1234567890
- *                 description: User's phone number
- *               image:
- *                 type: string
- *                 format: binary
- *                 description: Optional user profile image
- *     responses:
- *       200:
- *         description: User updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: User updated successfully
- *                 user:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                       example: 1
- *                     firstName:
- *                       type: string
- *                       example: John
- *                     lastName:
- *                       type: string
- *                       example: Doe
- *                     email:
- *                       type: string
- *                       example: john.doe@example.com
- *                     phoneNumber:
- *                       type: string
- *                       example: +1234567890
- *                     image:
- *                       type: string
- *                       example: uploads/profiles/user1.jpg
- *                       nullable: true
- *                     role:
- *                       type: string
- *                       example: staff
- *       400:
- *         description: Invalid user ID or input
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Invalid user ID
- *       403:
- *         description: Unauthorized to update this user
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: Unauthorized to update this user
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: User not found
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                   example: Failed to update user
- *                 details:
- *                   type: string
- *                   example: Database error
- */
+  /**
+   * @swagger
+   * /api/auth/users/{id}:
+   *   put:
+   *     summary: Update user information (except role)
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               firstName:
+   *                 type: string
+   *                 example: John
+   *                 description: User's first name
+   *               lastName:
+   *                 type: string
+   *                 example: Doe
+   *                 description: User's last name
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               phoneNumber:
+   *                 type: string
+   *                 example: +1234567890
+   *                 description: User's phone number
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: Optional user profile image
+   *     responses:
+   *       200:
+   *         description: User updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User updated successfully
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     phoneNumber:
+   *                       type: string
+   *                       example: +1234567890
+   *                     image:
+   *                       type: string
+   *                       example: uploads/profiles/user1.jpg
+   *                       nullable: true
+   *                     role:
+   *                       type: string
+   *                       example: staff
+   *       400:
+   *         description: Invalid user ID or input
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid user ID
+   *       403:
+   *         description: Unauthorized to update this user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Unauthorized to update this user
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to update user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
   router.put(
     "/users/:id",
     verifyToken,
@@ -766,7 +869,7 @@ module.exports = (app) => {
    *             properties:
    *               role:
    *                 type: string
-   *                 example: "manager"
+   *                 example: manager
    *                 description: New role for the user (e.g., admin, manager, staff)
    *     responses:
    *       200:
@@ -778,25 +881,24 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "User role updated successfully"
+   *                   example: User role updated successfully
    *                 user:
    *                   type: object
    *                   properties:
    *                     id:
    *                       type: integer
-   *                       example: 1
    *                     firstName:
    *                       type: string
-   *                       example: "John"
+   *                       example: John
    *                     lastName:
    *                       type: string
-   *                       example: "Doe"
+   *                       example: Doe
    *                     email:
    *                       type: string
-   *                       example: "john.doe@example.com"
+   *                       example: john.doe@example.com
    *                     role:
    *                       type: string
-   *                       example: "manager"
+   *                       example: manager
    *       400:
    *         description: Invalid user ID or role
    *         content:
@@ -804,9 +906,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 message:
+   *                 error:
    *                   type: string
-   *                   example: "Invalid role"
+   *                   example: Invalid role
    *       403:
    *         description: Access denied - Only admins or managers can update roles
    *         content:
@@ -816,7 +918,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can update roles"
+   *                   example: Only admins or managers can update roles
    *       404:
    *         description: User not found
    *         content:
@@ -826,7 +928,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -836,10 +938,10 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to update user role"
+   *                   example: Failed to update user role
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
   router.patch(
     "/users/:id/role",
@@ -874,7 +976,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "User deleted successfully"
+   *                   example: User deleted successfully
    *       400:
    *         description: Invalid user ID
    *         content:
@@ -884,7 +986,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Invalid user ID"
+   *                   example: Invalid user ID
    *       403:
    *         description: Unauthorized to delete this user
    *         content:
@@ -894,7 +996,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Unauthorized to delete this user"
+   *                   example: Unauthorized to delete this user
    *       404:
    *         description: User not found
    *         content:
@@ -904,7 +1006,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "User not found"
+   *                   example: User not found
    *       500:
    *         description: Internal server error
    *         content:
@@ -914,10 +1016,10 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Failed to delete user"
+   *                   example: Failed to delete user
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: Database error
    */
   router.delete("/users/:id", verifyToken, authController.deleteUser);
 
