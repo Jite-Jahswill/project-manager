@@ -5,6 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const sendMail = require("../utils/mailer");
 
+// Generate a 6-digit OTP
+const generateOTP = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
 // Register User
 exports.register = async (req, res) => {
   try {
@@ -36,6 +41,11 @@ exports.register = async (req, res) => {
     // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate OTP
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
     // Create the user
     const user = await User.create({
       firstName,
@@ -46,32 +56,25 @@ exports.register = async (req, res) => {
       image,
       phoneNumber,
       emailVerified: false,
+      otp: hashedOTP,
+      otpExpiresAt,
     });
 
-    // Generate JWT token for email verification
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
-    });
-
-    // Prepare email verification link
-    const verifyLink = `${process.env.FRONTEND_URL}/api/auth/verify-email/${token}`;
-
-    // Send verification email
+    // Send OTP email
     await sendMail({
       to: user.email,
-      subject: "Verify Your Email",
+      subject: "Verify Your Email with OTP",
       html: `
         <p>Hello ${user.firstName},</p>
-        <p>Please verify your email by clicking the link below:</p>
-        <a href="${verifyLink}">Verify Email</a>
-        <p>This link expires in 24 hours.</p>
+        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
+        <p>This OTP expires in 10 minutes.</p>
         <p>Best,<br>Team</p>
       `,
     });
 
     // Respond with user information
     res.status(201).json({
-      message: "User registered successfully",
+      message: "User registered successfully, OTP sent to email",
       user: {
         id: user.id,
         firstName: user.firstName,
@@ -153,7 +156,7 @@ exports.getAllUsers = async (req, res) => {
 
     const users = await User.findAll({
       where,
-      attributes: { exclude: ["password"] },
+      attributes: { exclude: ["password", "otp"] },
     });
     res.json(users);
   } catch (error) {
@@ -178,7 +181,7 @@ exports.getUserById = async (req, res) => {
     }
 
     const user = await User.findByPk(id, {
-      attributes: { exclude: ["password"] },
+      attributes: { exclude: ["password", "otp"] },
     });
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -384,25 +387,12 @@ exports.deleteUser = async (req, res) => {
 // Verify Email
 exports.verifyEmail = async (req, res) => {
   try {
-    const { token } = req.params;
-    if (!token) {
-      return res.status(400).json({ error: "Token is required" });
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and OTP are required" });
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      console.error("JWT verification error:", {
-        message: jwtError.message,
-        stack: jwtError.stack,
-        token,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(400).json({ error: "Invalid or expired token", details: jwtError.message });
-    }
-
-    const user = await User.findByPk(decoded.id);
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -411,10 +401,29 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ message: "Email already verified" });
     }
 
-    // Attempt to update emailVerified with a transaction to handle database errors
+    if (!user.otp || !user.otpExpiresAt) {
+      return res.status(400).json({ error: "No valid OTP found for this user" });
+    }
+
+    if (new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    const isValidOTP = await bcrypt.compare(otp, user.otp);
+    if (!isValidOTP) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Update user within a transaction
     await sequelize.transaction(async (t) => {
-      user.emailVerified = true;
-      await user.save({ transaction: t });
+      await user.update(
+        {
+          emailVerified: true,
+          otp: null,
+          otpExpiresAt: null,
+        },
+        { transaction: t }
+      );
     });
 
     res.json({
@@ -430,11 +439,10 @@ exports.verifyEmail = async (req, res) => {
     console.error("Verify email error:", {
       message: error.message,
       stack: error.stack,
-      token: req.params.token,
+      body: req.body,
       timestamp: new Date().toISOString(),
     });
     if (error.message.includes("Prepared statement needs to be re-prepared")) {
-      // Attempt to reset the connection pool
       await sequelize.query("SET SESSION table_open_cache = 1000");
       return res.status(500).json({
         error: "Database error",
@@ -550,28 +558,30 @@ exports.resendVerification = async (req, res) => {
       return res.status(400).json({ message: "Email already verified" });
     }
 
-    // Generate JWT token for email verification
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "1d",
+    // Generate OTP
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Update user with new OTP
+    await user.update({
+      otp: hashedOTP,
+      otpExpiresAt,
     });
 
-    // Prepare email verification link
-    const verifyLink = `${process.env.FRONTEND_URL}/api/auth/verify-email/${token}`;
-
-    // Send verification email
+    // Send OTP email
     await sendMail({
       to: user.email,
-      subject: "Verify Your Email",
+      subject: "Verify Your Email with OTP",
       html: `
         <p>Hello ${user.firstName},</p>
-        <p>Please verify your email by clicking the link below:</p>
-        <a href="${verifyLink}">Verify Email</a>
-        <p>This link expires in 24 hours.</p>
+        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
+        <p>This OTP expires in 10 minutes.</p>
         <p>Best,<br>Team</p>
       `,
     });
 
-    res.json({ message: "Verification email resent successfully" });
+    res.json({ message: "Verification OTP resent successfully" });
   } catch (error) {
     console.error("Resend verification email error:", {
       message: error.message,
@@ -581,6 +591,6 @@ exports.resendVerification = async (req, res) => {
     });
     res
       .status(500)
-      .json({ error: "Failed to resend verification email", details: error.message });
+      .json({ error: "Failed to resend verification OTP", details: error.message });
   }
 };
