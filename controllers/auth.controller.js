@@ -476,25 +476,30 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
+    // Generate OTP
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Update user with new OTP
+    await user.update({
+      otp: hashedOTP,
+      otpExpiresAt,
     });
 
-    const resetLink = `${process.env.FRONTEND_URL}/api/auth/reset-password/${token}`;
-
+    // Send OTP email
     await sendMail({
-      to: email,
-      subject: "Password Reset",
+      to: user.email,
+      subject: "Reset Your Password with OTP",
       html: `
-        <p>Hi ${user.firstName},</p>
-        <p>Click the link below to reset your password:</p>
-        <a href="${resetLink}">Reset Password</a>
-        <p>This link expires in 15 minutes.</p>
+        <p>Hello ${user.firstName},</p>
+        <p>Your OTP for password reset is: <strong>${otp}</strong></p>
+        <p>This OTP expires in 10 minutes.</p>
         <p>Best,<br>Team</p>
       `,
     });
 
-    res.json({ message: "Password reset email sent" });
+    res.json({ message: "Password reset OTP sent to email" });
   } catch (error) {
     console.error("Forgot password error:", {
       message: error.message,
@@ -504,47 +509,58 @@ exports.forgotPassword = async (req, res) => {
     });
     res
       .status(500)
-      .json({ error: "Failed to send reset email", details: error.message });
+      .json({ error: "Failed to send reset OTP", details: error.message });
   }
 };
 
 // Reset Password
 exports.resetPassword = async (req, res) => {
   try {
-    const { token } = req.params;
-    const { password } = req.body;
+    const { email, otp, password } = req.body;
 
-    if (!password) {
-      return res.status(400).json({ error: "Password required" });
+    if (!email || !otp || !password) {
+      return res.status(400).json({ error: "Email, OTP, and password are required" });
     }
 
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      console.error("JWT verification error:", {
-        message: jwtError.message,
-        stack: jwtError.stack,
-        token,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(400).json({ error: "Invalid or expired token", details: jwtError.message });
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
     }
 
-    const user = await User.findByPk(decoded.id);
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    user.password = await bcrypt.hash(password, 10);
-    await user.save();
+    if (!user.otp || !user.otpExpiresAt) {
+      return res.status(400).json({ error: "No valid OTP found for this user" });
+    }
+
+    if (new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    const isValidOTP = await bcrypt.compare(otp, user.otp);
+    if (!isValidOTP) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Update password and clear OTP within a transaction
+    await sequelize.transaction(async (t) => {
+      await user.update(
+        {
+          password: await bcrypt.hash(password, 10),
+          otp: null,
+          otpExpiresAt: null,
+        },
+        { transaction: t }
+      );
+    });
 
     res.json({ message: "Password reset successful" });
   } catch (error) {
     console.error("Reset password error:", {
       message: error.message,
       stack: error.stack,
-      token: req.params.token,
       body: req.body,
       timestamp: new Date().toISOString(),
     });
