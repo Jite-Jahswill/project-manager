@@ -23,10 +23,10 @@ exports.logWork = async (req, res) => {
     }
 
     const project = await Project.findByPk(projectId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project) return res.status(404).json({ message: "Project not found" });
 
     const task = await Task.findByPk(taskId);
-    if (!task) return res.status(404).json({ error: "Task not found" });
+    if (!task) return res.status(404).json({ message: "Task not found" });
 
     const newLog = await WorkLog.create({
       userId: req.user.id,
@@ -34,43 +34,82 @@ exports.logWork = async (req, res) => {
       taskId,
       hoursWorked,
       description,
-      date: new Date(), // Add current date if not provided
+      date: new Date(),
     });
 
-    res.status(201).json({ message: "Work log created", log: newLog });
+    res.status(201).json({ message: "Work log created successfully", log: newLog });
   } catch (err) {
-    console.error("Log work error:", err);
+    // Log error to errors table
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, body: req.body }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to create work log", details: err.message });
+      .json({ message: "Failed to create work log", details: err.message });
   }
 };
 
 exports.getUserLogs = async (req, res) => {
   try {
-    const { projectId, taskId, date } = req.query;
+    const { projectId, taskId, date, page = 1, limit = 20 } = req.query;
 
     const whereClause = { userId: req.user.id };
 
     // Add search conditions
     if (projectId) whereClause.projectId = projectId;
     if (taskId) whereClause.taskId = taskId;
-    if (date) whereClause.date = { [Op.eq]: date }; // Exact date match
+    if (date) whereClause.date = { [Op.eq]: date };
 
-    const logs = await WorkLog.findAll({
+    const { count, rows } = await WorkLog.findAndCountAll({
       where: whereClause,
       include: [
         { model: Project, attributes: ["id", "name"] },
         { model: Task, attributes: ["id", "title"] },
       ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    res.json(logs);
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      logs: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error("Get user logs error:", err);
+    // Log error to errors table
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to fetch user logs", details: err.message });
+      .json({ message: "Failed to fetch user logs", details: err.message });
   }
 };
 
@@ -84,32 +123,60 @@ exports.getProjectLogs = async (req, res) => {
     }
 
     const { projectId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+
     if (!projectId)
-      return res.status(400).json({ error: "projectId is required" });
+      return res.status(400).json({ message: "projectId is required" });
 
     const project = await Project.findByPk(projectId);
-    if (!project) return res.status(404).json({ error: "Project not found" });
+    if (!project) return res.status(404).json({ message: "Project not found" });
 
-    const logs = await WorkLog.findAll({
+    const { count, rows } = await WorkLog.findAndCountAll({
       where: { projectId },
       include: [
         { model: User, attributes: ["id", "firstName", "lastName", "email"] },
         { model: Task, attributes: ["id", "title"] },
       ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    res.json(logs);
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      logs: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error("Get project logs error:", err);
+    // Log error to errors table
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, projectId: req.params.projectId, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to fetch project logs", details: err.message });
+      .json({ message: "Failed to fetch project logs", details: err.message });
   }
 };
 
 exports.searchUserLogs = async (req, res) => {
   try {
-    const { projectId, taskId, date } = req.query;
+    const { projectId, taskId, date, page = 1, limit = 20 } = req.query;
 
     const whereClause = { userId: req.user.id };
 
@@ -118,20 +185,46 @@ exports.searchUserLogs = async (req, res) => {
     if (taskId) whereClause.taskId = taskId;
     if (date) whereClause.date = { [Op.eq]: date };
 
-    const logs = await WorkLog.findAll({
+    const { count, rows } = await WorkLog.findAndCountAll({
       where: whereClause,
       include: [
         { model: Project, attributes: ["id", "name"] },
         { model: Task, attributes: ["id", "title"] },
       ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    res.json(logs);
+    const totalPages = Math.ceil(count / limit);
+
+    res.status(200).json({
+      logs: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (err) {
-    console.error("Search user logs error:", err);
+    // Log error to errors table
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to search user logs", details: err.message });
+      .json({ message: "Failed to search user logs", details: err.message });
   }
 };
 
@@ -145,10 +238,10 @@ exports.deleteLog = async (req, res) => {
     }
 
     const { logId } = req.params;
-    if (!logId) return res.status(400).json({ error: "logId is required" });
+    if (!logId) return res.status(400).json({ message: "logId is required" });
 
     const log = await WorkLog.findByPk(logId);
-    if (!log) return res.status(404).json({ error: "Log not found" });
+    if (!log) return res.status(404).json({ message: "Log not found" });
 
     // Check permission
     if (
@@ -163,9 +256,22 @@ exports.deleteLog = async (req, res) => {
     await log.destroy();
     res.status(200).json({ message: "Work log deleted successfully" });
   } catch (err) {
-    console.error("Delete log error:", err);
+    // Log error to errors table
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, logId: req.params.logId }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
     res
       .status(500)
-      .json({ error: "Failed to delete work log", details: err.message });
+      .json({ message: "Failed to delete work log", details: err.message });
   }
 };
