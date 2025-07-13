@@ -6,7 +6,7 @@ const { Op, sequelize } = require("sequelize");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-const sequelize = db.sequelize;
+// const sequelize = db.sequelize;
 
 // Generate a 6-digit OTP
 const generateOTP = () => {
