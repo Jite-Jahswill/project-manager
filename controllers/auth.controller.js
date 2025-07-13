@@ -138,17 +138,31 @@ exports.login = async (req, res) => {
 // Get All Users
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, firstName, lastName } = req.query;
+    const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
     const where = {};
     if (role) where.role = role;
     if (firstName) where.firstName = { [sequelize.Op.like]: `%${firstName}%` };
     if (lastName) where.lastName = { [sequelize.Op.like]: `%${lastName}%` };
 
-    const users = await User.findAll({
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { count, rows } = await User.findAndCountAll({
       where,
       attributes: { exclude: ["password", "otp"] },
+      limit: parseInt(limit),
+      offset,
     });
-    res.json(users);
+
+    const totalPages = Math.ceil(count / limit);
+
+    res.json({
+      users: rows,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
   } catch (error) {
     console.error("Get all users error:", {
       message: error.message,
@@ -237,24 +251,36 @@ exports.updateUser = async (req, res) => {
       }
     }
 
-    await user.update({
-      firstName: firstName || user.firstName,
-      lastName: lastName || user.lastName,
-      email: email || user.email,
-      phoneNumber: phoneNumber || user.phoneNumber,
-      image,
+    await sequelize.query(
+      "UPDATE Users SET firstName = :firstName, lastName = :lastName, email = :email, phoneNumber = :phoneNumber, image = :image WHERE id = :id",
+      {
+        replacements: {
+          firstName: firstName || user.firstName,
+          lastName: lastName || user.lastName,
+          email: email || user.email,
+          phoneNumber: phoneNumber || user.phoneNumber,
+          image,
+          id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    // Fetch updated user to return
+    const updatedUser = await User.findByPk(id, {
+      attributes: { exclude: ["password", "otp"] },
     });
 
     res.json({
       message: "User updated successfully",
       user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        image: user.image,
-        role: user.role,
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        image: updatedUser.image,
+        role: updatedUser.role,
       },
     });
   } catch (error) {
@@ -291,7 +317,13 @@ exports.updateUserRole = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    await user.update({ role });
+    await sequelize.query(
+      "UPDATE Users SET role = :role WHERE id = :id",
+      {
+        replacements: { role, id },
+        type: sequelize.QueryTypes.UPDATE,
+      }
+    );
 
     await sendMail({
       to: user.email,
@@ -303,14 +335,19 @@ exports.updateUserRole = async (req, res) => {
       `,
     });
 
+    // Fetch updated user to return
+    const updatedUser = await User.findByPk(id, {
+      attributes: { exclude: ["password", "otp"] },
+    });
+
     res.json({
       message: "User role updated successfully",
       user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        role: updatedUser.role,
       },
     });
   } catch (error) {
