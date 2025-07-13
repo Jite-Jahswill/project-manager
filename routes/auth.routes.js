@@ -1,620 +1,1029 @@
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { User, sequelize } = require("../models");
-const fs = require("fs");
-const path = require("path");
-const sendMail = require("../utils/mailer");
-
-// Generate a 6-digit OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// Register User
-exports.register = async (req, res) => {
-  try {
-    const { firstName, lastName, email, password, role, phoneNumber } = req.body;
-    const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
-
-    // Check for required fields
-    if (!firstName || !lastName || !email || !password || !phoneNumber) {
-      return res.status(400).json({ error: "All fields are required" });
-    }
-
-    // Validate role
-    if (role && !["admin", "manager", "staff"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
-
-    // Check for existing user by email
-    const existingUserByEmail = await User.findOne({ where: { email } });
-    if (existingUserByEmail) {
-      return res.status(409).json({ error: "Email already exists" });
-    }
-
-    // Check for existing user by phone number
-    const existingUserByPhone = await User.findOne({ where: { phoneNumber } });
-    if (existingUserByPhone) {
-      return res.status(409).json({ error: "Phone number already in use" });
-    }
-
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Generate OTP
-    const otp = generateOTP();
-    const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Create the user
-    const user = await User.create({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      role: role || "staff",
-      image,
-      phoneNumber,
-      emailVerified: false,
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
-
-    // Send OTP email
-    await sendMail({
-      to: user.email,
-      subject: "Verify Your Email with OTP",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
-        <p>Best,<br>Team</p>
-      `,
-    });
-
-    // Respond with user information
-    res.status(201).json({
-      message: "User registered successfully, OTP sent to email",
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        image: user.image,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    console.error("Register user error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to register user", details: error.message });
-  }
-};
-
-// Login User
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
-
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
-
-    res.json({
-      message: "Login successful",
-      token,
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    console.error("Login error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to login", details: error.message });
-  }
-};
-
-// Get All Users
-exports.getAllUsers = async (req, res) => {
-  try {
-    const { role, firstName, lastName } = req.query;
-    const where = {};
-    if (role) where.role = role;
-    if (firstName) where.firstName = { [sequelize.Op.like]: `%${firstName}%` };
-    if (lastName) where.lastName = { [sequelize.Op.like]: `%${lastName}%` };
-
-    const users = await User.findAll({
-      where,
-      attributes: { exclude: ["password", "otp"] },
-    });
-    res.json(users);
-  } catch (error) {
-    console.error("Get all users error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch users", details: error.message });
-  }
-};
-
-// Get Single User
-exports.getUserById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
-
-    const user = await User.findByPk(id, {
-      attributes: { exclude: ["password", "otp"] },
-    });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Authorization check
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to view this user" });
-    }
-
-    res.json(user);
-  } catch (error) {
-    console.error("Get user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch user", details: error.message });
-  }
-};
-
-// Update User
-exports.updateUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Authorization check
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to update this user" });
-    }
-
-    const { firstName, lastName, email, phoneNumber } = req.body;
-    const image = req.file ? `uploads/profiles/${req.file.filename}` : user.image;
-
-    // Delete old image if a new one is uploaded
-    if (req.file && user.image && user.image !== image) {
-      const oldImagePath = path.join(__dirname, "../", user.image);
-      if (fs.existsSync(oldImagePath)) {
-        fs.unlinkSync(oldImagePath);
-      }
-    }
-
-    // Check for email uniqueness if email is being updated
-    if (email && email !== user.email) {
-      const existingUser = await User.findOne({ where: { email } });
-      if (existingUser) {
-        return res.status(409).json({ error: "Email already in use" });
-      }
-    }
-
-    // Check for phone number uniqueness if phoneNumber is being updated
-    if (phoneNumber && phoneNumber !== user.phoneNumber) {
-      const existingUser = await User.findOne({ where: { phoneNumber } });
-      if (existingUser) {
-        return res.status(409).json({ error: "Phone number already in use" });
-      }
-    }
-
-    await user.update({
-      firstName: firstName || user.firstName,
-      lastName: lastName || user.lastName,
-      email: email || user.email,
-      phoneNumber: phoneNumber || user.phoneNumber,
-      image,
-    });
-
-    res.json({
-      message: "User updated successfully",
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        image: user.image,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    console.error("Update user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to update user", details: error.message });
-  }
-};
-
-// Update User Role (Admin and manager only)
-exports.updateUserRole = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { role } = req.body;
-
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
-
-    if (!["admin", "manager", "staff"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    await user.update({ role });
-
-    await sendMail({
-      to: user.email,
-      subject: "Your Role Was Updated",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your role has been updated to <strong>${role}</strong>.</p>
-        <p>Best,<br>Team</p>
-      `,
-    });
-
-    res.json({
-      message: "User role updated successfully",
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.role,
-      },
-    });
-  } catch (error) {
-    console.error("Update user role error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to update user role", details: error.message });
-  }
-};
-
-// Delete User
-exports.deleteUser = async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
-
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Authorization check
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to delete this user" });
-    }
-
-    if (user.image) {
-      const imagePath = path.join(__dirname, "../", user.image);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
-    }
-
-    await user.destroy();
-    res.json({ message: "User deleted successfully" });
-  } catch (error) {
-    console.error("Delete user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to delete user", details: error.message });
-  }
-};
-
-// Verify Email
-exports.verifyEmail = async (req, res) => {
-  try {
-    const { email, otp, newPassword } = req.body;
-    if (!email || !otp) {
-      return res.status(400).json({ error: "Email and OTP are required" });
-    }
-
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (user.emailVerified) {
-      return res.status(400).json({ message: "Email already verified" });
-    }
-
-    if (!user.otp || !user.otpExpiresAt) {
-      return res.status(400).json({ error: "No valid OTP found for this user" });
-    }
-
-    if (new Date() > user.otpExpiresAt) {
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-
-    const isValidOTP = await bcrypt.compare(otp, user.otp);
-    if (!isValidOTP) {
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
-
-    // Prepare updates
-    const updates = {
-      emailVerified: true,
-      otp: null,
-      otpExpiresAt: null,
-    };
-
-    // If newPassword is provided, hash and update it
-    if (newPassword) {
-      if (newPassword.length < 8) {
-        return res.status(400).json({ error: "New password must be at least 8 characters" });
-      }
-      updates.password = await bcrypt.hash(newPassword, 10);
-    }
-
-    // Update user within a transaction
-    await sequelize.transaction(async (t) => {
-      await user.update(updates, { transaction: t });
-    });
-
-    res.json({
-      message: `Email verified successfully${newPassword ? " and password updated" : ""}`,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      },
-    });
-  } catch (error) {
-    console.error("Verify email error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    if (error.message.includes("Prepared statement needs to be re-prepared")) {
-      await sequelize.query("SET SESSION table_open_cache = 1000");
-      return res.status(500).json({
-        error: "Database error",
-        details: "Prepared statement issue, please try again",
-      });
-    }
-    res
-      .status(500)
-      .json({ error: "Failed to verify email", details: error.message });
-  }
-};
-
-// Forgot Password
-exports.forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
-
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Generate OTP
-    const otp = generateOTP();
-    const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Update user with new OTP
-    await user.update({
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
-
-    // Send OTP email
-    await sendMail({
-      to: user.email,
-      subject: "Reset Your Password with OTP",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your OTP for password reset is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
-        <p>Best,<br>Team</p>
-      `,
-    });
-
-    res.json({ message: "Password reset OTP sent to email" });
-  } catch (error) {
-    console.error("Forgot password error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to send reset OTP", details: error.message });
-  }
-};
-
-// Reset Password
-exports.resetPassword = async (req, res) => {
-  try {
-    const { email, otp, password } = req.body;
-
-    if (!email || !otp || !password) {
-      return res.status(400).json({ error: "Email, OTP, and password are required" });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
-
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (!user.otp || !user.otpExpiresAt) {
-      return res.status(400).json({ error: "No valid OTP found for this user" });
-    }
-
-    if (new Date() > user.otpExpiresAt) {
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-
-    const isValidOTP = await bcrypt.compare(otp, user.otp);
-    if (!isValidOTP) {
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
-
-    // Update password and clear OTP within a transaction
-    await sequelize.transaction(async (t) => {
-      await user.update(
-        {
-          password: await bcrypt.hash(password, 10),
-          otp: null,
-          otpExpiresAt: null,
-        },
-        { transaction: t }
-      );
-    });
-
-    res.json({ message: "Password reset successful" });
-  } catch (error) {
-    console.error("Reset password error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to reset password", details: error.message });
-  }
-};
-
-// Resend Verification Email
-exports.resendVerification = async (req, res) => {
-  try {
-    const user = await User.findByPk(req.user.id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (user.emailVerified) {
-      return res.status(400).json({ message: "Email already verified" });
-    }
-
-    // Generate OTP
-    const otp = generateOTP();
-    const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Update user with new OTP
-    await user.update({
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
-
-    // Send OTP email
-    await sendMail({
-      to: user.email,
-      subject: "Verify Your Email with OTP",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
-        <p>Best,<br>Team</p>
-      `,
-    });
-
-    res.json({ message: "Verification OTP resent successfully" });
-  } catch (error) {
-    console.error("Resend verification email error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to resend verification OTP", details: error.message });
-  }
+const express = require("express");
+const authController = require("../controllers/auth.controller");
+const {
+  verifyToken,
+  isAdminOrManager,
+} = require("../middlewares/auth.middleware");
+const upload = require("../middlewares/upload.middleware");
+
+module.exports = (app) => {
+  const router = express.Router();
+
+  /**
+   * @swagger
+   * tags:
+   *   - name: Auth
+   *     description: Authentication and user management endpoints
+   */
+
+  /**
+   * @swagger
+   * /api/auth/register:
+   *   post:
+   *     summary: Register a new user
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - firstName
+   *               - lastName
+   *               - email
+   *               - password
+   *               - phoneNumber
+   *             properties:
+   *               firstName:
+   *                 type: string
+   *                 example: John
+   *                 description: User's first name
+   *               lastName:
+   *                 type: string
+   *                 example: Doe
+   *                 description: User's last name
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               password:
+   *                 type: string
+   *                 example: StrongPass123
+   *                 description: User's password (minimum 8 characters)
+   *               phoneNumber:
+   *                 type: string
+   *                 example: +1234567890
+   *                 description: User's phone number
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: Optional user profile image
+   *     responses:
+   *       201:
+   *         description: User registered successfully, OTP sent to email
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User registered successfully, OTP sent to email
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     phoneNumber:
+   *                       type: string
+   *                       example: +1234567890
+   *                     image:
+   *                       type: string
+   *                       example: uploads/profiles/user1.jpg
+   *                       nullable: true
+   *                     role:
+   *                       type: string
+   *                       example: staff
+   *       400:
+   *         description: Missing required fields or invalid input
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: All fields are required
+   *       409:
+   *         description: Email or phone number already exists
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Email already exists
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to register user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/register", upload.single("image"), authController.register);
+
+  /**
+   * @swagger
+   * /api/auth/login:
+   *   post:
+   *     summary: Log in a user
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *               - password
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               password:
+   *                 type: string
+   *                 example: StrongPass123
+   *                 description: User's password
+   *     responses:
+   *       200:
+   *         description: Login successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Login successful
+   *                 token:
+   *                   type: string
+   *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     role:
+   *                       type: string
+   *                       example: staff
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Email and password are required
+   *       401:
+   *         description: Invalid credentials
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid credentials
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to login
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/login", authController.login);
+
+  /**
+   * @swagger
+   * /api/auth/verify-email:
+   *   post:
+   *     summary: Verify a user's email address using OTP and optionally update password
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *               - otp
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               otp:
+   *                 type: string
+   *                 example: "123456"
+   *                 description: 6-digit OTP sent to the user's email
+   *               newPassword:
+   *                 type: string
+   *                 example: NewPass123
+   *                 description: Optional new password (minimum 8 characters)
+   *     responses:
+   *       200:
+   *         description: Email verified successfully, with optional password update
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Email verified successfully and password updated
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *       400:
+   *         description: Invalid or expired OTP, email already verified, or invalid password
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid OTP
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to verify email
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/verify-email", authController.verifyEmail);
+
+  /**
+   * @swagger
+   * /api/auth/resend-verification:
+   *   post:
+   *     summary: Resend email verification OTP to a logged-in user
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Verification OTP resent successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Verification OTP resent successfully
+   *       400:
+   *         description: Email already verified
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Email already verified
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Unauthorized
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to resend verification OTP
+   *                 details:
+   *                   type: string
+   *                   example: Email service error
+   */
+  router.post("/resend-verification", verifyToken, authController.resendVerification);
+
+  /**
+   * @swagger
+   * /api/auth/forgot-password:
+   *   post:
+   *     summary: Send a password reset OTP to the user's email
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *     responses:
+   *       200:
+   *         description: Password reset OTP sent to email
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Password reset OTP sent to email
+   *       400:
+   *         description: Email is required
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Email is required
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to send reset OTP
+   *                 details:
+   *                   type: string
+   *                   example: Email service error
+   */
+  router.post("/forgot-password", authController.forgotPassword);
+
+  /**
+   * @swagger
+   * /api/auth/reset-password:
+   *   post:
+   *     summary: Reset user password using OTP
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *               - otp
+   *               - password
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               otp:
+   *                 type: string
+   *                 example: "123456"
+   *                 description: 6-digit OTP sent to the user's email
+   *               password:
+   *                 type: string
+   *                 example: NewStrongPass123
+   *                 description: New user password (minimum 8 characters)
+   *     responses:
+   *       200:
+   *         description: Password reset successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Password reset successful
+   *       400:
+   *         description: Invalid or expired OTP, or invalid input
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid OTP
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to reset password
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.post("/reset-password", authController.resetPassword);
+
+  /**
+   * @swagger
+   * /api/auth/users:
+   *   get:
+   *     summary: Get all users (Admin or Manager only)
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: role
+   *         schema:
+   *           type: string
+   *         description: Filter users by role
+   *         example: staff
+   *       - in: query
+   *         name: firstName
+   *         schema:
+   *           type: string
+   *         description: Filter users by first name (partial match)
+   *         example: John
+   *       - in: query
+   *         name: lastName
+   *         schema:
+   *           type: string
+   *         description: Filter users by last name (partial match)
+   *         example: Doe
+   *     responses:
+   *       200:
+   *         description: List of all users
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                     example: 1
+   *                   firstName:
+   *                     type: string
+   *                     example: John
+   *                   lastName:
+   *                     type: string
+   *                     example: Doe
+   *                   email:
+   *                     type: string
+   *                     example: john.doe@example.com
+   *                   role:
+   *                     type: string
+   *                     example: staff
+   *                   image:
+   *                     type: string
+   *                     example: uploads/profiles/user1.jpg
+   *                     nullable: true
+   *                   phoneNumber:
+   *                     type: string
+   *                     example: +1234567890
+   *                     nullable: true
+   *       403:
+   *         description: Access denied - Only admins or managers can view users
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Only admins or managers can view users
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to fetch users
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.get(
+    "/users",
+    verifyToken,
+    isAdminOrManager,
+    authController.getAllUsers
+  );
+
+  /**
+   * @swagger
+   * /api/auth/users/{id}:
+   *   get:
+   *     summary: Get a user by ID
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     responses:
+   *       200:
+   *         description: User details
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 id:
+   *                   type: integer
+   *                   example: 1
+   *                 firstName:
+   *                   type: string
+   *                   example: John
+   *                 lastName:
+   *                   type: string
+   *                   example: Doe
+   *                 email:
+   *                   type: string
+   *                   example: john.doe@example.com
+   *                 role:
+   *                   type: string
+   *                   example: staff
+   *                 image:
+   *                   type: string
+   *                   example: uploads/profiles/user1.jpg
+   *                   nullable: true
+   *                 phoneNumber:
+   *                   type: string
+   *                   example: +1234567890
+   *                   nullable: true
+   *       400:
+   *         description: Invalid user ID
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid user ID
+   *       403:
+   *         description: Unauthorized access to user data
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Unauthorized to view this user
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to fetch user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.get("/users/:id", verifyToken, authController.getUserById);
+
+  /**
+   * @swagger
+   * /api/auth/users/{id}:
+   *   put:
+   *     summary: Update user information (except role)
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               firstName:
+   *                 type: string
+   *                 example: John
+   *                 description: User's first name
+   *               lastName:
+   *                 type: string
+   *                 example: Doe
+   *                 description: User's last name
+   *               email:
+   *                 type: string
+   *                 example: john.doe@example.com
+   *                 description: User's email address
+   *               phoneNumber:
+   *                 type: string
+   *                 example: +1234567890
+   *                 description: User's phone number
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: Optional user profile image
+   *     responses:
+   *       200:
+   *         description: User updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User updated successfully
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     phoneNumber:
+   *                       type: string
+   *                       example: +1234567890
+   *                     image:
+   *                       type: string
+   *                       example: uploads/profiles/user1.jpg
+   *                       nullable: true
+   *                     role:
+   *                       type: string
+   *                       example: staff
+   *       400:
+   *         description: Invalid user ID or input
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid user ID
+   *       403:
+   *         description: Unauthorized to update this user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Unauthorized to update this user
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to update user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.put(
+    "/users/:id",
+    verifyToken,
+    upload.single("image"),
+    authController.updateUser
+  );
+
+  /**
+   * @swagger
+   * /api/auth/users/{id}/role:
+   *   patch:
+   *     summary: Update a user's role (Admin or Manager only)
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - role
+   *             properties:
+   *               role:
+   *                 type: string
+   *                 example: manager
+   *                 description: New role for the user (e.g., admin, manager, staff)
+   *     responses:
+   *       200:
+   *         description: User role updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User role updated successfully
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                     firstName:
+   *                       type: string
+   *                       example: John
+   *                     lastName:
+   *                       type: string
+   *                       example: Doe
+   *                     email:
+   *                       type: string
+   *                       example: john.doe@example.com
+   *                     role:
+   *                       type: string
+   *                       example: manager
+   *       400:
+   *         description: Invalid user ID or role
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid role
+   *       403:
+   *         description: Access denied - Only admins or managers can update roles
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Only admins or managers can update roles
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to update user role
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.patch(
+    "/users/:id/role",
+    verifyToken,
+    isAdminOrManager,
+    authController.updateUserRole
+  );
+
+  /**
+   * @swagger
+   * /api/auth/users/{id}:
+   *   delete:
+   *     summary: Delete a user
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     responses:
+   *       200:
+   *         description: User deleted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: User deleted successfully
+   *       400:
+   *         description: Invalid user ID
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Invalid user ID
+   *       403:
+   *         description: Unauthorized to delete this user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: Unauthorized to delete this user
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: User not found
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: Failed to delete user
+   *                 details:
+   *                   type: string
+   *                   example: Database error
+   */
+  router.delete("/users/:id", verifyToken, authController.deleteUser);
+
+  app.use("/api/auth", router);
 };
