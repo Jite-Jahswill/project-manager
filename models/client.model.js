@@ -1,23 +1,58 @@
+const bcrypt = require("bcrypt");
+
 module.exports = (sequelize, DataTypes) => {
-  const Client = sequelize.define("Client", {
-    firstName: {
-      type: DataTypes.STRING,
-      allowNull: false,
+  const Client = sequelize.define(
+    "Client",
+    {
+      firstName: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      lastName: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+      },
+      password: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      image: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      emailVerified: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+      otp: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      otpExpiresAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
-    lastName: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    email: {
-      type: DataTypes.STRING,
-      allowNull: false,
-      unique: true,
-    },
-    image: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-  });
+    {
+      hooks: {
+        beforeCreate: async (client) => {
+          if (client.password) {
+            client.password = await bcrypt.hash(client.password, 10);
+          }
+        },
+        beforeUpdate: async (client) => {
+          if (client.changed("password")) {
+            client.password = await bcrypt.hash(client.password, 10);
+          }
+        },
+      },
+    }
+  );
 
   Client.associate = (models) => {
     Client.hasMany(models.Project, { foreignKey: "clientId" });
