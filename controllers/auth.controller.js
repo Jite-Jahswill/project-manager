@@ -8,24 +8,35 @@ const sendMail = require("../utils/mailer");
 // Register User
 exports.register = async (req, res) => {
   try {
-    const { firstName, lastName, email, password, role } = req.body;
+    const { firstName, lastName, email, password, role, phoneNumber } = req.body; // Added phoneNumber
     const image = req.file ? req.file.filename : null;
 
-    if (!firstName || !lastName || !email || !password) {
+    // Check for required fields
+    if (!firstName || !lastName || !email || !password || !phoneNumber) { // Added phoneNumber to validation
       return res.status(400).json({ error: "All fields are required" });
     }
 
+    // Validate role
     if (role && !["admin", "manager", "staff"].includes(role)) {
       return res.status(400).json({ error: "Invalid role" });
     }
 
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
+    // Check for existing user by email
+    const existingUserByEmail = await User.findOne({ where: { email } });
+    if (existingUserByEmail) {
       return res.status(400).json({ error: "User already exists" });
     }
 
+    // Check for existing user by phone number
+    const existingUserByPhone = await User.findOne({ where: { phoneNumber } });
+    if (existingUserByPhone) {
+      return res.status(400).json({ error: "Phone number already in use" });
+    }
+
+    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Create the user
     const user = await User.create({
       firstName,
       lastName,
@@ -33,14 +44,18 @@ exports.register = async (req, res) => {
       password: hashedPassword,
       role: role || "staff",
       image,
+      phoneNumber,
     });
 
+    // Generate JWT token
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
       expiresIn: "1d",
     });
 
+    // Prepare email verification link
     const verifyLink = `${process.env.FRONTEND_URL}/api/auth/verify-email/${token}`;
 
+    // Send verification email
     await sendMail({
       to: user.email,
       subject: "Verify Your Email",
@@ -53,6 +68,7 @@ exports.register = async (req, res) => {
       `,
     });
 
+    // Respond with user information
     res.status(201).json({
       message: "User registered",
       user: {
@@ -60,6 +76,7 @@ exports.register = async (req, res) => {
         email: user.email,
         role: user.role,
         image: user.image,
+        phoneNumber: user.phoneNumber,
       },
     });
   } catch (error) {
@@ -74,6 +91,7 @@ exports.register = async (req, res) => {
       .json({ error: "Failed to register user", details: error.message });
   }
 };
+
 
 // Login User
 exports.login = async (req, res) => {
@@ -162,7 +180,7 @@ exports.updateUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const { firstName, lastName, email } = req.body;
+    const { firstName, lastName, email, phoneNumber } = req.body; // Added phoneNumber
     const image = req.file ? req.file.filename : user.image;
 
     // Delete old image if a new one is uploaded
@@ -177,6 +195,7 @@ exports.updateUser = async (req, res) => {
       firstName: firstName ?? user.firstName,
       lastName: lastName ?? user.lastName,
       email: email ?? user.email,
+      phoneNumber: phoneNumber ?? user.phoneNumber, // Update phoneNumber
       image,
     });
 
@@ -187,6 +206,7 @@ exports.updateUser = async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        phoneNumber: user.phoneNumber, // Include phoneNumber in response
         role: user.role,
         image: user.image,
         fullName: user.fullName,
