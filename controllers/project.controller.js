@@ -25,7 +25,7 @@ module.exports = {
         description,
         startDate,
         endDate,
-        status: "pending",
+        status: "To Do",
       });
       return res
         .status(201)
