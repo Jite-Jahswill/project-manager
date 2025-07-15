@@ -3,7 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const sendMail = require("../utils/mailer").sendMail;
 const { Op } = require("sequelize");
-const sequelize = require("../config/db"); // Use instantiated sequelize
+const sequelize = require("../config/db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
@@ -36,19 +36,26 @@ exports.createClient = async (req, res) => {
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const client = await Client.create(
+    await sequelize.query(
+      `INSERT INTO Clients (firstName, lastName, email, password, image, emailVerified, otp, otpExpiresAt, createdAt, updatedAt)
+       VALUES (:firstName, :lastName, :email, :password, :image, :emailVerified, :otp, :otpExpiresAt, NOW(), NOW())`,
       {
-        firstName,
-        lastName,
-        email,
-        password: hashedPassword,
-        image,
-        emailVerified: false,
-        otp: hashedOTP,
-        otpExpiresAt,
-      },
-      { transaction }
+        replacements: {
+          firstName,
+          lastName,
+          email,
+          password: hashedPassword,
+          image,
+          emailVerified: false,
+          otp: hashedOTP,
+          otpExpiresAt,
+        },
+        type: sequelize.QueryTypes.INSERT,
+        transaction,
+      }
     );
+
+    const client = await Client.findOne({ where: { email }, transaction });
 
     await sendMail({
       to: client.email,
@@ -175,9 +182,20 @@ exports.verifyClient = async (req, res) => {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    await client.update(
-      { emailVerified: true, otp: null, otpExpiresAt: null },
-      { transaction }
+    await sequelize.query(
+      `UPDATE Clients 
+       SET emailVerified = :emailVerified, otp = :otp, otpExpiresAt = :otpExpiresAt, updatedAt = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          emailVerified: true,
+          otp: null,
+          otpExpiresAt: null,
+          id: client.id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
     );
 
     await sendMail({
@@ -225,7 +243,20 @@ exports.forgotPassword = async (req, res) => {
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    await client.update({ otp: hashedOTP, otpExpiresAt }, { transaction });
+    await sequelize.query(
+      `UPDATE Clients 
+       SET otp = :otp, otpExpiresAt = :otpExpiresAt, updatedAt = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          otp: hashedOTP,
+          otpExpiresAt,
+          id: client.id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
+    );
 
     await sendMail({
       to: client.email,
@@ -287,9 +318,20 @@ exports.resetPassword = async (req, res) => {
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await client.update(
-      { password: hashedPassword, otp: null, otpExpiresAt: null },
-      { transaction }
+    await sequelize.query(
+      `UPDATE Clients 
+       SET password = :password, otp = :otp, otpExpiresAt = :otpExpiresAt, updatedAt = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          password: hashedPassword,
+          otp: null,
+          otpExpiresAt: null,
+          id: client.id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
     );
 
     await sendMail({
@@ -314,6 +356,74 @@ exports.resetPassword = async (req, res) => {
       timestamp: new Date().toISOString(),
     });
     res.status(500).json({ message: "Failed to reset password", details: err.message });
+  }
+};
+
+exports.resendVerificationOTP = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "email is required" });
+    }
+
+    const client = await Client.findOne({ where: { email }, transaction });
+    if (!client) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    if (client.emailVerified) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Email already verified" });
+    }
+
+    const otp = generateOTP();
+    const hashedOTP = await bcrypt.hash(otp, 10);
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await sequelize.query(
+      `UPDATE Clients 
+       SET otp = :otp, otpExpiresAt = :otpExpiresAt, updatedAt = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          otp: hashedOTP,
+          otpExpiresAt,
+          id: client.id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
+    );
+
+    await sendMail({
+      to: client.email,
+      subject: "Resend Verification OTP",
+      html: `
+        <p>Hello ${client.firstName},</p>
+        <p>We have generated a new OTP for your email verification:</p>
+        <p><strong>OTP:</strong> ${otp}</p>
+        <p>This OTP expires in 10 minutes.</p>
+        <p>Please use this OTP to verify your email at <a href="http://<your-app-url>/verify">Verify Email</a>.</p>
+        <p>If you did not request this, please ignore this email or contact support.</p>
+        <p>Best,<br>Team</p>
+      `,
+    });
+
+    await transaction.commit();
+    res.status(200).json({ message: "Verification OTP resent to email" });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Resend verification OTP error:", {
+      message: err.message,
+      stack: err.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({ message: "Failed to resend verification OTP", details: err.message });
   }
 };
 
@@ -384,13 +494,11 @@ exports.updateClient = async (req, res) => {
     const { firstName, lastName, email } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : client.image;
 
-    // Delete old image if new one is uploaded
     if (req.file && client.image) {
       const oldPath = path.join(__dirname, "../uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
-    // Check if email is changing and already exists
     if (email && email !== client.email) {
       const existingClient = await Client.findOne({ where: { email }, transaction });
       if (existingClient) {
@@ -399,7 +507,6 @@ exports.updateClient = async (req, res) => {
       }
     }
 
-    // Update using Sequelize model method
     await client.update(
       {
         firstName: firstName || client.firstName,
@@ -435,11 +542,19 @@ exports.deleteClient = async (req, res) => {
     }
 
     if (client.image) {
-      const filePath = path.join(__dirname, "../Uploads", client.image);
+      const filePath = path.join(__dirname, "../uploads", client.image);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
-    await client.destroy({ transaction });
+    await sequelize.query(
+      `DELETE FROM Clients WHERE id = :id`,
+      {
+        replacements: { id: client.id },
+        type: sequelize.QueryTypes.DELETE,
+        transaction,
+      }
+    );
+
     await transaction.commit();
     res.json({ message: "Client deleted" });
   } catch (err) {
