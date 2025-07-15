@@ -4,6 +4,7 @@ const { User, sequelize } = require("../models");
 const fs = require("fs");
 const path = require("path");
 const sendMail = require("../utils/mailer");
+const crypto = require("crypto");
 
 // Generate a 6-digit OTP
 const generateOTP = () => {
