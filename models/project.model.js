@@ -14,8 +14,8 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
     },
     status: {
-      type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
-      defaultValue: "To Do",
+      type: DataTypes.ENUM("Pending", "In Progress", "Review", "Done"),
+      defaultValue: "Pending",
     },
   });
 
