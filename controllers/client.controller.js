@@ -507,18 +507,26 @@ exports.updateClient = async (req, res) => {
       }
     }
 
-    await client.update(
+    await sequelize.query(
+      `UPDATE Clients 
+       SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, updatedAt = NOW()
+       WHERE id = :id`,
       {
-        firstName: firstName || client.firstName,
-        lastName: lastName || client.lastName,
-        email: email || client.email,
-        image,
-      },
-      { transaction }
+        replacements: {
+          firstName: firstName || client.firstName,
+          lastName: lastName || client.lastName,
+          email: email || client.email,
+          image,
+          id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
     );
 
+    const updatedClient = await Client.findByPk(id, { transaction });
     await transaction.commit();
-    res.json({ message: "Client updated", client });
+    res.json({ message: "Client updated", client: updatedClient });
   } catch (err) {
     await transaction.rollback();
     console.error("Update client error:", {
@@ -531,6 +539,7 @@ exports.updateClient = async (req, res) => {
     res.status(500).json({ error: "Error updating client", details: err.message });
   }
 };
+
 
 exports.deleteClient = async (req, res) => {
   const transaction = await sequelize.transaction();
