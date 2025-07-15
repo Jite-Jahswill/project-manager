@@ -1,6 +1,7 @@
 const { Team, User, UserTeam, Project } = require("../models");
 const { Op } = require("sequelize");
 const sendMail = require("../utils/mailer");
+const db = require("../models");
 
 exports.createTeam = async (req, res) => {
   try {
