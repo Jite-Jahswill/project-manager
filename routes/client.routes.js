@@ -449,6 +449,72 @@ module.exports = (app) => {
    */
   router.post("/reset-password", clientController.resetPassword);
 
+    /**
+   * @swagger
+   * /api/clients/resend-verification-otp:
+   *   post:
+   *     summary: Resend verification OTP for unverified client
+   *     tags: [Clients]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - email
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 example: "jane.smith@example.com"
+   *                 description: Client's email address
+   *     responses:
+   *       200:
+   *         description: Verification OTP resent successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Verification OTP resent to email"
+   *       400:
+   *         description: Missing email or email already verified
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Email already verified"
+   *       404:
+   *         description: Client not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Client not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to resend verification OTP"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.post("/resend-verification-otp", clientController.resendVerificationOTP);
+
   /**
    * @swagger
    * /api/clients:
