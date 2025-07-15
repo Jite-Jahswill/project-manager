@@ -1,9 +1,9 @@
 const { Client, Project } = require("../models");
 const path = require("path");
 const fs = require("fs");
-const sendMail = require("../utils/mailer").sendMail;
+const sendMail = require("../utils/mailer");
 const { Op } = require("sequelize");
-const sequelize = require("../config/db");
+const sequelize = require("../config/db.config");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
