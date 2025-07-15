@@ -12,14 +12,24 @@ const sequelize = new Sequelize(
     dialectOptions: {
       supportBigNumbers: true,
       bigNumberStrings: true,
-      flags: ['-FOUND_ROWS'], // Optional: reduces unnecessary query prep
     },
     pool: {
       max: 5,
       min: 0,
       acquire: 30000,
-      idle: 10000
-    }
+      idle: 10000,
+    },
+    retry: {
+      match: [
+        /ETIMEDOUT/,
+        /EHOSTUNREACH/,
+        /ECONNRESET/,
+        /ECONNREFUSED/,
+        /EPIPE/,
+        /Prepared statement needs to be re-prepared/,
+      ],
+      max: 3, // Retry up to 3 times
+    },
   }
 );
 
