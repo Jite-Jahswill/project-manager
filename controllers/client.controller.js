@@ -1,12 +1,12 @@
 const { Client, Project } = require("../models");
 const path = require("path");
 const fs = require("fs");
-const sendMail = require("../utils/mailer");
-const { Op, sequelize } = require("sequelize");
+const sendMail = require("../utils/mailer").sendMail;
+const { Op } = require("sequelize");
+const sequelize = require("../config/db"); // Use instantiated sequelize
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
-// const sequelize = db.sequelize;
 
 // Generate a 6-digit OTP
 const generateOTP = () => {
@@ -14,36 +14,41 @@ const generateOTP = () => {
 };
 
 exports.createClient = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { firstName, lastName, email } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
     if (!firstName || !lastName || !email) {
+      await transaction.rollback();
       return res.status(400).json({ message: "firstName, lastName, and email are required" });
     }
 
-    const exists = await Client.findOne({ where: { email } });
+    const exists = await Client.findOne({ where: { email }, transaction });
     if (exists) {
+      await transaction.rollback();
       return res.status(409).json({ message: "Client with this email already exists" });
     }
 
-    // Auto-generate a secure password
     const autoPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(autoPassword, 10);
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const client = await Client.create({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      image,
-      emailVerified: false,
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
+    const client = await Client.create(
+      {
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        image,
+        emailVerified: false,
+        otp: hashedOTP,
+        otpExpiresAt,
+      },
+      { transaction }
+    );
 
     await sendMail({
       to: client.email,
@@ -60,6 +65,7 @@ exports.createClient = async (req, res) => {
       `,
     });
 
+    await transaction.commit();
     res.status(201).json({
       message: "Client created successfully, OTP and password sent to email",
       client: {
@@ -71,15 +77,14 @@ exports.createClient = async (req, res) => {
       },
     });
   } catch (err) {
+    await transaction.rollback();
     console.error("Create client error:", {
       message: err.message,
       stack: err.stack,
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to create client", details: err.message });
+    res.status(500).json({ message: "Failed to create client", details: err.message });
   }
 };
 
@@ -129,39 +134,51 @@ exports.loginClient = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to login client", details: err.message });
+    res.status(500).json({ message: "Failed to login client", details: err.message });
   }
 };
 
 exports.verifyClient = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { email, otp } = req.body;
 
     if (!email || !otp) {
+      await transaction.rollback();
       return res.status(400).json({ message: "email and otp are required" });
     }
 
-    const client = await Client.findOne({ where: { email } });
+    const client = await Client.findOne({ where: { email }, transaction });
     if (!client) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Client not found" });
     }
 
     if (client.emailVerified) {
+      await transaction.rollback();
       return res.status(400).json({ message: "Email already verified" });
     }
 
+    if (!client.otp || !client.otpExpiresAt) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "No OTP found for this client" });
+    }
+
     if (new Date() > client.otpExpiresAt) {
+      await transaction.rollback();
       return res.status(400).json({ message: "OTP expired" });
     }
 
     const isMatch = await bcrypt.compare(otp, client.otp);
     if (!isMatch) {
+      await transaction.rollback();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
-    await client.update({ emailVerified: true, otp: null, otpExpiresAt: null });
+    await client.update(
+      { emailVerified: true, otp: null, otpExpiresAt: null },
+      { transaction }
+    );
 
     await sendMail({
       to: client.email,
@@ -174,30 +191,33 @@ exports.verifyClient = async (req, res) => {
       `,
     });
 
+    await transaction.commit();
     res.status(200).json({ message: "Email verified successfully" });
   } catch (err) {
+    await transaction.rollback();
     console.error("Verify client error:", {
       message: err.message,
       stack: err.stack,
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to verify email", details: err.message });
+    res.status(500).json({ message: "Failed to verify email", details: err.message });
   }
 };
 
 exports.forgotPassword = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { email } = req.body;
 
     if (!email) {
+      await transaction.rollback();
       return res.status(400).json({ message: "email is required" });
     }
 
-    const client = await Client.findOne({ where: { email } });
+    const client = await Client.findOne({ where: { email }, transaction });
     if (!client) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Client not found" });
     }
 
@@ -205,7 +225,7 @@ exports.forgotPassword = async (req, res) => {
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    await client.update({ otp: hashedOTP, otpExpiresAt });
+    await client.update({ otp: hashedOTP, otpExpiresAt }, { transaction });
 
     await sendMail({
       to: client.email,
@@ -220,44 +240,57 @@ exports.forgotPassword = async (req, res) => {
       `,
     });
 
+    await transaction.commit();
     res.status(200).json({ message: "Password reset OTP sent to email" });
   } catch (err) {
+    await transaction.rollback();
     console.error("Forgot password error:", {
       message: err.message,
       stack: err.stack,
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to process password reset", details: err.message });
+    res.status(500).json({ message: "Failed to process password reset", details: err.message });
   }
 };
 
 exports.resetPassword = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { email, otp, newPassword } = req.body;
 
     if (!email || !otp || !newPassword) {
+      await transaction.rollback();
       return res.status(400).json({ message: "email, otp, and newPassword are required" });
     }
 
-    const client = await Client.findOne({ where: { email } });
+    const client = await Client.findOne({ where: { email }, transaction });
     if (!client) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Client not found" });
     }
 
+    if (!client.otp || !client.otpExpiresAt) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "No OTP found for this client" });
+    }
+
     if (new Date() > client.otpExpiresAt) {
+      await transaction.rollback();
       return res.status(400).json({ message: "OTP expired" });
     }
 
     const isMatch = await bcrypt.compare(otp, client.otp);
     if (!isMatch) {
+      await transaction.rollback();
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await client.update({ password: hashedPassword, otp: null, otpExpiresAt: null });
+    await client.update(
+      { password: hashedPassword, otp: null, otpExpiresAt: null },
+      { transaction }
+    );
 
     await sendMail({
       to: client.email,
@@ -270,17 +303,17 @@ exports.resetPassword = async (req, res) => {
       `,
     });
 
+    await transaction.commit();
     res.status(200).json({ message: "Password reset successfully" });
   } catch (err) {
+    await transaction.rollback();
     console.error("Reset password error:", {
       message: err.message,
       stack: err.stack,
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to reset password", details: err.message });
+    res.status(500).json({ message: "Failed to reset password", details: err.message });
   }
 };
 
@@ -318,9 +351,7 @@ exports.getAllClients = async (req, res) => {
       query: req.query,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch clients", details: err.message });
+    res.status(500).json({ error: "Failed to fetch clients", details: err.message });
   }
 };
 
@@ -336,20 +367,22 @@ exports.getClientById = async (req, res) => {
       clientId: req.params.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch client", details: err.message });
+    res.status(500).json({ error: "Failed to fetch client", details: err.message });
   }
 };
 
 exports.updateClient = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const client = await Client.findByPk(id);
-    if (!client) return res.status(404).json({ error: "Client not found" });
+    const client = await Client.findByPk(id, { transaction });
+    if (!client) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Client not found" });
+    }
 
     const { firstName, lastName, email } = req.body;
-    const image = req.file ? req.file.filename : client.image;
+    const image = req.file ? `uploads/profiles/${req.file.filename}` : client.image;
 
     // Delete old image if new one is uploaded
     if (req.file && client.image) {
@@ -359,36 +392,28 @@ exports.updateClient = async (req, res) => {
 
     // Check if email is changing and already exists
     if (email && email !== client.email) {
-      const existingClient = await Client.findOne({ where: { email } });
+      const existingClient = await Client.findOne({ where: { email }, transaction });
       if (existingClient) {
+        await transaction.rollback();
         return res.status(409).json({ error: "Email already in use" });
       }
     }
 
-    // Update with raw SQL
-    await sequelize.query(
-      `UPDATE Clients 
-       SET firstName = :firstName, 
-           lastName = :lastName, 
-           email = :email, 
-           image = :image 
-       WHERE id = :id`,
+    // Update using Sequelize model method
+    await client.update(
       {
-        replacements: {
-          firstName: firstName || client.firstName,
-          lastName: lastName || client.lastName,
-          email: email || client.email,
-          image,
-          id,
-        },
-        type: sequelize.QueryTypes.UPDATE,
-      }
+        firstName: firstName || client.firstName,
+        lastName: lastName || client.lastName,
+        email: email || client.email,
+        image,
+      },
+      { transaction }
     );
 
-    // Return the updated client
-    const updatedClient = await Client.findByPk(id);
-    res.json({ message: "Client updated", client: updatedClient });
+    await transaction.commit();
+    res.json({ message: "Client updated", client });
   } catch (err) {
+    await transaction.rollback();
     console.error("Update client error:", {
       message: err.message,
       stack: err.stack,
@@ -396,35 +421,36 @@ exports.updateClient = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res.status(500).json({
-      error: "Error updating client",
-      details: err.message,
-    });
+    res.status(500).json({ error: "Error updating client", details: err.message });
   }
 };
 
 exports.deleteClient = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
-    const client = await Client.findByPk(req.params.id);
-    if (!client) return res.status(404).json({ error: "Client not found" });
+    const client = await Client.findByPk(req.params.id, { transaction });
+    if (!client) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Client not found" });
+    }
 
     if (client.image) {
       const filePath = path.join(__dirname, "../Uploads", client.image);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
-    await client.destroy();
+    await client.destroy({ transaction });
+    await transaction.commit();
     res.json({ message: "Client deleted" });
   } catch (err) {
+    await transaction.rollback();
     console.error("Delete client error:", {
       message: err.message,
       stack: err.stack,
       clientId: req.params.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Error deleting client", details: err.message });
+    res.status(500).json({ error: "Error deleting client", details: err.message });
   }
 };
 
@@ -432,12 +458,14 @@ exports.notifyClientOnProjectCompletion = async (projectId) => {
   try {
     const project = await Project.findByPk(projectId, { include: Client });
     if (project && project.Client) {
-      await sendMail(
-        project.Client.email,
-        `Your project '${project.name}' is complete!`,
-        `<p>Hi ${project.Client.firstName},</p>
-         <p>Your project <strong>${project.name}</strong> has been marked as completed.</p>`
-      );
+      await sendMail({
+        to: project.Client.email,
+        subject: `Your project '${project.name}' is complete!`,
+        html: `
+          <p>Hi ${project.Client.firstName},</p>
+          <p>Your project <strong>${project.name}</strong> has been marked as completed.</p>
+        `,
+      });
     }
   } catch (err) {
     console.error("Notify client error:", {
