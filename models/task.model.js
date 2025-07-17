@@ -40,10 +40,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "projectId",
       onDelete: "CASCADE",
     });
-    Task.belongsTo(models.User, {
-      foreignKey: "assignedTo",
-      as: "assignee",
-    });
+    // Task.belongsTo(models.User, {
+    //   foreignKey: "assignedTo",
+    //   as: "assignee",
+    // });
   };
 
   return Task;
