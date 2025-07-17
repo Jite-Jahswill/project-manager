@@ -1,6 +1,6 @@
 module.exports = (sequelize, DataTypes) => {
   const Task = sequelize.define("Task", {
-    title: {
+    Name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
