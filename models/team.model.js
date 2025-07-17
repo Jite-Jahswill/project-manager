@@ -16,24 +16,31 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Team.associate = (models) => {
+    // Users in teams
     Team.belongsToMany(models.User, {
       through: models.UserTeam,
       foreignKey: "teamId",
       otherKey: "userId",
     });
+
+    // Optional: direct FK if you kept teamId in Project (but probably unnecessary now)
     Team.hasMany(models.Project, {
       foreignKey: "teamId",
       onDelete: "CASCADE",
     });
+
+    // UserTeam reverse association
     Team.hasMany(models.UserTeam, {
       foreignKey: "teamId",
       onDelete: "CASCADE",
     });
-    // team.model.js
-Team.belongsToMany(Project, {
-  through: "TeamProject",
-  foreignKey: "teamId",
-});
+
+    // ✅ Correct many-to-many with projects via TeamProject
+    Team.belongsToMany(models.Project, {
+      through: models.TeamProject,
+      foreignKey: "teamId",
+      otherKey: "projectId",
+    });
   };
 
   return Team;
