@@ -17,90 +17,65 @@ db.Report = require("./report.model")(sequelize, DataTypes);
 db.Team = require("./team.model")(sequelize, DataTypes);
 db.Client = require("./client.model")(sequelize, DataTypes);
 db.ClientProject = require("./clientProject.model")(sequelize, DataTypes);
-db.TeamProject = require("./teamProject.model")(sequelize, DataTypes);
 
-// Run model-specific associations
+// Run associations
 Object.keys(db).forEach((modelName) => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
   }
 });
 
-// ========= Associations ========= //
-
-// Clients ↔ Projects
+// Define associations
 db.Project.belongsToMany(db.Client, {
   through: db.ClientProject,
   foreignKey: "projectId",
   otherKey: "clientId",
-  as: "clients",
 });
-// db.Client.belongsToMany(db.Project, {
-//   through: db.ClientProject,
-//   foreignKey: "clientId",
-//   otherKey: "projectId",
-//   as: "projects",
-// });
+db.Client.belongsToMany(db.Project, {
+  through: db.ClientProject,
+  foreignKey: "clientId",
+  otherKey: "projectId",
+});
 
-// Users ↔ Teams
 db.User.belongsToMany(db.Team, {
   through: db.UserTeam,
   foreignKey: "userId",
   otherKey: "teamId",
-  as: "teams",
 });
 db.Team.belongsToMany(db.User, {
   through: db.UserTeam,
   foreignKey: "teamId",
   otherKey: "userId",
-  as: "members",
 });
 
-// Teams ↔ Projects
-db.Project.belongsToMany(db.Team, {
-  through: db.TeamProject,
-  foreignKey: "projectId",
-  otherKey: "teamId",
-  as: "teams",
-});
-db.Team.belongsToMany(db.Project, {
-  through: db.TeamProject,
-  foreignKey: "teamId",
-  otherKey: "projectId",
-  as: "projects",
-});
+db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
+db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// Project → Tasks
-db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE", as: "tasks" });
-// db.Task.belongsTo(db.Project, { foreignKey: "projectId", onDelete: "CASCADE", as: "project" });
+db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
+db.User.hasMany(db.Task, { foreignKey: "assignedTo" });
 
-// Task → Assignee (User)
-// db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee", onDelete: "SET NULL" });
-db.User.hasMany(db.Task, { foreignKey: "assignedTo", as: "tasks", onDelete: "SET NULL" });
+db.User.hasMany(db.WorkLog, { foreignKey: "userId" });
+db.WorkLog.belongsTo(db.User, { foreignKey: "userId" });
 
-// WorkLogs
-db.User.hasMany(db.WorkLog, { foreignKey: "userId", as: "worklogs" });
-db.WorkLog.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.Project.hasMany(db.WorkLog, { foreignKey: "projectId" });
+db.WorkLog.belongsTo(db.Project, { foreignKey: "projectId" });
 
-db.Project.hasMany(db.WorkLog, { foreignKey: "projectId", as: "worklogs" });
-db.WorkLog.belongsTo(db.Project, { foreignKey: "projectId", as: "project" });
+db.Task.hasMany(db.WorkLog, { foreignKey: "taskId" });
+db.WorkLog.belongsTo(db.Task, { foreignKey: "taskId" });
 
-db.Task.hasMany(db.WorkLog, { foreignKey: "taskId", as: "worklogs" });
-db.WorkLog.belongsTo(db.Task, { foreignKey: "taskId", as: "task" });
+db.User.hasMany(db.Leave, { foreignKey: "userId" });
+db.Leave.belongsTo(db.User, { foreignKey: "userId" });
 
-// Leave
-db.User.hasMany(db.Leave, { foreignKey: "userId", as: "leaves" });
-db.Leave.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.Report, { foreignKey: "userId" });
+db.Report.belongsTo(db.User, { foreignKey: "userId" });
 
-// Reports
-db.User.hasMany(db.Report, { foreignKey: "userId", as: "reports" });
-db.Report.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.Project.hasMany(db.Report, { foreignKey: "projectId" });
+db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-db.Project.hasMany(db.Report, { foreignKey: "projectId", as: "reports" });
-db.Report.belongsTo(db.Project, { foreignKey: "projectId", as: "project" });
+db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE" });
+db.Project.belongsTo(db.Team, { foreignKey: "teamId" });
 
-// Optional: Team → Projects
-db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE", as: "ownedProjects" });
-db.Project.belongsTo(db.Team, { foreignKey: "teamId", as: "team" });
+db.Client.hasMany(db.Project, { foreignKey: "clientId" });
+db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
 
 module.exports = db;
