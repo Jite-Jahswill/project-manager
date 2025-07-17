@@ -1,6 +1,5 @@
 const { Sequelize } = require("sequelize");
 const db = require("../models");
-const logger = require("../utils/logger");
 const Project = db.Project;
 const User = db.User;
 const UserTeam = db.UserTeam;
@@ -113,14 +112,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Create project error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
       return res
         .status(500)
         .json({ message: "Failed to create project", details: err.message });
@@ -245,14 +236,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Assign team error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to assign team to project",
         details: err.message,
@@ -369,13 +352,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Get project members error", {
-        message: err.message,
-        stack: err.stack,
-        projectId: req.params.projectId,
-        userId: req.user?.id,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to retrieve project members",
         details: err.message,
@@ -513,14 +489,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Get projects error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        query: req.query,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to retrieve projects",
         details: err.message,
@@ -608,15 +576,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Update project status error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to update status",
         details: err.message,
@@ -788,15 +747,6 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Update project error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
       return res
         .status(500)
         .json({ message: "Failed to update project", details: err.message });
@@ -849,14 +799,6 @@ module.exports = {
       return res.status(200).json({ message: "Project deleted successfully" });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Delete project error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        timestamp: new Date().toISOString(),
-      });
       return res
         .status(500)
         .json({ message: "Failed to delete project", details: err.message });
@@ -895,14 +837,6 @@ module.exports = {
         .json({ message: "Client added to project successfully." });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Add client to project error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to add client to project",
         details: err.message,
@@ -933,14 +867,6 @@ module.exports = {
         .json({ message: "Client removed from project successfully." });
     } catch (err) {
       await transaction.rollback();
-      logger.error("Remove client from project error", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        params: req.params,
-        timestamp: new Date().toISOString(),
-      });
       return res.status(500).json({
         message: "Failed to remove client from project",
         details: err.message,
