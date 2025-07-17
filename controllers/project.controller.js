@@ -1,3 +1,4 @@
+const { Sequelize, DataTypes } = require("sequelize");
 const db = require("../models");
 const Project = db.Project;
 const User = db.User;
@@ -294,6 +295,7 @@ module.exports = {
                 where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
+                as: "Tasks", // Explicitly specify the alias for User.hasMany(Task)
               },
             ],
           },
@@ -372,6 +374,7 @@ module.exports = {
 
   // Get all projects (All authenticated users)
   async getAllProjects(req, res) {
+    const transaction = await db.sequelize.transaction();
     try {
       const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
       const whereClause = {};
@@ -412,6 +415,7 @@ module.exports = {
                     where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("User.id") },
                     required: false,
                     attributes: ["id", "title", "status", "dueDate"],
+                    as: "Tasks", // Explicitly specify the alias for User.hasMany(Task)
                   },
                 ],
               },
@@ -431,6 +435,7 @@ module.exports = {
         ],
         limit: parseInt(limit),
         offset,
+        transaction,
       });
 
       const totalPages = Math.ceil(count / limit);
@@ -483,6 +488,7 @@ module.exports = {
         })),
       }));
 
+      await transaction.commit();
       return res.status(200).json({
         projects: formattedProjects,
         pagination: {
@@ -493,6 +499,7 @@ module.exports = {
         },
       });
     } catch (err) {
+      await transaction.rollback();
       console.error("Get projects error:", {
         message: err.message,
         stack: err.stack,
@@ -716,6 +723,7 @@ module.exports = {
                 where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
+                as: "Tasks",
               },
             ],
           },
