@@ -291,7 +291,7 @@ module.exports = {
             include: [
               {
                 model: Task,
-                where: { projectId },
+                where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
               },
@@ -304,6 +304,13 @@ module.exports = {
       const tasks = await Task.findAll({
         where: { projectId },
         attributes: ["id", "title", "status", "dueDate"],
+        include: [
+          {
+            model: User,
+            as: "assignee",
+            attributes: ["id", "firstName", "lastName"],
+          },
+        ],
         transaction,
       });
 
@@ -341,6 +348,10 @@ module.exports = {
           title: task.title,
           status: task.status,
           dueDate: task.dueDate,
+          assignee: {
+            id: task.assignee.id,
+            name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+          },
         })),
       });
     } catch (err) {
@@ -398,7 +409,7 @@ module.exports = {
                 include: [
                   {
                     model: Task,
-                    where: { projectId: db.Sequelize.col("Project.id") },
+                    where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("User.id") },
                     required: false,
                     attributes: ["id", "title", "status", "dueDate"],
                   },
@@ -409,6 +420,13 @@ module.exports = {
           {
             model: Task,
             attributes: ["id", "title", "status", "dueDate"],
+            include: [
+              {
+                model: User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName"],
+              },
+            ],
           },
         ],
         limit: parseInt(limit),
@@ -458,6 +476,10 @@ module.exports = {
           title: task.title,
           status: task.status,
           dueDate: task.dueDate,
+          assignee: {
+            id: task.assignee.id,
+            name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+          },
         })),
       }));
 
@@ -666,6 +688,13 @@ module.exports = {
       const tasks = await Task.findAll({
         where: { projectId },
         attributes: ["id", "title", "status", "dueDate"],
+        include: [
+          {
+            model: User,
+            as: "assignee",
+            attributes: ["id", "firstName", "lastName"],
+          },
+        ],
         transaction,
       });
 
@@ -684,7 +713,7 @@ module.exports = {
             include: [
               {
                 model: Task,
-                where: { projectId },
+                where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
               },
@@ -728,6 +757,10 @@ module.exports = {
             title: task.title,
             status: task.status,
             dueDate: task.dueDate,
+            assignee: {
+              id: task.assignee.id,
+              name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+            },
           })),
         },
       });
