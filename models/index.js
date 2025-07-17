@@ -75,7 +75,7 @@ db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE", as: 
 // db.Task.belongsTo(db.Project, { foreignKey: "projectId", onDelete: "CASCADE", as: "project" });
 
 // Task → Assignee (User)
-db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee", onDelete: "SET NULL" });
+// db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee", onDelete: "SET NULL" });
 db.User.hasMany(db.Task, { foreignKey: "assignedTo", as: "tasks", onDelete: "SET NULL" });
 
 // WorkLogs
