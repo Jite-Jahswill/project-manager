@@ -63,6 +63,16 @@ db.Project.belongsToMany(db.Team, {
   foreignKey: "projectId",
   otherKey: "teamId",
 });
+db.Team.belongsToMany(db.Project, {
+  through: db.TeamProject,
+  foreignKey: "teamId",
+  otherKey: "projectId",
+});
+db.Project.belongsToMany(db.Team, {
+  through: db.TeamProject,
+  foreignKey: "projectId",
+  otherKey: "teamId",
+});
 
 // Project → Tasks
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
