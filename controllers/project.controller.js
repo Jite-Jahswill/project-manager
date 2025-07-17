@@ -47,86 +47,59 @@ module.exports = {
 
   // Assign an entire team to a project
   async assignTeamToProject(req, res) {
-    try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({
-          message: "Only admins or managers can assign teams to projects.",
-        });
-      }
-
-      const { teamId, projectId, role } = req.body;
-      if (!teamId || !projectId || !role) {
-        return res.status(400).json({
-          message: "teamId, projectId, and role are required",
-        });
-      }
-
-      const team = await db.Team.findByPk(teamId, {
-        include: [{ model: db.User }],
-      });
-
-      const project = await Project.findByPk(projectId);
-      if (!team) return res.status(404).json({ message: "Team not found" });
-      if (!project)
-        return res.status(404).json({ message: "Project not found" });
-
-      const assignedUsers = [];
-
-      for (const user of team.Users) {
-        const alreadyAssigned = await UserTeam.findOne({
-          where: { userId: user.id, projectId },
-        });
-
-        if (!alreadyAssigned) {
-          const assignment = await UserTeam.create({
-            userId: user.id,
-            projectId,
-            role,
-          });
-
-          assignedUsers.push(user);
-
-          // Send mail to each assigned user
-          await sendMail({
-            to: user.email,
-            subject: `You've been assigned to Project: ${project.name}`,
-            html: `
-              <p>Hello ${user.firstName},</p>
-              <p>You've been assigned to the project <strong>${
-                project.name
-              }</strong> as a <strong>${role}</strong>.</p>
-              <p>Start Date: ${project.startDate}</p>
-              <p>End Date: ${project.endDate || "TBD"}</p>
-              <p>Please log in to view your tasks.</p>
-              <p>Best,<br>Team</p>
-            `,
-          });
-        }
-      }
-
-      return res.status(200).json({
-        message: `Team assigned to project successfully. ${assignedUsers.length} members added.`,
-        assignedMembers: assignedUsers.map((u) => ({
-          userId: u.id,
-          email: u.email,
-          name: `${u.firstName} ${u.lastName}`,
-        })),
-      });
-    } catch (err) {
-      console.error("Assign team error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({
-        message: "Failed to assign team to project",
-        details: err.message,
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({
+        message: "Only admins or managers can assign teams to projects.",
       });
     }
-  },
+
+    const { teamId, projectId, note } = req.body;
+
+    if (!teamId || !projectId) {
+      return res.status(400).json({
+        message: "teamId and projectId are required",
+      });
+    }
+
+    const team = await db.Team.findByPk(teamId);
+    const project = await db.Project.findByPk(projectId);
+
+    if (!team) return res.status(404).json({ message: "Team not found" });
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    // Check if already linked
+    const existing = await db.TeamProject.findOne({
+      where: { teamId, projectId },
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: "Team already assigned to project" });
+    }
+
+    // Create the link
+    await db.TeamProject.create({ teamId, projectId, note });
+
+    return res.status(200).json({
+      message: "Team assigned to project successfully.",
+      team: { id: team.id, name: team.name },
+      project: { id: project.id, name: project.name },
+    });
+  } catch (err) {
+    console.error("Assign team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({
+      message: "Failed to assign team to project",
+      details: err.message,
+    });
+  }
+},
 
   // Get all members of a project with roles (All authenticated users)
   async getProjectMembers(req, res) {
@@ -138,74 +111,72 @@ module.exports = {
       return res.status(400).json({ message: "projectId is required" });
 
     const project = await Project.findByPk(projectId, {
-      include: [{ model: Team, attributes: ["id", "name"] }],
+      include: [
+        {
+          model: Team,
+          through: { attributes: [] },
+          attributes: ["id", "name", "description"],
+        },
+      ],
     });
+
     if (!project)
       return res.status(404).json({ message: "Project not found" });
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const { count, rows } = await UserTeam.findAndCountAll({
-      where: { projectId }, // <- This is the correct filter!
+    const teams = await Team.findAll({
       include: [
         {
+          model: Project,
+          where: { id: projectId },
+          through: { attributes: [] },
+        },
+        {
           model: User,
+          through: { attributes: ["role", "projectId"] },
           attributes: ["id", "firstName", "lastName", "email"],
           include: [
             {
               model: Task,
-              attributes: ["id", "title", "status"],
               where: { projectId },
               required: false,
+              attributes: ["id", "title", "status"],
             },
           ],
         },
       ],
-      limit: parseInt(limit),
-      offset,
     });
 
-    const totalPages = Math.ceil(count / limit);
-
-    const formattedMembers = rows.map((member) => ({
-      userId: member.userId,
-      firstName: member.User.firstName,
-      lastName: member.User.lastName,
-      email: member.User.email,
-      role: member.role,
-      tasks: member.User.Tasks?.map((task) => ({
-        taskId: task.id,
-        title: task.title,
-        status: task.status,
-      })) || [],
+    const formattedTeams = teams.map((team) => ({
+      teamId: team.id,
+      name: team.name,
+      description: team.description,
+      members: team.Users.map((user) => ({
+        userId: user.id,
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        role: user.UserTeam.role,
+        tasks: user.Tasks?.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+        })) || [],
+      })),
     }));
 
     return res.status(200).json({
       project: {
         id: project.id,
         name: project.name,
-        team: {
-          id: project.Team?.id,
-          name: project.Team?.name,
-        },
+        description: project.description,
       },
-      members: formattedMembers,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-      },
+      teams: formattedTeams,
     });
   } catch (err) {
     console.error("Get members error:", {
       message: err.message,
       stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
       projectId: req.params.projectId,
-      query: req.query,
-      timestamp: new Date().toISOString(),
+      userId: req.user?.id,
     });
     return res.status(500).json({
       message: "Failed to retrieve project members",
@@ -213,7 +184,7 @@ module.exports = {
     });
   }
 },
-
+  
 async getAllProjects(req, res) {
   try {
     const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
@@ -225,15 +196,11 @@ async getAllProjects(req, res) {
       };
     }
 
-    if (status) {
-      whereClause.status = status;
-    }
-
-    if (startDate) {
-      whereClause.startDate = startDate;
-    }
+    if (status) whereClause.status = status;
+    if (startDate) whereClause.startDate = startDate;
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
     const { count, rows: projects } = await db.Project.findAndCountAll({
       where: whereClause,
       include: [
@@ -244,6 +211,7 @@ async getAllProjects(req, res) {
         },
         {
           model: db.Team,
+          through: { model: db.TeamProject, attributes: [] },
           attributes: ["id", "name", "description"],
         },
       ],
@@ -251,26 +219,22 @@ async getAllProjects(req, res) {
       offset,
     });
 
-    const totalPages = Math.ceil(count / limit);
-
-    // Fetch all UserTeam members and their tasks per project
     const formattedProjects = await Promise.all(
       projects.map(async (project) => {
-        const userTeams = await db.UserTeam.findAll({
-          where: { projectId: project.id },
+        const teams = await db.Team.findAll({
           include: [
             {
+              model: db.Project,
+              where: { id: project.id },
+              through: { attributes: [] },
+            },
+            {
               model: db.User,
+              through: { attributes: ["role", "projectId"] },
               attributes: ["id", "firstName", "lastName", "email"],
               include: [
                 {
-                  model: db.Team,
-                  attributes: ["id", "name"],
-                  through: { attributes: [] },
-                },
-                {
                   model: db.Task,
-                  as: "Tasks",
                   where: { projectId: project.id },
                   required: false,
                   attributes: ["id", "title", "status"],
@@ -280,22 +244,21 @@ async getAllProjects(req, res) {
           ],
         });
 
-        const members = userTeams.map((ut) => ({
-          userId: ut.User.id,
-          firstName: ut.User.firstName,
-          lastName: ut.User.lastName,
-          email: ut.User.email,
-          role: ut.role,
-          teams:
-            ut.User.Teams?.map((team) => ({
-              teamId: team.id,
-              teamName: team.name,
+        const formattedTeams = teams.map((team) => ({
+          teamId: team.id,
+          name: team.name,
+          description: team.description,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            name: `${user.firstName} ${user.lastName}`,
+            email: user.email,
+            role: user.UserTeam.role,
+            tasks: user.Tasks?.map((task) => ({
+              id: task.id,
+              title: task.title,
+              status: task.status,
             })) || [],
-          tasks: ut.User.Tasks?.map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-          })) || [],
+          })),
         }));
 
         return {
@@ -305,24 +268,16 @@ async getAllProjects(req, res) {
           startDate: project.startDate,
           endDate: project.endDate,
           status: project.status,
-          team: project.Team
+          client: project.Clients?.[0]
             ? {
-                id: project.Team.id,
-                name: project.Team.name,
-                description: project.Team.description,
+                id: project.Clients[0].id,
+                firstName: project.Clients[0].firstName,
+                lastName: project.Clients[0].lastName,
+                email: project.Clients[0].email,
+                image: project.Clients[0].image,
               }
             : null,
-          client:
-            project.Clients && project.Clients.length > 0
-              ? {
-                  id: project.Clients[0].id,
-                  firstName: project.Clients[0].firstName,
-                  lastName: project.Clients[0].lastName,
-                  email: project.Clients[0].email,
-                  image: project.Clients[0].image,
-                }
-              : null,
-          members,
+          teams: formattedTeams,
         };
       })
     );
@@ -331,19 +286,17 @@ async getAllProjects(req, res) {
       projects: formattedProjects,
       pagination: {
         currentPage: parseInt(page),
-        totalPages,
+        totalPages: Math.ceil(count / limit),
         totalItems: count,
         itemsPerPage: parseInt(limit),
       },
     });
   } catch (err) {
-    console.error("Get projects error:", {
+    console.error("Get all projects error:", {
       message: err.message,
       stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
       query: req.query,
-      timestamp: new Date().toISOString(),
+      userId: req.user?.id,
     });
     return res.status(500).json({
       message: "Failed to retrieve projects",
