@@ -46,11 +46,11 @@ module.exports = (sequelize, DataTypes) => {
       onDelete: "CASCADE",
       as: "project",
     });
-    // Task.belongsTo(models.User, {
-    //   foreignKey: "assignedTo",
-    //   as: "assignee",
-    //   onDelete: "SET NULL",
-    // });
+    Task.belongsTo(models.User, {
+      foreignKey: "assignedTo",
+      as: "assignee",
+      onDelete: "SET NULL",
+    });
   };
 
   return Task;
