@@ -14,26 +14,16 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
     },
     status: {
-      type: DataTypes.ENUM("Pending", "In Progress", "Review", "Done"),
-      defaultValue: "Pending",
+      type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
+      defaultValue: "To Do",
     },
   });
 
   Project.associate = (models) => {
-    // Many-to-many with Users through UserTeam
     Project.belongsToMany(models.User, {
       through: models.UserTeam,
       foreignKey: "projectId",
     });
-
-    // ✅ Many-to-many with Teams through TeamProject
-    Project.belongsToMany(models.Team, {
-      through: models.TeamProject,
-      foreignKey: "projectId",
-      otherKey: "teamId",
-    });
-
-    // Tasks assigned to this project
     Project.hasMany(models.Task, { foreignKey: "projectId" });
   };
 
