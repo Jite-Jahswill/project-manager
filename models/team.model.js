@@ -1,6 +1,11 @@
 module.exports = (sequelize, DataTypes) => {
-  const Task = sequelize.define("Task", {
-    Name: {
+  const Team = sequelize.define("Team", {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
@@ -8,49 +13,23 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true,
     },
-    status: {
-      type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
-      defaultValue: "To Do",
-    },
-    dueDate: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    projectId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "Projects",
-        key: "id",
-      },
-    },
-    assignedTo: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: "Users",
-        key: "id",
-      },
-    },
-  }, {
-    indexes: [
-      { fields: ["projectId"] },
-      { fields: ["assignedTo"] },
-      { fields: ["projectId", "assignedTo"] },
-    ],
   });
 
-  Task.associate = (models) => {
-    Task.belongsTo(models.Project, {
-      foreignKey: "projectId",
+  Team.associate = (models) => {
+    Team.belongsToMany(models.User, {
+      through: models.UserTeam,
+      foreignKey: "teamId",
+      otherKey: "userId",
+    });
+    Team.hasMany(models.Project, {
+      foreignKey: "teamId",
       onDelete: "CASCADE",
     });
-    Task.belongsTo(models.User, {
-      foreignKey: "assignedTo",
-      as: "assignee",
-      onDelete: "SET NULL",
+    Team.hasMany(models.UserTeam, {
+      foreignKey: "teamId",
+      onDelete: "CASCADE",
     });
   };
 
-  return Task;
+  return Team;
 };
