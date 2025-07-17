@@ -184,60 +184,7 @@ module.exports = {
     });
   }
 },
-  async assignTeamToProject(req, res) {
-  try {
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({
-        message: "Only admins or managers can assign teams to projects.",
-      });
-    }
-
-    const { teamId, projectId, note } = req.body;
-
-    if (!teamId || !projectId) {
-      return res.status(400).json({
-        message: "teamId and projectId are required",
-      });
-    }
-
-    const team = await db.Team.findByPk(teamId);
-    const project = await db.Project.findByPk(projectId);
-
-    if (!team) return res.status(404).json({ message: "Team not found" });
-    if (!project) return res.status(404).json({ message: "Project not found" });
-
-    // Check if already linked
-    const existing = await db.TeamProject.findOne({
-      where: { teamId, projectId },
-    });
-
-    if (existing) {
-      return res.status(400).json({ message: "Team already assigned to project" });
-    }
-
-    // Create the link
-    await db.TeamProject.create({ teamId, projectId, note });
-
-    return res.status(200).json({
-      message: "Team assigned to project successfully.",
-      team: { id: team.id, name: team.name },
-      project: { id: project.id, name: project.name },
-    });
-  } catch (err) {
-    console.error("Assign team error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({
-      message: "Failed to assign team to project",
-      details: err.message,
-    });
-  }
-},
+  
 async getAllProjects(req, res) {
   try {
     const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
