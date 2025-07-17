@@ -492,7 +492,7 @@ module.exports = {
           title: task.title,
           status: task.status,
           dueDate: task.dueDate,
-          assignee | task.assignee
+          assignee: task.assignee
             ? {
                 id: task.assignee.id,
                 name: `${task.assignee.firstName} ${task.assignee.lastName}`,
