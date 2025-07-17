@@ -57,7 +57,7 @@ module.exports = (sequelize, DataTypes) => {
 
   User.associate = (models) => {
     User.hasMany(models.UserTeam, { foreignKey: "userId", onDelete: "CASCADE" });
-    User.hasMany(models.Task, { foreignKey: "assignedTo", as: "tasks", onDelete: "SET NULL" });
+    // User.hasMany(models.Task, { foreignKey: "assignedTo", as: "tasks", onDelete: "SET NULL" });
   };
 
   return User;
