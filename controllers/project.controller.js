@@ -309,10 +309,8 @@ async getAllProjects(req, res) {
   }
 },
 
-  
-
   // Update project status (assigned users)  // Update project status (assigned users)
-  async updateProjectStatus(req, res) {  async updateProjectStatus(req, res) {
+  async updateProjectStatus(req, res) {
     try {
       const { projectId } = req.params;
       const { status } = req.body;
