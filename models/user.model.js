@@ -34,29 +34,16 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    phoneNumber: {
-      type: DataTypes.STRING,
-      unique: true,
-      allowNull: true,
-    },
     fullName: {
       type: DataTypes.VIRTUAL,
       get() {
         return `${this.firstName} ${this.lastName}`;
       },
     },
-    otp: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    otpExpiresAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
   });
 
   User.associate = (models) => {
-    User.hasMany(models.UserTeam, { foreignKey: "userId", onDelete: "CASCADE", as: "userTeams" });
+    User.hasMany(models.UserTeam, { foreignKey: "userId" });
   };
 
   return User;
