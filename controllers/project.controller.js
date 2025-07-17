@@ -1,5 +1,6 @@
-const { Sequelize, DataTypes } = require("sequelize");
+const { Sequelize } = require("sequelize");
 const db = require("../models");
+const logger = require("../utils/logger");
 const Project = db.Project;
 const User = db.User;
 const UserTeam = db.UserTeam;
@@ -112,7 +113,7 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      console.error("Create project error:", {
+      logger.error("Create project error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -193,6 +194,7 @@ module.exports = {
             model: User,
             as: "assignee",
             attributes: ["id", "firstName", "lastName"],
+            required: false,
           },
         ],
         transaction,
@@ -243,7 +245,7 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      console.error("Assign team error:", {
+      logger.error("Assign team error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -317,6 +319,7 @@ module.exports = {
             model: User,
             as: "assignee",
             attributes: ["id", "firstName", "lastName"],
+            required: false,
           },
         ],
         transaction,
@@ -366,7 +369,7 @@ module.exports = {
       });
     } catch (err) {
       await transaction.rollback();
-      console.error("Get members error:", {
+      logger.error("Get project members error", {
         message: err.message,
         stack: err.stack,
         projectId: req.params.projectId,
@@ -380,156 +383,150 @@ module.exports = {
     }
   },
 
-async getAllProjects(req, res) {
-  const transaction = await db.sequelize.transaction();
-  try {
-    const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-    const whereClause = {};
+  async getAllProjects(req, res) {
+    const transaction = await db.sequelize.transaction();
+    try {
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const whereClause = {};
 
-    if (projectName) {
-      whereClause.name = {
-        [db.Sequelize.Op.like]: `%${projectName}%`,
-      };
-    }
-    if (status) {
-      whereClause.status = status;
-    }
-    if (startDate) {
-      whereClause.startDate = startDate;
-    }
+      if (projectName) {
+        whereClause.name = {
+          [db.Sequelize.Op.like]: `%${projectName}%`,
+        };
+      }
+      if (status) {
+        whereClause.status = status;
+      }
+      if (startDate) {
+        whereClause.startDate = startDate;
+      }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    const { count, rows } = await Project.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: Client,
-          through: { model: db.ClientProject, attributes: [] },
-          attributes: ["id", "firstName", "lastName", "email", "image"],
-        },
-        {
-          model: Team,
-          through: { model: TeamProject, attributes: ["note"] },
-          attributes: ["id", "name", "description"],
-          include: [
-            {
-              model: User,
-              through: {
-                model: UserTeam,
-                attributes: ["role", "note"],
-                where: { projectId: db.Sequelize.col("Project.id") },
-              },
-              attributes: ["id", "firstName", "lastName", "email"],
-              include: [
-                {
-                  model: Task,
-                  as: "tasks",
-                  where: {
-                    projectId: db.Sequelize.col("Project.id"),
-                    assignedTo: db.Sequelize.col("User.id"),
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { count, rows } = await Project.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: Client,
+            through: { model: db.ClientProject, attributes: [] },
+            attributes: ["id", "firstName", "lastName", "email", "image"],
+          },
+          {
+            model: Team,
+            through: { model: TeamProject, attributes: ["note"] },
+            attributes: ["id", "name", "description"],
+            include: [
+              {
+                model: User,
+                through: { model: UserTeam, attributes: ["role", "note"], where: { projectId: db.Sequelize.col("Project.id") } },
+                attributes: ["id", "firstName", "lastName", "email"],
+                include: [
+                  {
+                    model: Task,
+                    where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("User.id") },
+                    required: false,
+                    attributes: ["id", "title", "status", "dueDate"],
+                    as: "tasks",
                   },
-                  required: false,
-                  attributes: ["id", "title", "status", "dueDate"],
-                },
-              ],
-            },
-          ],
-        },
-        {
-          model: Task,
-          attributes: ["id", "title", "status", "dueDate"],
-          include: [
-            {
-              model: User,
-              as: "assignee",
-              attributes: ["id", "firstName", "lastName"],
-            },
-          ],
-        },
-      ],
-      limit: parseInt(limit),
-      offset,
-      transaction,
-    });
+                ],
+              },
+            ],
+          },
+          {
+            model: Task,
+            attributes: ["id", "title", "status", "dueDate"],
+            include: [
+              {
+                model: User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName"],
+                required: false,
+              },
+            ],
+          },
+        ],
+        limit: parseInt(limit),
+        offset,
+        transaction,
+      });
 
-    const totalPages = Math.ceil(count / limit);
+      const totalPages = Math.ceil(count / limit);
 
-    const formattedProjects = rows.map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      status: project.status,
-      client:
-        project.Clients && project.Clients.length > 0
-          ? {
-              id: project.Clients[0].id,
-              firstName: project.Clients[0].firstName,
-              lastName: project.Clients[0].lastName,
-              email: project.Clients[0].email,
-              image: project.Clients[0].image,
-            }
-          : null,
-      teams: project.Teams.map((team) => ({
-        teamId: team.id,
-        name: team.name,
-        description: team.description,
-        note: team.TeamProjects[0]?.note,
-        members: team.Users.map((user) => ({
-          userId: user.id,
-          name: `${user.firstName} ${user.lastName}`,
-          email: user.email,
-          role: user.UserTeam.role,
-          note: user.UserTeam.note,
-          tasks: user.tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            dueDate: task.dueDate,
+      const formattedProjects = rows.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+        client:
+          project.Clients && project.Clients.length > 0
+            ? {
+                id: project.Clients[0].id,
+                firstName: project.Clients[0].firstName,
+                lastName: project.Clients[0].lastName,
+                email: project.Clients[0].email,
+                image: project.Clients[0].image,
+              }
+            : null,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          name: team.name,
+          description: team.description,
+          note: team.TeamProjects[0]?.note,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            name: `${user.firstName} ${user.lastName}`,
+            email: user.email,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+            tasks: user.tasks.map((task) => ({
+              id: task.id,
+              title: task.title,
+              status: task.status,
+              dueDate: task.dueDate,
+            })),
           })),
         })),
-      })),
-      tasks: project.Tasks.map((task) => ({
-        id: task.id,
-        title: task.title,
-        status: task.status,
-        dueDate: task.dueDate,
-        assignee: task.assignee
-          ? {
-              id: task.assignee.id,
-              name: `${task.assignee.firstName} ${task.assignee.lastName}`,
-            }
-          : null,
-      })),
-    }));
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee | task.assignee
+            ? {
+                id: task.assignee.id,
+                name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+              }
+            : null,
+        })),
+      }));
 
-    await transaction.commit();
-    return res.status(200).json({
-      projects: formattedProjects,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-      },
-    });
-  } catch (err) {
-    await transaction.rollback();
-    console.error("Get projects error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      query: req.query,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({
-      message: "Failed to retrieve projects",
-      details: err.message,
-    });
-  }
-},
+      await transaction.commit();
+      return res.status(200).json({
+        projects: formattedProjects,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
+    } catch (err) {
+      await transaction.rollback();
+      logger.error("Get projects error", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({
+        message: "Failed to retrieve projects",
+        details: err.message,
+      });
+    }
+  },
 
   async updateProjectStatus(req, res) {
     const transaction = await db.sequelize.transaction();
@@ -611,7 +608,7 @@ async getAllProjects(req, res) {
       });
     } catch (err) {
       await transaction.rollback();
-      console.error("Update status error:", {
+      logger.error("Update project status error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -714,6 +711,7 @@ async getAllProjects(req, res) {
             model: User,
             as: "assignee",
             attributes: ["id", "firstName", "lastName"],
+            required: false,
           },
         ],
         transaction,
@@ -790,7 +788,7 @@ async getAllProjects(req, res) {
       });
     } catch (err) {
       await transaction.rollback();
-      console.error("Update project error:", {
+      logger.error("Update project error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -851,7 +849,7 @@ async getAllProjects(req, res) {
       return res.status(200).json({ message: "Project deleted successfully" });
     } catch (err) {
       await transaction.rollback();
-      console.error("Delete project error:", {
+      logger.error("Delete project error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -897,7 +895,7 @@ async getAllProjects(req, res) {
         .json({ message: "Client added to project successfully." });
     } catch (err) {
       await transaction.rollback();
-      console.error("Add client to project error:", {
+      logger.error("Add client to project error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
@@ -935,7 +933,7 @@ async getAllProjects(req, res) {
         .json({ message: "Client removed from project successfully." });
     } catch (err) {
       await transaction.rollback();
-      console.error("Remove client from project error:", {
+      logger.error("Remove client from project error", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
