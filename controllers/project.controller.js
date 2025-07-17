@@ -146,7 +146,7 @@ module.exports = {
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     const { count, rows } = await UserTeam.findAndCountAll({
-      where: { teamId: project.teamId }, // Get users from the team assigned to this project
+      where: { projectId }, // <- This is the correct filter!
       include: [
         {
           model: User,
@@ -156,7 +156,7 @@ module.exports = {
               model: Task,
               attributes: ["id", "title", "status"],
               where: { projectId },
-              required: false, // Allow users even if they have no tasks
+              required: false,
             },
           ],
         },
@@ -173,11 +173,11 @@ module.exports = {
       lastName: member.User.lastName,
       email: member.User.email,
       role: member.role,
-      tasks: member.User.Tasks.map((task) => ({
+      tasks: member.User.Tasks?.map((task) => ({
         taskId: task.id,
         title: task.title,
         status: task.status,
-      })),
+      })) || [],
     }));
 
     return res.status(200).json({
