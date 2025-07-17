@@ -11,7 +11,6 @@ const sendMail = require("../utils/mailer");
 const { notifyClientOnProjectCompletion } = require("./client.controller");
 
 module.exports = {
-  // Create a new project (Admin or Manager)
   async createProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -127,7 +126,6 @@ module.exports = {
     }
   },
 
-  // Assign an entire team to a project
   async assignTeamToProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -190,6 +188,13 @@ module.exports = {
       const tasks = await Task.findAll({
         where: { projectId },
         attributes: ["id", "title", "status", "dueDate"],
+        include: [
+          {
+            model: User,
+            as: "assignee",
+            attributes: ["id", "firstName", "lastName"],
+          },
+        ],
         transaction,
       });
 
@@ -221,12 +226,14 @@ module.exports = {
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
             role,
-          })),
-          tasks: tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            status: task.status,
-            dueDate: task.dueDate,
+            tasks: tasks
+              .filter((task) => task.assignee && task.assignee.id === user.id)
+              .map((task) => ({
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                dueDate: task.dueDate,
+              })),
           })),
         },
         project: {
@@ -251,7 +258,6 @@ module.exports = {
     }
   },
 
-  // Get all members of a project with roles (All authenticated users)
   async getProjectMembers(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -295,7 +301,7 @@ module.exports = {
                 where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
-                as: "Tasks", // Explicitly specify the alias for User.hasMany(Task)
+                as: "tasks",
               },
             ],
           },
@@ -327,7 +333,7 @@ module.exports = {
           email: user.email,
           role: user.UserTeam.role,
           note: user.UserTeam.note,
-          tasks: user.Tasks.map((task) => ({
+          tasks: user.tasks.map((task) => ({
             id: task.id,
             title: task.title,
             status: task.status,
@@ -350,10 +356,12 @@ module.exports = {
           title: task.title,
           status: task.status,
           dueDate: task.dueDate,
-          assignee: {
-            id: task.assignee.id,
-            name: `${task.assignee.firstName} ${task.assignee.lastName}`,
-          },
+          assignee: task.assignee
+            ? {
+                id: task.assignee.id,
+                name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+              }
+            : null,
         })),
       });
     } catch (err) {
@@ -372,7 +380,6 @@ module.exports = {
     }
   },
 
-  // Get all projects (All authenticated users)
   async getAllProjects(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -415,7 +422,7 @@ module.exports = {
                     where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("User.id") },
                     required: false,
                     attributes: ["id", "title", "status", "dueDate"],
-                    as: "Tasks", // Explicitly specify the alias for User.hasMany(Task)
+                    as: "tasks",
                   },
                 ],
               },
@@ -468,7 +475,7 @@ module.exports = {
             email: user.email,
             role: user.UserTeam.role,
             note: user.UserTeam.note,
-            tasks: user.Tasks.map((task) => ({
+            tasks: user.tasks.map((task) => ({
               id: task.id,
               title: task.title,
               status: task.status,
@@ -481,10 +488,12 @@ module.exports = {
           title: task.title,
           status: task.status,
           dueDate: task.dueDate,
-          assignee: {
-            id: task.assignee.id,
-            name: `${task.assignee.firstName} ${task.assignee.lastName}`,
-          },
+          assignee: task.assignee
+            ? {
+                id: task.assignee.id,
+                name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+              }
+            : null,
         })),
       }));
 
@@ -515,7 +524,6 @@ module.exports = {
     }
   },
 
-  // Update project status (assigned users)
   async updateProjectStatus(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -612,7 +620,6 @@ module.exports = {
     }
   },
 
-  // Update full project (admin or manager)
   async updateProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -723,7 +730,7 @@ module.exports = {
                 where: { projectId, assignedTo: db.Sequelize.col("User.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
-                as: "Tasks",
+                as: "tasks",
               },
             ],
           },
@@ -752,7 +759,7 @@ module.exports = {
               email: user.email,
               role: user.UserTeam.role,
               note: user.UserTeam.note,
-              tasks: user.Tasks.map((task) => ({
+              tasks: user.tasks.map((task) => ({
                 id: task.id,
                 title: task.title,
                 status: task.status,
@@ -765,10 +772,12 @@ module.exports = {
             title: task.title,
             status: task.status,
             dueDate: task.dueDate,
-            assignee: {
-              id: task.assignee.id,
-              name: `${task.assignee.firstName} ${task.assignee.lastName}`,
-            },
+            assignee: task.assignee
+              ? {
+                  id: task.assignee.id,
+                  name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+                }
+              : null,
           })),
         },
       });
@@ -789,7 +798,6 @@ module.exports = {
     }
   },
 
-  // Delete project (admin or manager)
   async deleteProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -850,7 +858,6 @@ module.exports = {
     }
   },
 
-  // Add client to project
   async addClientToProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -898,7 +905,6 @@ module.exports = {
     }
   },
 
-  // Remove client from project
   async removeClientFromProject(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
