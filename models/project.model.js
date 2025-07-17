@@ -20,15 +20,20 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Project.associate = (models) => {
+    // Many-to-many with Users through UserTeam
     Project.belongsToMany(models.User, {
       through: models.UserTeam,
       foreignKey: "projectId",
     });
-    // project.model.js
-Project.belongsToMany(Team, {
-  through: "TeamProject",
-  foreignKey: "projectId",
-});
+
+    // ✅ Many-to-many with Teams through TeamProject
+    Project.belongsToMany(models.Team, {
+      through: models.TeamProject,
+      foreignKey: "projectId",
+      otherKey: "teamId",
+    });
+
+    // Tasks assigned to this project
     Project.hasMany(models.Task, { foreignKey: "projectId" });
   };
 
