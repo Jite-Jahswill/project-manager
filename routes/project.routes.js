@@ -360,7 +360,7 @@ module.exports = (app) => {
    *                 endDate: "2025-12-31"
    *                 status: "Pending"
    *       400:
-   *         description: Missing required fields or invalid input
+   *         description: Missing required fields, invalid input, or team already assigned to project
    *         content:
    *           application/json:
    *             schema:
@@ -399,16 +399,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Team not found"
-   *       400:
-   *         description: Team already assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Team already assigned to project"
    *       500:
    *         description: Internal server error
    *         content:
@@ -1291,7 +1281,7 @@ module.exports = (app) => {
     "/:projectId/clients/:clientId",
     authMiddleware.verifyToken,
     authMiddleware.isAdminOrManager,
-    projectController.removeClientToProject
+    projectController.removeClientFromProject
   );
 
   app.use("/api/projects", router);
