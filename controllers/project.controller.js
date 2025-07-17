@@ -211,7 +211,7 @@ async getAllProjects(req, res) {
         },
         {
           model: db.Team,
-          through: { model: db.TeamProject, attributes: [] },
+          through: { attributes: [] }, // ✅ FIXED: do NOT use model: db.TeamProject here
           attributes: ["id", "name", "description"],
         },
       ],
@@ -227,10 +227,14 @@ async getAllProjects(req, res) {
               model: db.Project,
               where: { id: project.id },
               through: { attributes: [] },
+              attributes: [],
             },
             {
               model: db.User,
-              through: { attributes: ["role", "projectId"] },
+              through: {
+                attributes: ["role", "projectId"],
+                where: { projectId: project.id },
+              },
               attributes: ["id", "firstName", "lastName", "email"],
               include: [
                 {
@@ -252,7 +256,7 @@ async getAllProjects(req, res) {
             userId: user.id,
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
-            role: user.UserTeam.role,
+            role: user.UserTeam?.role,
             tasks: user.Tasks?.map((task) => ({
               id: task.id,
               title: task.title,
@@ -304,7 +308,7 @@ async getAllProjects(req, res) {
     });
   }
 },
-
+  
   // Update project status (assigned users)
   async updateProjectStatus(req, res) {
     try {
