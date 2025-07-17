@@ -40,7 +40,7 @@ module.exports = {
       let assignedTeam = null;
       if (teamId) {
         const team = await Team.findByPk(teamId, {
-          include: [{ model: User }],
+          include: [{ model: User, as: "members" }],
           transaction,
         });
         if (!team) {
@@ -53,7 +53,7 @@ module.exports = {
           { transaction }
         );
 
-        const userAssignments = team.Users.map((user) =>
+        const userAssignments = team.members.map((user) =>
           UserTeam.create(
             {
               userId: user.id,
@@ -67,7 +67,7 @@ module.exports = {
         );
         await Promise.all(userAssignments);
 
-        const emailPromises = team.Users.map((user) =>
+        const emailPromises = team.members.map((user) =>
           sendMail({
             to: user.email,
             subject: `Assigned to New Project: ${project.name}`,
@@ -87,7 +87,7 @@ module.exports = {
           teamId: team.id,
           name: team.name,
           description: team.description,
-          members: team.Users.map((user) => ({
+          members: team.members.map((user) => ({
             userId: user.id,
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
@@ -138,7 +138,7 @@ module.exports = {
       }
 
       const team = await Team.findByPk(teamId, {
-        include: [{ model: User }],
+        include: [{ model: User, as: "members" }],
         transaction,
       });
       const project = await Project.findByPk(projectId, { transaction });
@@ -163,7 +163,7 @@ module.exports = {
 
       await TeamProject.create({ teamId, projectId, note }, { transaction });
 
-      const userAssignments = team.Users.map((user) =>
+      const userAssignments = team.members.map((user) =>
         UserTeam.upsert(
           {
             userId: user.id,
@@ -191,7 +191,7 @@ module.exports = {
         transaction,
       });
 
-      const emailPromises = team.Users.map((user) =>
+      const emailPromises = team.members.map((user) =>
         sendMail({
           to: user.email,
           subject: `Assigned to Project: ${project.name}`,
@@ -214,7 +214,7 @@ module.exports = {
           teamId: team.id,
           name: team.name,
           description: team.description,
-          members: team.Users.map((user) => ({
+          members: team.members.map((user) => ({
             userId: user.id,
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
@@ -258,6 +258,13 @@ module.exports = {
             model: Team,
             through: { model: TeamProject, attributes: ["note"] },
             attributes: ["id", "name", "description"],
+            as: "teams",
+          },
+          {
+            model: Client,
+            through: { model: db.ClientProject, attributes: [] },
+            attributes: ["id", "firstName", "lastName", "email", "image"],
+            as: "clients",
           },
         ],
         transaction,
@@ -275,15 +282,17 @@ module.exports = {
             where: { id: projectId },
             through: { model: TeamProject, attributes: ["note"] },
             attributes: [],
+            as: "projects",
           },
           {
             model: User,
             through: { model: UserTeam, attributes: ["role", "note"], where: { projectId } },
             attributes: ["id", "firstName", "lastName", "email"],
+            as: "members",
             include: [
               {
                 model: Task,
-                where: { projectId, assignedTo: db.Sequelize.col("User.id") },
+                where: { projectId, assignedTo: db.Sequelize.col("members.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
                 as: "tasks",
@@ -312,8 +321,8 @@ module.exports = {
         teamId: team.id,
         name: team.name,
         description: team.description,
-        note: team.TeamProjects[0]?.note,
-        members: team.Users.map((user) => ({
+        note: team.projects[0]?.TeamProject?.note,
+        members: team.members.map((user) => ({
           userId: user.id,
           name: `${user.firstName} ${user.lastName}`,
           email: user.email,
@@ -335,6 +344,12 @@ module.exports = {
           name: project.name,
           description: project.description,
           status: project.status,
+          clients: project.clients.map((client) => ({
+            id: client.id,
+            name: `${client.firstName} ${client.lastName}`,
+            email: client.email,
+            image: client.image,
+          })),
         },
         teams: formattedTeams,
         tasks: tasks.map((task) => ({
@@ -378,30 +393,41 @@ module.exports = {
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
-      const { count, rows } = await Project.findAndCountAll({
+      const queryOptions = {
         where: whereClause,
         include: [
           {
             model: Client,
             through: { model: db.ClientProject, attributes: [] },
             attributes: ["id", "firstName", "lastName", "email", "image"],
+            as: "clients",
+            required: false,
           },
           {
             model: Team,
             through: { model: TeamProject, attributes: ["note"] },
             attributes: ["id", "name", "description"],
+            as: "teams",
             include: [
               {
                 model: User,
                 through: { model: UserTeam, attributes: ["role", "note"], where: { projectId: db.Sequelize.col("Project.id") } },
                 attributes: ["id", "firstName", "lastName", "email"],
+                as: "members",
                 include: [
                   {
                     model: Task,
-                    where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("User.id") },
+                    where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("members.id") },
                     required: false,
                     attributes: ["id", "title", "status", "dueDate"],
                     as: "tasks",
+                  },
+                  {
+                    model: UserTeam,
+                    where: { projectId: db.Sequelize.col("Project.id") },
+                    required: false,
+                    attributes: ["role", "note"],
+                    as: "userTeams",
                   },
                 ],
               },
@@ -410,6 +436,7 @@ module.exports = {
           {
             model: Task,
             attributes: ["id", "title", "status", "dueDate"],
+            as: "tasks",
             include: [
               {
                 model: User,
@@ -423,7 +450,9 @@ module.exports = {
         limit: parseInt(limit),
         offset,
         transaction,
-      });
+      };
+
+      const { count, rows } = await Project.findAndCountAll(queryOptions);
 
       const totalPages = Math.ceil(count / limit);
 
@@ -434,22 +463,21 @@ module.exports = {
         startDate: project.startDate,
         endDate: project.endDate,
         status: project.status,
-        client:
-          project.Clients && project.Clients.length > 0
-            ? {
-                id: project.Clients[0].id,
-                firstName: project.Clients[0].firstName,
-                lastName: project.Clients[0].lastName,
-                email: project.Clients[0].email,
-                image: project.Clients[0].image,
-              }
-            : null,
-        teams: project.Teams.map((team) => ({
+        clients: project.clients && project.clients.length > 0
+          ? project.clients.map((client) => ({
+              id: client.id,
+              firstName: client.firstName,
+              lastName: client.lastName,
+              email: client.email,
+              image: client.image,
+            }))
+          : [],
+        teams: project.teams.map((team) => ({
           teamId: team.id,
           name: team.name,
           description: team.description,
           note: team.TeamProjects[0]?.note,
-          members: team.Users.map((user) => ({
+          members: team.members.map((user) => ({
             userId: user.id,
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
@@ -463,7 +491,7 @@ module.exports = {
             })),
           })),
         })),
-        tasks: project.Tasks.map((task) => ({
+        tasks: project.tasks.map((task) => ({
           id: task.id,
           title: task.title,
           status: task.status,
@@ -529,6 +557,7 @@ module.exports = {
         include: {
           model: UserTeam,
           where: { projectId },
+          as: "userTeams",
         },
         transaction,
       });
@@ -615,7 +644,7 @@ module.exports = {
 
       if (teamId) {
         const team = await Team.findByPk(teamId, {
-          include: [{ model: User }],
+          include: [{ model: User, as: "members" }],
           transaction,
         });
         if (!team) {
@@ -632,7 +661,7 @@ module.exports = {
 
           await UserTeam.destroy({ where: { projectId }, transaction });
 
-          const userAssignments = team.Users.map((user) =>
+          const userAssignments = team.members.map((user) =>
             UserTeam.create(
               {
                 userId: user.id,
@@ -646,7 +675,7 @@ module.exports = {
           );
           await Promise.all(userAssignments);
 
-          const emailPromises = team.Users.map((user) =>
+          const emailPromises = team.members.map((user) =>
             sendMail({
               to: user.email,
               subject: `Project Updated: ${project.name}`,
@@ -683,15 +712,17 @@ module.exports = {
             where: { id: projectId },
             through: { model: TeamProject, attributes: ["note"] },
             attributes: [],
+            as: "projects",
           },
           {
             model: User,
             through: { model: UserTeam, attributes: ["role", "note"], where: { projectId } },
             attributes: ["id", "firstName", "lastName", "email"],
+            as: "members",
             include: [
               {
                 model: Task,
-                where: { projectId, assignedTo: db.Sequelize.col("User.id") },
+                where: { projectId, assignedTo: db.Sequelize.col("members.id") },
                 required: false,
                 attributes: ["id", "title", "status", "dueDate"],
                 as: "tasks",
@@ -699,6 +730,20 @@ module.exports = {
             ],
           },
         ],
+        transaction,
+      });
+
+      const clients = await Client.findAll({
+        include: [
+          {
+            model: Project,
+            where: { id: projectId },
+            through: { model: db.ClientProject, attributes: [] },
+            attributes: [],
+            as: "projects",
+          },
+        ],
+        attributes: ["id", "firstName", "lastName", "email", "image"],
         transaction,
       });
 
@@ -712,12 +757,18 @@ module.exports = {
           startDate: project.startDate,
           endDate: project.endDate,
           status: project.status,
+          clients: clients.map((client) => ({
+            id: client.id,
+            name: `${client.firstName} ${client.lastName}`,
+            email: client.email,
+            image: client.image,
+          })),
           teams: teams.map((team) => ({
             teamId: team.id,
             name: team.name,
             description: team.description,
-            note: team.TeamProjects[0]?.note,
-            members: team.Users.map((user) => ({
+            note: team.projects[0]?.TeamProject?.note,
+            members: team.members.map((user) => ({
               userId: user.id,
               name: `${user.firstName} ${user.lastName}`,
               email: user.email,
@@ -775,6 +826,7 @@ module.exports = {
         include: {
           model: UserTeam,
           where: { projectId },
+          as: "userTeams",
         },
         transaction,
       });
