@@ -29,6 +29,11 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "teamId",
       onDelete: "CASCADE",
     });
+    // team.model.js
+Team.belongsToMany(Project, {
+  through: "TeamProject",
+  foreignKey: "teamId",
+});
   };
 
   return Team;
