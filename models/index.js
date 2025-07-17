@@ -35,12 +35,12 @@ db.Project.belongsToMany(db.Client, {
   otherKey: "clientId",
   as: "clients",
 });
-db.Client.belongsToMany(db.Project, {
-  through: db.ClientProject,
-  foreignKey: "clientId",
-  otherKey: "projectId",
-  as: "projects",
-});
+// db.Client.belongsToMany(db.Project, {
+//   through: db.ClientProject,
+//   foreignKey: "clientId",
+//   otherKey: "projectId",
+//   as: "projects",
+// });
 
 // Users ↔ Teams
 db.User.belongsToMany(db.Team, {
