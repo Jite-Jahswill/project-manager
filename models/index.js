@@ -52,12 +52,7 @@ db.Team.belongsToMany(db.User, {
   otherKey: "userId",
 });
 
-// Teams ↔ Projects (NEW)
-db.Team.belongsToMany(db.Project, {
-  through: db.TeamProject,
-  foreignKey: "teamId",
-  otherKey: "projectId",
-});
+// Teams ↔ Projects
 db.Project.belongsToMany(db.Team, {
   through: db.TeamProject,
   foreignKey: "projectId",
@@ -67,20 +62,15 @@ db.Team.belongsToMany(db.Project, {
   through: db.TeamProject,
   foreignKey: "teamId",
   otherKey: "projectId",
-});
-db.Project.belongsToMany(db.Team, {
-  through: db.TeamProject,
-  foreignKey: "projectId",
-  otherKey: "teamId",
 });
 
 // Project → Tasks
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
-db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
+db.Task.belongsTo(db.Project, { foreignKey: "projectId", onDelete: "CASCADE" });
 
 // Task → Assignee (User)
-// db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
-db.User.hasMany(db.Task, { foreignKey: "assignedTo" });
+db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
+db.User.hasMany(db.Task, { foreignKey: "assignedTo", as: "tasks" });
 
 // WorkLogs
 db.User.hasMany(db.WorkLog, { foreignKey: "userId" });
