@@ -375,154 +375,151 @@ module.exports = {
   },
 
   async getAllProjects(req, res) {
-    const transaction = await db.sequelize.transaction();
-    try {
-      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-      const whereClause = {};
+  const transaction = await db.sequelize.transaction();
+  try {
+    const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+    const whereClause = {};
 
-      if (projectName) {
-        whereClause.name = {
-          [db.Sequelize.Op.like]: `%${projectName}%`,
-        };
-      }
-      if (status) {
-        whereClause.status = status;
-      }
-      if (startDate) {
-        whereClause.startDate = startDate;
-      }
-
-      const offset = (parseInt(page) - 1) * parseInt(limit);
-      const queryOptions = {
-        where: whereClause,
-        include: [
-          {
-            model: Client,
-            through: { model: db.ClientProject, attributes: [] },
-            attributes: ["id", "firstName", "lastName", "email", "image"],
-            as: "clients",
-            required: false,
-          },
-          {
-            model: Team,
-            through: { model: TeamProject, attributes: ["note"] },
-            attributes: ["id", "name", "description"],
-            as: "teams",
-            include: [
-              {
-                model: User,
-                through: { model: UserTeam, attributes: ["role", "note"], where: { projectId: db.Sequelize.col("Project.id") } },
-                attributes: ["id", "firstName", "lastName", "email"],
-                as: "members",
-                include: [
-                  {
-                    model: Task,
-                    where: { projectId: db.Sequelize.col("Project.id"), assignedTo: db.Sequelize.col("members.id") },
-                    required: false,
-                    attributes: ["id", "title", "status", "dueDate"],
-                    as: "tasks",
-                  },
-                  {
-                    model: UserTeam,
-                    where: { projectId: db.Sequelize.col("Project.id") },
-                    required: false,
-                    attributes: ["role", "note"],
-                    as: "userTeams",
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            model: Task,
-            attributes: ["id", "title", "status", "dueDate"],
-            as: "tasks",
-            include: [
-              {
-                model: User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName"],
-                required: false,
-              },
-            ],
-          },
-        ],
-        limit: parseInt(limit),
-        offset,
-        transaction,
+    if (projectName) {
+      whereClause.name = {
+        [db.Sequelize.Op.like]: `%${projectName}%`,
       };
+    }
+    if (status) {
+      whereClause.status = status;
+    }
+    if (startDate) {
+      whereClause.startDate = startDate;
+    }
 
-      const { count, rows } = await Project.findAndCountAll(queryOptions);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const queryOptions = {
+      where: whereClause,
+      include: [
+        {
+          model: Client,
+          through: { model: db.ClientProject, attributes: [] },
+          attributes: ["id", "firstName", "lastName", "email", "image"],
+          as: "clients",
+          required: false,
+        },
+        {
+          model: Team,
+          through: { model: TeamProject, attributes: ["note"] },
+          attributes: ["id", "name", "description"],
+          as: "teams",
+          include: [
+            {
+              model: User,
+              through: {
+                model: UserTeam,
+                attributes: ["role", "note"],
+                where: { projectId: db.Sequelize.col("Project.id") },
+              },
+              attributes: ["id", "firstName", "lastName", "email"],
+              as: "members",
+              include: [
+                {
+                  model: Task,
+                  where: { projectId: db.Sequelize.col("Project.id") },
+                  required: false,
+                  attributes: ["id", "title", "status", "dueDate"],
+                  as: "tasks",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          model: Task,
+          attributes: ["id", "title", "status", "dueDate"],
+          as: "tasks",
+          include: [
+            {
+              model: User,
+              as: "assignee",
+              attributes: ["id", "firstName", "lastName"],
+              required: false,
+            },
+          ],
+        },
+      ],
+      limit: parseInt(limit),
+      offset,
+      transaction,
+    };
 
-      const totalPages = Math.ceil(count / limit);
+    const { count, rows } = await Project.findAndCountAll(queryOptions);
 
-      const formattedProjects = rows.map((project) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        startDate: project.startDate,
-        endDate: project.endDate,
-        status: project.status,
-        clients: project.clients && project.clients.length > 0
-          ? project.clients.map((client) => ({
-              id: client.id,
-              firstName: client.firstName,
-              lastName: client.lastName,
-              email: client.email,
-              image: client.image,
-            }))
-          : [],
-        teams: project.teams.map((team) => ({
-          teamId: team.id,
-          name: team.name,
-          description: team.description,
-          note: team.TeamProjects[0]?.note,
-          members: team.members.map((user) => ({
-            userId: user.id,
-            name: `${user.firstName} ${user.lastName}`,
-            email: user.email,
-            role: user.UserTeam.role,
-            note: user.UserTeam.note,
-            tasks: user.tasks.map((task) => ({
-              id: task.id,
-              title: task.title,
-              status: task.status,
-              dueDate: task.dueDate,
-            })),
+    const totalPages = Math.ceil(count / limit);
+
+    const formattedProjects = rows.map((project) => ({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      status: project.status,
+      clients: project.clients && project.clients.length > 0
+        ? project.clients.map((client) => ({
+            id: client.id,
+            firstName: client.firstName,
+            lastName: client.lastName,
+            email: client.email,
+            image: client.image,
+          }))
+        : [],
+      teams: project.teams.map((team) => ({
+        teamId: team.id,
+        name: team.name,
+        description: team.description,
+        note: team.TeamProjects[0]?.note,
+        members: team.members.map((user) => ({
+          userId: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+          role: user.UserTeam.role,
+          note: user.UserTeam.note,
+          tasks: user.tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
+            dueDate: task.dueDate,
           })),
         })),
-        tasks: project.tasks.map((task) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-          dueDate: task.dueDate,
-          assignee: task.assignee
-            ? {
-                id: task.assignee.id,
-                name: `${task.assignee.firstName} ${task.assignee.lastName}`,
-              }
-            : null,
-        })),
-      }));
+      })),
+      tasks: project.tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        dueDate: task.dueDate,
+        assignee: task.assignee
+          ? {
+              id: task.assignee.id,
+              name: `${task.assignee.firstName} ${task.assignee.lastName}`,
+            }
+          : null,
+      })),
+    }));
 
-      await transaction.commit();
-      return res.status(200).json({
-        projects: formattedProjects,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages,
-          totalItems: count,
-          itemsPerPage: parseInt(limit),
-        },
-      });
-    } catch (err) {
-      await transaction.rollback();
-      return res.status(500).json({
-        message: "Failed to retrieve projects",
-        details: err.message,
-      });
-    }
-  },
+    await transaction.commit();
+    return res.status(200).json({
+      projects: formattedProjects,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
+  } catch (err) {
+    await transaction.rollback();
+    return res.status(500).json({
+      message: "Failed to retrieve projects",
+      details: err.message,
+    });
+  }
+}
 
   async updateProjectStatus(req, res) {
     const transaction = await db.sequelize.transaction();
