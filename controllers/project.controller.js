@@ -234,8 +234,7 @@ async getAllProjects(req, res) {
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const { count, rows } = await db.Project.findAndCountAll({
+    const { count, rows: projects } = await db.Project.findAndCountAll({
       where: whereClause,
       include: [
         {
@@ -247,27 +246,6 @@ async getAllProjects(req, res) {
           model: db.Team,
           attributes: ["id", "name", "description"],
         },
-        {
-          model: db.User,
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: {
-            attributes: ["role"],
-          },
-          include: [
-            {
-              model: db.Team,
-              attributes: ["id", "name"],
-              through: { attributes: [] },
-            },
-            {
-              model: db.Task,
-              as: "Tasks",
-              attributes: ["id", "title", "status", "projectId"],
-              where: { projectId: { [db.Sequelize.Op.col]: "Project.id" } }, // filter tasks for current project
-              required: false,
-            },
-          ],
-        },
       ],
       limit: parseInt(limit),
       offset,
@@ -275,48 +253,79 @@ async getAllProjects(req, res) {
 
     const totalPages = Math.ceil(count / limit);
 
-    const formattedProjects = rows.map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      status: project.status,
-      team: project.Team
-        ? {
-            id: project.Team.id,
-            name: project.Team.name,
-            description: project.Team.description,
-          }
-        : null,
-      client:
-        project.Clients && project.Clients.length > 0
-          ? {
-              id: project.Clients[0].id,
-              firstName: project.Clients[0].firstName,
-              lastName: project.Clients[0].lastName,
-              email: project.Clients[0].email,
-              image: project.Clients[0].image,
-            }
-          : null,
-      members: project.Users.map((user) => ({
-        userId: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        role: user.UserTeam.role,
-        teams:
-          user.Teams?.map((team) => ({
-            teamId: team.id,
-            teamName: team.name,
+    // Fetch all UserTeam members and their tasks per project
+    const formattedProjects = await Promise.all(
+      projects.map(async (project) => {
+        const userTeams = await db.UserTeam.findAll({
+          where: { projectId: project.id },
+          include: [
+            {
+              model: db.User,
+              attributes: ["id", "firstName", "lastName", "email"],
+              include: [
+                {
+                  model: db.Team,
+                  attributes: ["id", "name"],
+                  through: { attributes: [] },
+                },
+                {
+                  model: db.Task,
+                  as: "Tasks",
+                  where: { projectId: project.id },
+                  required: false,
+                  attributes: ["id", "title", "status"],
+                },
+              ],
+            },
+          ],
+        });
+
+        const members = userTeams.map((ut) => ({
+          userId: ut.User.id,
+          firstName: ut.User.firstName,
+          lastName: ut.User.lastName,
+          email: ut.User.email,
+          role: ut.role,
+          teams:
+            ut.User.Teams?.map((team) => ({
+              teamId: team.id,
+              teamName: team.name,
+            })) || [],
+          tasks: ut.User.Tasks?.map((task) => ({
+            id: task.id,
+            title: task.title,
+            status: task.status,
           })) || [],
-        tasks: user.Tasks?.filter((task) => task.projectId === project.id).map((task) => ({
-          id: task.id,
-          title: task.title,
-          status: task.status,
-        })) || [],
-      })),
-    }));
+        }));
+
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          startDate: project.startDate,
+          endDate: project.endDate,
+          status: project.status,
+          team: project.Team
+            ? {
+                id: project.Team.id,
+                name: project.Team.name,
+                description: project.Team.description,
+              }
+            : null,
+          client:
+            project.Clients && project.Clients.length > 0
+              ? {
+                  id: project.Clients[0].id,
+                  firstName: project.Clients[0].firstName,
+                  lastName: project.Clients[0].lastName,
+                  email: project.Clients[0].email,
+                  image: project.Clients[0].image,
+                }
+              : null,
+          members,
+        };
+      })
+    );
 
     return res.status(200).json({
       projects: formattedProjects,
