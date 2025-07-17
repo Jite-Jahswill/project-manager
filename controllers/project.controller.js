@@ -519,7 +519,7 @@ module.exports = {
       details: err.message,
     });
   }
-}
+},
 
   async updateProjectStatus(req, res) {
     const transaction = await db.sequelize.transaction();
