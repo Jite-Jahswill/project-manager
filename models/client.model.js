@@ -55,7 +55,15 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Client.associate = (models) => {
-    Client.hasMany(models.Project, { foreignKey: "clientId" });
+    // Remove one-to-many association
+    // Client.hasMany(models.Project, { foreignKey: "clientId" });
+    // Define many-to-many association (optional, as it's already in index.js)
+    Client.belongsToMany(models.Project, {
+      through: models.ClientProject,
+      foreignKey: "clientId",
+      otherKey: "projectId",
+      as: "projects",
+    });
   };
 
   return Client;
