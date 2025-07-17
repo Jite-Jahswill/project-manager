@@ -206,12 +206,12 @@ async getAllProjects(req, res) {
       include: [
         {
           model: db.Client,
-          through: { model: db.ClientProject, attributes: [] },
+          through: { attributes: [] }, // ✅ Correct `through` usage
           attributes: ["id", "firstName", "lastName", "email", "image"],
         },
         {
           model: db.Team,
-          through: { attributes: [] }, // ✅ FIXED: do NOT use model: db.TeamProject here
+          through: { attributes: [] }, // ✅ Correct `through` usage
           attributes: ["id", "name", "description"],
         },
       ],
@@ -221,19 +221,18 @@ async getAllProjects(req, res) {
 
     const formattedProjects = await Promise.all(
       projects.map(async (project) => {
+        // Fetch all Teams related to this project with their users and tasks
         const teams = await db.Team.findAll({
           include: [
             {
               model: db.Project,
               where: { id: project.id },
-              through: { attributes: [] },
-              attributes: [],
+              through: { attributes: [] }, // ✅ Fix here too
             },
             {
               model: db.User,
               through: {
                 attributes: ["role", "projectId"],
-                where: { projectId: project.id },
               },
               attributes: ["id", "firstName", "lastName", "email"],
               include: [
@@ -256,7 +255,7 @@ async getAllProjects(req, res) {
             userId: user.id,
             name: `${user.firstName} ${user.lastName}`,
             email: user.email,
-            role: user.UserTeam?.role,
+            role: user.UserTeam?.role || "Member",
             tasks: user.Tasks?.map((task) => ({
               id: task.id,
               title: task.title,
@@ -308,100 +307,6 @@ async getAllProjects(req, res) {
     });
   }
 },
-  
-  // Update project status (assigned users)
-  async updateProjectStatus(req, res) {
-    try {
-      const { projectId } = req.params;
-      const { status } = req.body;
-      if (!status) {
-        return res.status(400).json({ message: "Status is required" });
-      }
-
-      const project = await db.Project.findByPk(projectId);
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      const assigned = await db.UserTeam.findOne({
-        where: { userId: req.user.id, projectId },
-      });
-
-      if (!assigned) {
-        return res.status(403).json({
-          message: "You're not assigned to this project",
-        });
-      }
-
-      await db.sequelize.query(
-        "UPDATE Projects SET status = :status WHERE id = :id",
-        {
-          replacements: { status, id: projectId },
-          type: db.sequelize.QueryTypes.UPDATE,
-        }
-      );
-
-      // Notify all assigned users, admins, and managers
-      const allUsers = await db.User.findAll({
-        include: {
-          model: db.UserTeam,
-          where: { projectId },
-        },
-      });
-
-      const adminsAndManagers = await db.User.findAll({
-        where: {
-          role: { [db.Sequelize.Op.in]: ["admin", "manager"] },
-        },
-      });
-
-      const uniqueEmails = new Set([
-        ...allUsers.map((u) => u.email),
-        ...adminsAndManagers.map((u) => u.email),
-      ]);
-
-      const emailPromises = Array.from(uniqueEmails).map((email) =>
-        sendMail({
-          to: email,
-          subject: `Project Status Updated: ${project.name}`,
-          html: `
-            <p>Hello,</p>
-            <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
-            <p>Best regards,<br>Team</p>
-          `,
-        })
-      );
-
-      await Promise.all(emailPromises);
-
-      // Notify client if project is completed
-      if (status.toLowerCase() === "completed") {
-        await notifyClientOnProjectCompletion(projectId);
-      }
-
-      // Fetch updated project
-      const updatedProject = await db.Project.findByPk(projectId);
-
-      return res.status(200).json({
-        message: "Status updated successfully",
-        project: updatedProject,
-      });
-    } catch (err) {
-      console.error("Update status error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({
-        message: "Failed to update status",
-        details: err.message,
-      });
-    }
-  },
 
   // Update full project (admin or manager)
   async updateProject(req, res) {
