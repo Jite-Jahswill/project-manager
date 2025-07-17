@@ -2,6 +2,7 @@ const db = require("../models");
 const Project = db.Project;
 const User = db.User;
 const UserTeam = db.UserTeam;
+const TeamProject = db.TeamProject;
 const Team = db.Team;
 const Client = db.Client;
 const sendMail = require("../utils/mailer");
