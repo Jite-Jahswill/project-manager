@@ -93,7 +93,7 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// Optional: Team → Projects (if each project is owned by one team)
+// Optional: Team → Projects
 db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE" });
 db.Project.belongsTo(db.Team, { foreignKey: "teamId" });
 
