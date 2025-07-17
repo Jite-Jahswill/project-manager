@@ -17,6 +17,8 @@ db.Report = require("./report.model")(sequelize, DataTypes);
 db.Team = require("./team.model")(sequelize, DataTypes);
 db.Client = require("./client.model")(sequelize, DataTypes);
 db.ClientProject = require("./clientProject.model")(sequelize, DataTypes);
+db.TeamProject = require("./teamProject.model")(sequelize, DataTypes);
+
 
 // Run associations
 Object.keys(db).forEach((modelName) => {
