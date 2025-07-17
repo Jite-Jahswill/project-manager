@@ -1,11 +1,12 @@
-const { Task, User, Project } = require("../models");
+const { Task, User, Project, UserTeam, TeamProject } = require("../models");
 const { Op } = require("sequelize");
 const sendMail = require("../utils/mailer");
 
 exports.createTask = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
   try {
-    // Restrict to admins and managers
     if (!["admin", "manager"].includes(req.user.role)) {
+      await transaction.rollback();
       return res
         .status(403)
         .json({ message: "Only admins or managers can create tasks" });
@@ -13,38 +14,70 @@ exports.createTask = async (req, res) => {
 
     const { title, description, dueDate, projectId, assignedTo } = req.body;
 
-    // Validate input
     if (!title || !projectId || !assignedTo) {
+      await transaction.rollback();
       return res
         .status(400)
         .json({ message: "title, projectId, and assignedTo are required" });
     }
 
-    const project = await Project.findByPk(projectId);
+    const project = await Project.findByPk(projectId, { transaction });
     if (!project) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Project not found" });
     }
 
     const user = await User.findByPk(assignedTo, {
       attributes: ["id", "firstName", "lastName", "email"],
+      transaction,
     });
     if (!user) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Assigned user not found" });
     }
 
-    const task = await Task.create({
-      title,
-      description,
-      dueDate,
-      projectId,
-      assignedTo,
-      status: "To Do",
+    // Validate that the user is part of a team assigned to the project
+    const userTeam = await UserTeam.findOne({
+      where: { userId: assignedTo, projectId },
+      include: [
+        {
+          model: Team,
+          required: true,
+          include: [
+            {
+              model: Project,
+              where: { id: projectId },
+              through: { model: TeamProject, attributes: ["note"] },
+              attributes: [],
+            },
+          ],
+        },
+      ],
+      transaction,
     });
+    if (!userTeam) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: "Assigned user is not part of a team working on this project",
+      });
+    }
 
-    // Notify admins, managers, and assigned user
+    const task = await Task.create(
+      {
+        title,
+        description,
+        dueDate,
+        projectId,
+        assignedTo,
+        status: "To Do",
+      },
+      { transaction }
+    );
+
     const notifyUsers = await User.findAll({
       where: { role: ["admin", "manager"] },
       attributes: ["email"],
+      transaction,
     });
 
     const emails = [...notifyUsers.map((u) => u.email), user.email].filter(
@@ -61,7 +94,7 @@ exports.createTask = async (req, res) => {
             task.title
           }</strong> has been created and assigned to <strong>${
           user.firstName
-        } ${user.lastName}</strong>.</p>
+        } ${user.lastName}</strong> in team <strong>${userTeam.Team.name}</strong>.</p>
           <p><strong>Project:</strong> ${project.name}</p>
           <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
           <p><strong>Description:</strong> ${
@@ -79,8 +112,30 @@ exports.createTask = async (req, res) => {
       });
     }
 
-    res.status(201).json({ message: "Task created successfully", task });
+    await transaction.commit();
+    return res.status(201).json({
+      message: "Task created successfully",
+      task: {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        dueDate: task.dueDate,
+        status: task.status,
+        project: { id: project.id, name: project.name },
+        assignee: {
+          id: user.id,
+          name: `${user.firstName} ${user.lastName}`,
+          email: user.email,
+        },
+        team: {
+          teamId: userTeam.teamId,
+          name: userTeam.Team.name,
+          note: userTeam.Team.TeamProjects[0]?.note,
+        },
+      },
+    });
   } catch (err) {
+    await transaction.rollback();
     console.error("Create task error:", {
       message: err.message,
       stack: err.stack,
@@ -89,7 +144,7 @@ exports.createTask = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
+    return res
       .status(500)
       .json({ message: "Failed to create task", details: err.message });
   }
@@ -131,7 +186,7 @@ exports.getProjectTasks = async (req, res) => {
 
     const totalPages = Math.ceil(count / limit);
 
-    res.status(200).json({
+    return res.status(200).json({
       tasks: rows,
       pagination: {
         currentPage: parseInt(page),
@@ -150,7 +205,7 @@ exports.getProjectTasks = async (req, res) => {
       query: req.query,
       timestamp: new Date().toISOString(),
     });
-    res
+    return res
       .status(500)
       .json({ message: "Failed to fetch tasks", details: err.message });
   }
@@ -185,7 +240,7 @@ exports.getAllTasks = async (req, res) => {
 
     const totalPages = Math.ceil(count / limit);
 
-    res.status(200).json({
+    return res.status(200).json({
       tasks: rows,
       pagination: {
         currentPage: parseInt(page),
@@ -203,7 +258,7 @@ exports.getAllTasks = async (req, res) => {
       query: req.query,
       timestamp: new Date().toISOString(),
     });
-    res
+    return res
       .status(500)
       .json({ message: "Failed to fetch tasks", details: err.message });
   }
@@ -211,7 +266,6 @@ exports.getAllTasks = async (req, res) => {
 
 exports.updateTaskStatus = async (req, res) => {
   try {
-    // Restrict to admins and managers
     if (!["admin", "manager"].includes(req.user.role)) {
       return res
         .status(403)
@@ -252,7 +306,6 @@ exports.updateTaskStatus = async (req, res) => {
       }
     );
 
-    // Fetch updated task
     const updatedTask = await Task.findByPk(req.params.taskId, {
       include: [
         {
@@ -264,7 +317,6 @@ exports.updateTaskStatus = async (req, res) => {
       ],
     });
 
-    // Notify admins, managers, and assigned user
     const notifyUsers = await User.findAll({
       where: { role: ["admin", "manager"] },
       attributes: ["email"],
@@ -295,7 +347,10 @@ exports.updateTaskStatus = async (req, res) => {
       });
     }
 
-    res.status(200).json({ message: "Task status updated successfully", task: updatedTask });
+    return res.status(200).json({
+      message: "Task status updated successfully",
+      task: updatedTask,
+    });
   } catch (err) {
     console.error("Update task status error:", {
       message: err.message,
@@ -306,7 +361,7 @@ exports.updateTaskStatus = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
+    return res
       .status(500)
       .json({ message: "Failed to update task status", details: err.message });
   }
@@ -314,7 +369,6 @@ exports.updateTaskStatus = async (req, res) => {
 
 exports.deleteTask = async (req, res) => {
   try {
-    // Restrict to admins and managers
     if (!["admin", "manager"].includes(req.user.role)) {
       return res
         .status(403)
@@ -327,7 +381,7 @@ exports.deleteTask = async (req, res) => {
     }
 
     await task.destroy();
-    res.status(200).json({ message: "Task deleted successfully" });
+    return res.status(200).json({ message: "Task deleted successfully" });
   } catch (err) {
     console.error("Delete task error:", {
       message: err.message,
@@ -337,7 +391,7 @@ exports.deleteTask = async (req, res) => {
       taskId: req.params.taskId,
       timestamp: new Date().toISOString(),
     });
-    res
+    return res
       .status(500)
       .json({ message: "Failed to delete task", details: err.message });
   }
