@@ -103,8 +103,4 @@ db.Report.belongsTo(db.Project, { foreignKey: "projectId", as: "project" });
 db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE", as: "ownedProjects" });
 db.Project.belongsTo(db.Team, { foreignKey: "teamId", as: "team" });
 
-// Optional: Client → Projects
-db.Client.hasMany(db.Project, { foreignKey: "clientId", as: "ownedProjects" });
-db.Project.belongsTo(db.Client, { foreignKey: "clientId", as: "client" });
-
 module.exports = db;
