@@ -43,7 +43,7 @@ exports.getAllTeams = async (req, res) => {
     }
 
     // Restrict staff to teams they are part of
-    let userTeamWhere = { projectId: null }; // Exclude projectId to avoid join issues
+    let userTeamWhere = {};
     if (req.user.role === "staff") {
       userTeamWhere.userId = req.user.id;
     }
@@ -53,11 +53,25 @@ exports.getAllTeams = async (req, res) => {
       include: [
         {
           model: User,
+          as: "members", // Matches Team.belongsToMany(User, { as: 'members' })
           attributes: ["id", "firstName", "lastName", "email"],
           through: {
             attributes: ["role", "note"],
-            where: userTeamWhere,
+            where: Object.keys(userTeamWhere).length ? userTeamWhere : undefined,
           },
+          include: [
+            {
+              model: Task,
+              as: "tasks", // Must match User.hasMany(Task, { as: "tasks" })
+              attributes: ["id", "title", "status", "dueDate", "projectId"],
+              include: [
+                {
+                  association: "project", // Matches Task.belongsTo(Project, { as: "project" })
+                  attributes: ["id", "title"],
+                },
+              ],
+            },
+          ],
         },
       ],
       order: [["createdAt", "DESC"]],
@@ -85,9 +99,10 @@ exports.getAllTeams = async (req, res) => {
       query: req.query,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to fetch teams", details: err.message });
+    res.status(500).json({
+      message: "Failed to fetch teams",
+      details: err.message,
+    });
   }
 };
 
