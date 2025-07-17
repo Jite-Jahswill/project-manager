@@ -1,4 +1,3 @@
-// models/task.model.js
 module.exports = (sequelize, DataTypes) => {
   const Task = sequelize.define("Task", {
     title: {
@@ -20,12 +19,18 @@ module.exports = (sequelize, DataTypes) => {
     projectId: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: { model: "Projects", key: "id" },
+      references: {
+        model: "Projects",
+        key: "id",
+      },
     },
     assignedTo: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      references: { model: "Users", key: "id" },
+      allowNull: true,
+      references: {
+        model: "Users",
+        key: "id",
+      },
     },
   }, {
     indexes: [
@@ -40,10 +45,11 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "projectId",
       onDelete: "CASCADE",
     });
-    // Task.belongsTo(models.User, {
-    //   foreignKey: "assignedTo",
-    //   as: "assignee",
-    // });
+    Task.belongsTo(models.User, {
+      foreignKey: "assignedTo",
+      as: "assignee",
+      onDelete: "SET NULL",
+    });
   };
 
   return Task;
