@@ -1,7 +1,6 @@
 const db = require("../models");
 const { sendMail } = require("../utils/mailer");
 
-// controllers/task.controller.js
 exports.createTask = async (req, res) => {
   try {
     // Restrict to admins and managers
@@ -28,65 +27,42 @@ exports.createTask = async (req, res) => {
     }
 
     // Check if project exists
-    const [project] = await db.sequelize.query(
-      `SELECT id, name, teamId FROM Projects WHERE id = ?`,
-      {
-        replacements: [projectId],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
+    const project = await db.Project.findByPk(projectId, {
+      attributes: ["id", "name", "teamId"],
+    });
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
     // Check if assigned user exists
-    const [user] = await db.sequelize.query(
-      `SELECT id, firstName, lastName, email FROM Users WHERE id = ?`,
-      {
-        replacements: [assignedTo],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
+    const user = await db.User.findByPk(assignedTo, {
+      attributes: ["id", "firstName", "lastName", "email"],
+    });
     if (!user) {
       return res.status(404).json({ message: "Assigned user not found" });
     }
 
     // Validate that the user is in the project's team
-    const [teamMember] = await db.sequelize.query(
-      `SELECT userId FROM UserTeams WHERE teamId = ? AND userId = ?`,
-      {
-        replacements: [project.teamId, assignedTo],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
+    const teamMember = await db.UserTeam.findOne({
+      where: { teamId: project.teamId, userId: assignedTo },
+    });
     if (!teamMember) {
       return res
         .status(400)
         .json({ message: "Assigned user is not part of the project's team" });
     }
 
-    // Create task
-    const [task] = await db.sequelize.query(
-      `
-      INSERT INTO Tasks (title, description, dueDate, projectId, assignedTo, status, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
-      RETURNING id, title, description, dueDate, projectId, assignedTo, status, createdAt, updatedAt
-      `,
-      {
-        replacements: [
-          title,
-          description || null,
-          dueDate || null,
-          projectId,
-          assignedTo,
-          status || "To Do",
-        ],
-        type: db.sequelize.QueryTypes.INSERT,
-      }
-    );
+    // Create task using Sequelize
+    const task = await db.Task.create({
+      title,
+      description: description || null,
+      dueDate: dueDate || null,
+      projectId,
+      assignedTo,
+      status: status || "To Do",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
     // Format response
     const formattedTask = {
@@ -111,12 +87,10 @@ exports.createTask = async (req, res) => {
     };
 
     // Notify admins, managers, and assigned user
-    const adminsAndManagers = await db.sequelize.query(
-      `SELECT email FROM Users WHERE role IN ('admin', 'manager')`,
-      {
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
+    const adminsAndManagers = await db.User.findAll({
+      where: { role: ["admin", "manager"] },
+      attributes: ["email"],
+    });
 
     const emails = [...adminsAndManagers.map((u) => u.email), user.email].filter(Boolean);
 
@@ -426,22 +400,20 @@ exports.updateTaskStatus = async (req, res) => {
     }
 
     // Fetch task with project and assignee details
-    const [task] = await db.sequelize.query(
-      `
-      SELECT t.id, t.title, t.description, t.status AS oldStatus, t.dueDate, t.projectId, t.assignedTo,
-             t.createdAt, t.updatedAt,
-             u.firstName, u.lastName, u.email,
-             p.name AS projectName
-      FROM Tasks t
-      LEFT JOIN Users u ON t.assignedTo = u.id
-      LEFT JOIN Projects p ON t.projectId = p.id
-      WHERE t.id = ?
-      `,
-      {
-        replacements: [taskId],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
+    const task = await db.Task.findByPk(taskId, {
+      include: [
+        {
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: db.Project,
+          as: "project",
+          attributes: ["id", "name"],
+        },
+      ],
+    });
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
@@ -458,18 +430,26 @@ exports.updateTaskStatus = async (req, res) => {
     }
 
     // Update task status
-    const [updatedTask] = await db.sequelize.query(
-      `
-      UPDATE Tasks
-      SET status = ?, updatedAt = NOW()
-      WHERE id = ?
-      RETURNING id, title, description, dueDate, projectId, assignedTo, status, createdAt, updatedAt
-      `,
-      {
-        replacements: [status, taskId],
-        type: db.sequelize.QueryTypes.UPDATE,
-      }
+    await db.Task.update(
+      { status, updatedAt: new Date() },
+      { where: { id: taskId } }
     );
+
+    // Fetch updated task
+    const updatedTask = await db.Task.findByPk(taskId, {
+      include: [
+        {
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: db.Project,
+          as: "project",
+          attributes: ["id", "name"],
+        },
+      ],
+    });
 
     if (!updatedTask) {
       return res.status(500).json({ message: "Failed to update task status" });
@@ -487,25 +467,23 @@ exports.updateTaskStatus = async (req, res) => {
       createdAt: updatedTask.createdAt,
       updatedAt: updatedTask.updatedAt,
       project: {
-        id: task.projectId,
-        name: task.projectName,
+        id: updatedTask.project.id,
+        name: updatedTask.project.name,
       },
       assignee: {
-        id: task.assignedTo,
-        name: `${task.firstName} ${task.lastName}`,
-        email: task.email,
+        id: updatedTask.assignee.id,
+        name: `${updatedTask.assignee.firstName} ${updatedTask.assignee.lastName}`,
+        email: updatedTask.assignee.email,
       },
     };
 
     // Notify admins, managers, and assigned user
-    const adminsAndManagers = await db.sequelize.query(
-      `SELECT email FROM Users WHERE role IN ('admin', 'manager')`,
-      {
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
+    const adminsAndManagers = await db.User.findAll({
+      where: { role: ["admin", "manager"] },
+      attributes: ["email"],
+    });
 
-    const emails = [...adminsAndManagers.map((u) => u.email), task.email].filter(Boolean);
+    const emails = [...adminsAndManagers.map((u) => u.email), updatedTask.assignee.email].filter(Boolean);
 
     if (emails.length > 0) {
       await sendMail({
@@ -513,11 +491,11 @@ exports.updateTaskStatus = async (req, res) => {
         subject: "✅ Task Status Updated",
         html: `
           <p>Hello,</p>
-          <p>The task <strong>${task.title}</strong> has been updated from <em>${task.oldStatus}</em> to <strong>${status}</strong>.</p>
-          <p><strong>Assigned To:</strong> ${task.firstName} ${task.lastName}</p>
-          <p><strong>Project:</strong> ${task.projectName}</p>
-          <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
-          <p><strong>Description:</strong> ${task.description || "No description"}</p>
+          <p>The task <strong>${updatedTask.title}</strong> has been updated from <em>${task.status}</em> to <strong>${status}</strong>.</p>
+          <p><strong>Assigned To:</strong> ${updatedTask.assignee.firstName} ${updatedTask.assignee.lastName}</p>
+          <p><strong>Project:</strong> ${updatedTask.project.name}</p>
+          <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
           <p>Best,<br>Team</p>
         `,
       });
@@ -566,104 +544,78 @@ exports.updateTask = async (req, res) => {
     }
 
     // Fetch existing task
-    const [task] = await db.sequelize.query(
-      `
-      SELECT t.id, t.title, t.description, t.dueDate, t.projectId, t.assignedTo, t.status,
-             t.createdAt, t.updatedAt,
-             p.name AS projectName, p.teamId,
-             u.firstName, u.lastName, u.email
-      FROM Tasks t
-      LEFT JOIN Projects p ON t.projectId = p.id
-      LEFT JOIN Users u ON t.assignedTo = u.id
-      WHERE t.id = ?
-      `,
-      {
-        replacements: [taskId],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
+    const task = await db.Task.findByPk(taskId, {
+      include: [
+        {
+          model: db.Project,
+          as: "project",
+          attributes: ["id", "name", "teamId"],
+        },
+        {
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      ],
+    });
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
 
     // Validate assignedTo if provided
-    let newAssignee = task;
+    let newAssignee = task.assignee;
     if (assignedTo && assignedTo !== task.assignedTo) {
-      const [user] = await db.sequelize.query(
-        `SELECT id, firstName, lastName, email FROM Users WHERE id = ?`,
-        {
-          replacements: [assignedTo],
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
-
+      const user = await db.User.findByPk(assignedTo, {
+        attributes: ["id", "firstName", "lastName", "email"],
+      });
       if (!user) {
         return res.status(404).json({ message: "Assigned user not found" });
       }
 
       // Validate that the new user is in the project's team
-      const [teamMember] = await db.sequelize.query(
-        `SELECT userId FROM UserTeams WHERE teamId = ? AND userId = ?`,
-        {
-          replacements: [task.teamId, assignedTo],
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
-
+      const teamMember = await db.UserTeam.findOne({
+        where: { teamId: task.project.teamId, userId: assignedTo },
+      });
       if (!teamMember) {
         return res
           .status(400)
           .json({ message: "Assigned user is not part of the project's team" });
       }
-
       newAssignee = user;
     }
 
-    // Build update query
-    const updates = [];
-    const replacements = [];
-    if (title !== undefined) {
-      updates.push("title = ?");
-      replacements.push(title);
-    }
-    if (description !== undefined) {
-      updates.push("description = ?");
-      replacements.push(description || null);
-    }
-    if (dueDate !== undefined) {
-      updates.push("dueDate = ?");
-      replacements.push(dueDate || null);
-    }
-    if (assignedTo !== undefined) {
-      updates.push("assignedTo = ?");
-      replacements.push(assignedTo);
-    }
-    if (status !== undefined) {
-      updates.push("status = ?");
-      replacements.push(status);
-    }
+    // Build update object
+    const updates = {};
+    if (title !== undefined) updates.title = title;
+    if (description !== undefined) updates.description = description || null;
+    if (dueDate !== undefined) updates.dueDate = dueDate || null;
+    if (assignedTo !== undefined) updates.assignedTo = assignedTo;
+    if (status !== undefined) updates.status = status;
+    updates.updatedAt = new Date();
 
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 1 && updates.updatedAt) {
       return res.status(400).json({ message: "No fields provided for update" });
     }
 
-    updates.push("updatedAt = NOW()");
-    replacements.push(taskId);
-
     // Update task
-    const [updatedTask] = await db.sequelize.query(
-      `
-      UPDATE Tasks
-      SET ${updates.join(", ")}
-      WHERE id = ?
-      RETURNING id, title, description, dueDate, projectId, assignedTo, status, createdAt, updatedAt
-      `,
-      {
-        replacements,
-        type: db.sequelize.QueryTypes.UPDATE,
-      }
-    );
+    await db.Task.update(updates, { where: { id: taskId } });
+
+    // Fetch updated task
+    const updatedTask = await db.Task.findByPk(taskId, {
+      include: [
+        {
+          model: db.Project,
+          as: "project",
+          attributes: ["id", "name"],
+        },
+        {
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      ],
+    });
 
     if (!updatedTask) {
       return res.status(500).json({ message: "Failed to update task" });
@@ -681,8 +633,8 @@ exports.updateTask = async (req, res) => {
       createdAt: updatedTask.createdAt,
       updatedAt: updatedTask.updatedAt,
       project: {
-        id: task.projectId,
-        name: task.projectName,
+        id: updatedTask.project.id,
+        name: updatedTask.project.name,
       },
       assignee: {
         id: newAssignee.id,
@@ -692,12 +644,10 @@ exports.updateTask = async (req, res) => {
     };
 
     // Notify admins, managers, and assigned user
-    const adminsAndManagers = await db.sequelize.query(
-      `SELECT email FROM Users WHERE role IN ('admin', 'manager')`,
-      {
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
+    const adminsAndManagers = await db.User.findAll({
+      where: { role: ["admin", "manager"] },
+      attributes: ["email"],
+    });
 
     const emails = [...adminsAndManagers.map((u) => u.email), newAssignee.email].filter(Boolean);
 
@@ -709,7 +659,7 @@ exports.updateTask = async (req, res) => {
           <p>Hello,</p>
           <p>The task <strong>${updatedTask.title}</strong> has been updated.</p>
           <p><strong>Assigned To:</strong> ${newAssignee.firstName} ${newAssignee.lastName}</p>
-          <p><strong>Project:</strong> ${task.projectName}</p>
+          <p><strong>Project:</strong> ${updatedTask.project.name}</p>
           <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
           <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
           <p><strong>Status:</strong> ${updatedTask.status}</p>
