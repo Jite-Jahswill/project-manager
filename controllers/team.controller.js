@@ -48,18 +48,13 @@ exports.getAllTeams = async (req, res) => {
     let query = `
       SELECT t.id, t.name, t.description, t.createdAt, t.updatedAt
       FROM Teams t
-      LEFT JOIN UserTeams ut ON t.id = ut.teamId
-      LEFT JOIN Users u ON ut.userId = u.id
-      WHERE ut.projectId IS NULL
     `;
     const replacements = {};
 
     if (search) {
-      query += ` AND t.name LIKE :search`;
+      query += ` WHERE t.name LIKE :search`;
       replacements.search = `%${search}%`;
     }
-
-    query += ` GROUP BY t.id`;
 
     const teams = await db.sequelize.query(query, {
       replacements,
@@ -70,10 +65,10 @@ exports.getAllTeams = async (req, res) => {
       teams.map(async (team) => {
         const users = await db.sequelize.query(
           `
-          SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note
+          SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note, ut.projectId
           FROM Users u
           INNER JOIN UserTeams ut ON u.id = ut.userId
-          WHERE ut.teamId = :teamId AND ut.projectId IS NULL
+          WHERE ut.teamId = :teamId
           `,
           {
             replacements: { teamId: team.id },
@@ -123,10 +118,10 @@ exports.getTeamById = async (req, res) => {
 
     const users = await db.sequelize.query(
       `
-      SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note
+      SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note, ut.projectId
       FROM Users u
       INNER JOIN UserTeams ut ON u.id = ut.userId
-      WHERE ut.teamId = :teamId AND ut.projectId IS NULL
+      WHERE ut.teamId = :teamId
       `,
       {
         replacements: { teamId: id },
