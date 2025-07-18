@@ -233,6 +233,21 @@ exports.updateTeam = async (req, res) => {
             continue;
           }
 
+          if (projectId) {
+            const [project] = await db.sequelize.query(
+              `SELECT id FROM Projects WHERE id = :projectId`,
+              {
+                replacements: { projectId },
+                type: db.sequelize.QueryTypes.SELECT,
+                transaction,
+              }
+            );
+            if (!project) {
+              console.warn("Project not found", { projectId, teamId: id, timestamp: new Date().toISOString() });
+              continue;
+            }
+          }
+
           const [existing] = await db.sequelize.query(
             `
             SELECT * FROM UserTeams
@@ -474,7 +489,7 @@ exports.assignUsersToTeam = async (req, res) => {
             teamId,
             timestamp: new Date().toISOString(),
           });
-          results.push({ userId, status: "failed", reason: "User not found" });
+          results.push({ userId, status: "failed", reason: "User ID not found" });
           continue;
         }
 
@@ -486,6 +501,27 @@ exports.assignUsersToTeam = async (req, res) => {
           });
           results.push({ userId, status: "skipped", reason: "Missing email" });
           continue;
+        }
+
+        if (projectId) {
+          const [project] = await db.sequelize.query(
+            `SELECT id FROM Projects WHERE id = :projectId`,
+            {
+              replacements: { projectId },
+              type: db.sequelize.QueryTypes.SELECT,
+              transaction,
+            }
+          );
+          if (!project) {
+            console.warn("Project not found", {
+              userId,
+              teamId,
+              projectId,
+              timestamp: new Date().toISOString(),
+            });
+            results.push({ userId, status: "failed", reason: "Project ID not found" });
+            continue;
+          }
         }
 
         const [existing] = await db.sequelize.query(
