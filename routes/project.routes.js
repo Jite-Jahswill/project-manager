@@ -38,7 +38,11 @@ module.exports = (app) => {
    *           nullable: true
    *         status:
    *           type: string
-   *           example: "Pending"
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *           example: "To Do"
+   *         teamId:
+   *           type: integer
+   *           example: 1
    *           nullable: true
    *     Team:
    *       type: object
@@ -52,10 +56,6 @@ module.exports = (app) => {
    *         description:
    *           type: string
    *           example: "Development team"
-   *           nullable: true
-   *         note:
-   *           type: string
-   *           example: "Team assignment"
    *           nullable: true
    *         members:
    *           type: array
@@ -73,13 +73,6 @@ module.exports = (app) => {
    *         email:
    *           type: string
    *           example: "john.doe@example.com"
-   *         role:
-   *           type: string
-   *           example: "Developer"
-   *         note:
-   *           type: string
-   *           example: "Assigned via team"
-   *           nullable: true
    *         tasks:
    *           type: array
    *           items:
@@ -93,6 +86,10 @@ module.exports = (app) => {
    *         title:
    *           type: string
    *           example: "Implement login page"
+   *         description:
+   *           type: string
+   *           example: "Create the login page UI and backend"
+   *           nullable: true
    *         status:
    *           type: string
    *           enum: ["To Do", "In Progress", "Review", "Done"]
@@ -111,6 +108,9 @@ module.exports = (app) => {
    *             name:
    *               type: string
    *               example: "John Doe"
+   *             email:
+   *               type: string
+   *               example: "john.doe@example.com"
    *     Client:
    *       type: object
    *       properties:
@@ -188,10 +188,9 @@ module.exports = (app) => {
    *                   example: "Project created successfully"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *                 teams:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Team'
+   *                 team:
+   *                   $ref: '#/components/schemas/Team'
+   *                   nullable: true
    *                 tasks:
    *                   type: array
    *                   items:
@@ -204,19 +203,21 @@ module.exports = (app) => {
    *                 description: "Redesign company website for better UX"
    *                 startDate: "2025-07-15"
    *                 endDate: "2025-12-31"
-   *                 status: "Pending"
-   *               teams:
-   *                 - teamId: 1
-   *                   name: "Dev Team"
-   *                   description: "Development team"
-   *                   note: "Team assignment"
-   *                   members:
-   *                     - userId: 1
-   *                       name: "John Doe"
-   *                       email: "john.doe@example.com"
-   *                       role: "Developer"
-   *                       note: "Assigned via team"
-   *                       tasks: []
+   *                 status: "To Do"
+   *                 teamId: 1
+   *               team:
+   *                 teamId: 1
+   *                 name: "Dev Team"
+   *                 description: "Development team"
+   *                 members:
+   *                   - userId: 1
+   *                     name: "John Doe"
+   *                     email: "john.doe@example.com"
+   *                     tasks: []
+   *                   - userId: 2
+   *                     name: "Jane Smith"
+   *                     email: "jane.smith@example.com"
+   *                     tasks: []
    *               tasks: []
    *       400:
    *         description: Missing required fields or invalid input
@@ -272,7 +273,6 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-
   router.post(
     "/create",
     authMiddleware.verifyToken,
@@ -284,7 +284,7 @@ module.exports = (app) => {
    * @swagger
    * /api/projects/assign:
    *   post:
-   *     summary: Assign an entire team to a project (Admin or Manager only)
+   *     summary: Assign a team to a project (Admin or Manager only)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
@@ -297,7 +297,6 @@ module.exports = (app) => {
    *             required:
    *               - teamId
    *               - projectId
-   *               - role
    *             properties:
    *               teamId:
    *                 type: integer
@@ -307,15 +306,6 @@ module.exports = (app) => {
    *                 type: integer
    *                 example: 1
    *                 description: ID of the project to assign the team to
-   *               role:
-   *                 type: string
-   *                 example: "Developer"
-   *                 description: Role of the team members in the project
-   *               note:
-   *                 type: string
-   *                 example: "Primary development team"
-   *                 description: Optional note about the team assignment
-   *                 nullable: true
    *     responses:
    *       200:
    *         description: Team assigned to project successfully
@@ -329,38 +319,32 @@ module.exports = (app) => {
    *                   example: "Team assigned to project successfully"
    *                 team:
    *                   $ref: '#/components/schemas/Team'
-   *                 project:
-   *                   $ref: '#/components/schemas/Project'
    *             example:
    *               message: "Team assigned to project successfully"
    *               team:
    *                 teamId: 1
    *                 name: "Dev Team"
    *                 description: "Development team"
-   *                 note: "Primary development team"
    *                 members:
    *                   - userId: 1
    *                     name: "John Doe"
    *                     email: "john.doe@example.com"
-   *                     role: "Developer"
-   *                     note: "Assigned via team"
    *                     tasks:
    *                       - id: 1
    *                         title: "Implement login page"
+   *                         description: "Create the login page UI and backend"
    *                         status: "To Do"
    *                         dueDate: "2025-08-01T00:00:00.000Z"
    *                         assignee:
    *                           id: 1
    *                           name: "John Doe"
-   *               project:
-   *                 id: 1
-   *                 name: "Website Redesign"
-   *                 description: "Redesign company website for better UX"
-   *                 startDate: "2025-07-15"
-   *                 endDate: "2025-12-31"
-   *                 status: "Pending"
+   *                           email: "john.doe@example.com"
+   *                   - userId: 2
+   *                     name: "Jane Smith"
+   *                     email: "jane.smith@example.com"
+   *                     tasks: []
    *       400:
-   *         description: Missing required fields, invalid input, or team already assigned to project
+   *         description: Missing required fields or invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -424,7 +408,7 @@ module.exports = (app) => {
    * @swagger
    * /api/projects/{projectId}/members:
    *   get:
-   *     summary: Get all members of a project with their roles and tasks
+   *     summary: Get all members of a project with their tasks
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
@@ -438,7 +422,7 @@ module.exports = (app) => {
    *         example: 1
    *     responses:
    *       200:
-   *         description: List of project members with their roles and tasks
+   *         description: List of project members with their tasks
    *         content:
    *           application/json:
    *             schema:
@@ -446,10 +430,9 @@ module.exports = (app) => {
    *               properties:
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *                 teams:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Team'
+   *                 team:
+   *                   $ref: '#/components/schemas/Team'
+   *                   nullable: true
    *                 tasks:
    *                   type: array
    *                   items:
@@ -459,40 +442,42 @@ module.exports = (app) => {
    *                 id: 1
    *                 name: "Website Redesign"
    *                 description: "Redesign company website for better UX"
-   *                 status: "Pending"
-   *               teams:
-   *                 - teamId: 1
-   *                   name: "Dev Team"
-   *                   description: "Development team"
-   *                   note: "Team assignment"
-   *                   members:
-   *                     - userId: 1
-   *                       name: "John Doe"
-   *                       email: "john.doe@example.com"
-   *                       role: "Developer"
-   *                       note: "Assigned via team"
-   *                       tasks:
-   *                         - id: 1
-   *                           title: "Implement login page"
-   *                           status: "To Do"
-   *                           dueDate: "2025-08-01T00:00:00.000Z"
-   *                           assignee:
-   *                             id: 1
-   *                             name: "John Doe"
-   *                     - userId: 2
-   *                       name: "Jane Smith"
-   *                       email: "jane.smith@example.com"
-   *                       role: "Developer"
-   *                       note: "Assigned via team"
-   *                       tasks: []
+   *                 startDate: "2025-07-15"
+   *                 endDate: "2025-12-31"
+   *                 status: "To Do"
+   *                 teamId: 1
+   *               team:
+   *                 teamId: 1
+   *                 name: "Dev Team"
+   *                 description: "Development team"
+   *                 members:
+   *                   - userId: 1
+   *                     name: "John Doe"
+   *                     email: "john.doe@example.com"
+   *                     tasks:
+   *                       - id: 1
+   *                         title: "Implement login page"
+   *                         description: "Create the login page UI and backend"
+   *                         status: "To Do"
+   *                         dueDate: "2025-08-01T00:00:00.000Z"
+   *                         assignee:
+   *                           id: 1
+   *                           name: "John Doe"
+   *                           email: "john.doe@example.com"
+   *                   - userId: 2
+   *                     name: "Jane Smith"
+   *                     email: "jane.smith@example.com"
+   *                     tasks: []
    *               tasks:
    *                 - id: 1
    *                   title: "Implement login page"
+   *                   description: "Create the login page UI and backend"
    *                   status: "To Do"
    *                   dueDate: "2025-08-01T00:00:00.000Z"
    *                   assignee:
    *                     id: 1
    *                     name: "John Doe"
+   *                     email: "john.doe@example.com"
    *       400:
    *         description: Invalid project ID
    *         content:
@@ -563,7 +548,7 @@ module.exports = (app) => {
    *         name: status
    *         schema:
    *           type: string
-   *           enum: ["Pending", "In Progress", "Completed", "On Hold"]
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
    *         required: false
    *         description: Filter projects by status (exact match)
    *         example: "In Progress"
@@ -626,15 +611,14 @@ module.exports = (app) => {
    *                         nullable: true
    *                       status:
    *                         type: string
-   *                         example: "Pending"
-   *                         nullable: true
+   *                         enum: ["To Do", "In Progress", "Review", "Done"]
+   *                         example: "To Do"
    *                       client:
    *                         $ref: '#/components/schemas/Client'
    *                         nullable: true
-   *                       teams:
-   *                         type: array
-   *                         items:
-   *                           $ref: '#/components/schemas/Team'
+   *                       team:
+   *                         $ref: '#/components/schemas/Team'
+   *                         nullable: true
    *                       tasks:
    *                         type: array
    *                         items:
@@ -661,41 +645,45 @@ module.exports = (app) => {
    *                   description: "Redesign company website for better UX"
    *                   startDate: "2025-07-15"
    *                   endDate: "2025-12-31"
-   *                   status: "Pending"
-   *                   client: null
-   *                   teams:
-   *                     - teamId: 1
-   *                       name: "Dev Team"
-   *                       description: "Development team"
-   *                       note: "Team assignment"
-   *                       members:
-   *                         - userId: 1
-   *                           name: "John Doe"
-   *                           email: "john.doe@example.com"
-   *                           role: "Developer"
-   *                           note: "Assigned via team"
-   *                           tasks:
-   *                             - id: 1
-   *                               title: "Implement login page"
-   *                               status: "To Do"
-   *                               dueDate: "2025-08-01T00:00:00.000Z"
-   *                               assignee:
-   *                                 id: 1
-   *                                 name: "John Doe"
-   *                         - userId: 2
-   *                           name: "Jane Smith"
-   *                           email: "jane.smith@example.com"
-   *                           role: "Developer"
-   *                           note: "Assigned via team"
-   *                           tasks: []
+   *                   status: "To Do"
+   *                   client:
+   *                     id: 1
+   *                     firstName: "Jane"
+   *                     lastName: "Smith"
+   *                     email: "jane.smith@example.com"
+   *                     image: "https://example.com/image.jpg"
+   *                   team:
+   *                     teamId: 1
+   *                     name: "Dev Team"
+   *                     description: "Development team"
+   *                     members:
+   *                       - userId: 1
+   *                         name: "John Doe"
+   *                         email: "john.doe@example.com"
+   *                         tasks:
+   *                           - id: 1
+   *                             title: "Implement login page"
+   *                             description: "Create the login page UI and backend"
+   *                             status: "To Do"
+   *                             dueDate: "2025-08-01T00:00:00.000Z"
+   *                             assignee:
+   *                               id: 1
+   *                               name: "John Doe"
+   *                               email: "john.doe@example.com"
+   *                       - userId: 2
+   *                         name: "Jane Smith"
+   *                         email: "jane.smith@example.com"
+   *                         tasks: []
    *                   tasks:
    *                     - id: 1
    *                       title: "Implement login page"
+   *                       description: "Create the login page UI and backend"
    *                       status: "To Do"
    *                       dueDate: "2025-08-01T00:00:00.000Z"
    *                       assignee:
    *                         id: 1
    *                         name: "John Doe"
+   *                         email: "john.doe@example.com"
    *               pagination:
    *                 currentPage: 1
    *                 totalPages: 1
@@ -731,7 +719,7 @@ module.exports = (app) => {
    * @swagger
    * /api/projects/{projectId}/status:
    *   patch:
-   *     summary: Update the status of a project (Assigned users only)
+   *     summary: Update the status of a project (Assigned team members only)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
@@ -754,7 +742,7 @@ module.exports = (app) => {
    *             properties:
    *               status:
    *                 type: string
-   *                 enum: ["Pending", "In Progress", "Completed", "On Hold"]
+   *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "In Progress"
    *                 description: New status for the project
    *     responses:
@@ -779,6 +767,7 @@ module.exports = (app) => {
    *                 startDate: "2025-07-15"
    *                 endDate: "2025-12-31"
    *                 status: "In Progress"
+   *                 teamId: 1
    *       400:
    *         description: Invalid status or project ID
    *         content:
@@ -885,7 +874,7 @@ module.exports = (app) => {
    *                 nullable: true
    *               status:
    *                 type: string
-   *                 enum: ["Pending", "In Progress", "Completed", "On Hold"]
+   *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "In Progress"
    *                 description: Updated project status
    *                 nullable: true
@@ -893,11 +882,6 @@ module.exports = (app) => {
    *                 type: integer
    *                 example: 1
    *                 description: Optional team ID to assign or update
-   *                 nullable: true
-   *               note:
-   *                 type: string
-   *                 example: "Assigned via team update"
-   *                 description: Optional note for team assignment
    *                 nullable: true
    *     responses:
    *       200:
@@ -912,10 +896,9 @@ module.exports = (app) => {
    *                   example: "Project updated"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *                 teams:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Team'
+   *                 team:
+   *                   $ref: '#/components/schemas/Team'
+   *                   nullable: true
    *                 tasks:
    *                   type: array
    *                   items:
@@ -929,39 +912,39 @@ module.exports = (app) => {
    *                 startDate: "2025-07-15"
    *                 endDate: "2025-12-31"
    *                 status: "In Progress"
-   *               teams:
-   *                 - teamId: 1
-   *                   name: "Dev Team"
-   *                   description: "Development team"
-   *                   note: "Assigned via team update"
-   *                   members:
-   *                     - userId: 1
-   *                       name: "John Doe"
-   *                       email: "john.doe@example.com"
-   *                       role: "Developer"
-   *                       note: "Assigned via team"
-   *                       tasks:
-   *                         - id: 1
-   *                           title: "Implement login page"
-   *                           status: "To Do"
-   *                           dueDate: "2025-08-01T00:00:00.000Z"
-   *                           assignee:
-   *                             id: 1
-   *                             name: "John Doe"
-   *                     - userId: 2
-   *                       name: "Jane Smith"
-   *                       email: "jane.smith@example.com"
-   *                       role: "Developer"
-   *                       note: "Assigned via team"
-   *                       tasks: []
+   *                 teamId: 1
+   *               team:
+   *                 teamId: 1
+   *                 name: "Dev Team"
+   *                 description: "Development team"
+   *                 members:
+   *                   - userId: 1
+   *                     name: "John Doe"
+   *                     email: "john.doe@example.com"
+   *                     tasks:
+   *                       - id: 1
+   *                         title: "Implement login page"
+   *                         description: "Create the login page UI and backend"
+   *                         status: "To Do"
+   *                         dueDate: "2025-08-01T00:00:00.000Z"
+   *                         assignee:
+   *                           id: 1
+   *                           name: "John Doe"
+   *                           email: "john.doe@example.com"
+   *                   - userId: 2
+   *                     name: "Jane Smith"
+   *                     email: "jane.smith@example.com"
+   *                     tasks: []
    *               tasks:
    *                 - id: 1
    *                   title: "Implement login page"
+   *                   description: "Create the login page UI and backend"
    *                   status: "To Do"
    *                   dueDate: "2025-08-01T00:00:00.000Z"
    *                   assignee:
    *                     id: 1
    *                     name: "John Doe"
+   *                     email: "john.doe@example.com"
    *       400:
    *         description: Invalid input or project ID
    *         content:
