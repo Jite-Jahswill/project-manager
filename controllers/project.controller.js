@@ -17,9 +17,9 @@ module.exports = {
       }
       const [project] = await db.sequelize.query(
         `
-        INSERT INTO "Projects" (name, description, "startDate", "endDate", status, "createdAt", "updatedAt")
+        INSERT INTO Projects (name, description, startDate, endDate, status, createdAt, updatedAt)
         VALUES (:name, :description, :startDate, :endDate, 'To Do', NOW(), NOW())
-        RETURNING id, name, description, "startDate", "endDate", status, "createdAt", "updatedAt";
+        RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
         `,
         {
           replacements: {
@@ -71,7 +71,7 @@ module.exports = {
       try {
         // Check if team exists
         const [team] = await db.sequelize.query(
-          `SELECT id, name FROM "Teams" WHERE id = :teamId`,
+          `SELECT id, name FROM Teams WHERE id = :teamId`,
           {
             replacements: { teamId },
             type: db.sequelize.QueryTypes.SELECT,
@@ -85,7 +85,7 @@ module.exports = {
 
         // Check if project exists
         const [project] = await db.sequelize.query(
-          `SELECT id, name, "startDate", "endDate" FROM "Projects" WHERE id = :projectId`,
+          `SELECT id, name, startDate, endDate FROM Projects WHERE id = :projectId`,
           {
             replacements: { projectId },
             type: db.sequelize.QueryTypes.SELECT,
@@ -100,10 +100,10 @@ module.exports = {
         // Fetch team members
         const teamMembers = await db.sequelize.query(
           `
-          SELECT u.id, u.email, u."firstName", u."lastName"
-          FROM "Users" u
-          INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-          WHERE ut."teamId" = :teamId
+          SELECT u.id, u.email, u.firstName, u.lastName, u.phoneNumber
+          FROM Users u
+          INNER JOIN UserTeams ut ON u.id = ut.userId
+          WHERE ut.teamId = :teamId
           `,
           {
             replacements: { teamId },
@@ -114,7 +114,7 @@ module.exports = {
 
         // Update project with teamId
         await db.sequelize.query(
-          `UPDATE "Projects" SET "teamId" = :teamId, "updatedAt" = NOW() WHERE id = :projectId`,
+          `UPDATE Projects SET teamId = :teamId, updatedAt = NOW() WHERE id = :projectId`,
           {
             replacements: { teamId, projectId },
             type: db.sequelize.QueryTypes.UPDATE,
@@ -132,6 +132,7 @@ module.exports = {
               <p>Your team <strong>${team.name}</strong> has been assigned to the project <strong>${project.name}</strong>.</p>
               <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
               <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+              <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
               <p>Please log in to view your tasks.</p>
               <p>Best,<br>Team</p>
             `,
@@ -151,6 +152,7 @@ module.exports = {
               userId: u.id,
               email: u.email,
               name: `${u.firstName} ${u.lastName}`,
+              phoneNumber: u.phoneNumber || null,
             })),
           },
         });
@@ -188,7 +190,7 @@ module.exports = {
         return res.status(400).json({ message: "projectId is required" });
 
       const [project] = await db.sequelize.query(
-        `SELECT id FROM "Projects" WHERE id = :projectId`,
+        `SELECT id FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -199,10 +201,10 @@ module.exports = {
 
       const members = await db.sequelize.query(
         `
-        SELECT u.id AS userId, u."firstName", u."lastName", u.email, ut.role
-        FROM "Users" u
-        INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-        WHERE ut."projectId" = :projectId
+        SELECT u.id AS userId, u.firstName, u.lastName, u.email, u.phoneNumber, ut.role
+        FROM Users u
+        INNER JOIN UserTeams ut ON u.id = ut.userId
+        WHERE ut.projectId = :projectId
         `,
         {
           replacements: { projectId },
@@ -232,13 +234,13 @@ module.exports = {
       const { projectName, status, startDate } = req.query;
 
       let query = `
-        SELECT p.id, p.name, p.description, p."startDate", p."endDate", p.status, p."teamId",
-               c.id AS clientId, c."firstName" AS clientFirstName, c."lastName" AS clientLastName, c.email AS clientEmail, c.image AS clientImage,
+        SELECT p.id, p.name, p.description, p.startDate, p.endDate, p.status, p.teamId,
+               c.id AS clientId, c.firstName AS clientFirstName, c.lastName AS clientLastName, c.email AS clientEmail, c.image AS clientImage,
                t.id AS teamId, t.name AS teamName
-        FROM "Projects" p
-        LEFT JOIN "ClientProjects" cp ON p.id = cp."projectId"
-        LEFT JOIN "Clients" c ON cp."clientId" = c.id
-        LEFT JOIN "Teams" t ON p."teamId" = t.id
+        FROM Projects p
+        LEFT JOIN ClientProjects cp ON p.id = cp.projectId
+        LEFT JOIN Clients c ON cp.clientId = c.id
+        LEFT JOIN Teams t ON p.teamId = t.id
       `;
       const replacements = {};
 
@@ -252,7 +254,7 @@ module.exports = {
         replacements.status = status;
       }
       if (startDate) {
-        whereClauses.push(`DATE(p."startDate") = :startDate`);
+        whereClauses.push(`DATE(p.startDate) = :startDate`);
         replacements.startDate = startDate;
       }
 
@@ -271,10 +273,10 @@ module.exports = {
           const teamMembers = project.teamId
             ? await db.sequelize.query(
                 `
-                SELECT u.id, u."firstName", u."lastName", u.email
-                FROM "Users" u
-                INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-                WHERE ut."teamId" = :teamId
+                SELECT u.id, u.firstName, u.lastName, u.email, u.phoneNumber
+                FROM Users u
+                INNER JOIN UserTeams ut ON u.id = ut.userId
+                WHERE ut.teamId = :teamId
                 `,
                 {
                   replacements: { teamId: project.teamId },
@@ -285,9 +287,9 @@ module.exports = {
 
           const tasks = await db.sequelize.query(
             `
-            SELECT id, title, description, status, "dueDate"
-            FROM "Tasks"
-            WHERE "projectId" = :projectId
+            SELECT id, title, description, status, dueDate
+            FROM Tasks
+            WHERE projectId = :projectId
             `,
             {
               replacements: { projectId: project.id },
@@ -320,6 +322,7 @@ module.exports = {
                     firstName: user.firstName,
                     lastName: user.lastName,
                     email: user.email,
+                    phoneNumber: user.phoneNumber || null,
                   })),
                 }
               : null,
@@ -366,7 +369,7 @@ module.exports = {
 
       // Check if project exists
       const [project] = await db.sequelize.query(
-        `SELECT id, name FROM "Projects" WHERE id = :projectId`,
+        `SELECT id, name FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -380,8 +383,8 @@ module.exports = {
       // Check if user is assigned to the project
       const [assigned] = await db.sequelize.query(
         `
-        SELECT * FROM "UserTeams"
-        WHERE "userId" = :userId AND "projectId" = :projectId
+        SELECT * FROM UserTeams
+        WHERE userId = :userId AND projectId = :projectId
         `,
         {
           replacements: { userId: req.user.id, projectId },
@@ -398,10 +401,10 @@ module.exports = {
       // Update project status
       const [updatedProject] = await db.sequelize.query(
         `
-        UPDATE "Projects"
-        SET status = :status, "updatedAt" = NOW()
+        UPDATE Projects
+        SET status = :status, updatedAt = NOW()
         WHERE id = :projectId
-        RETURNING id, name, description, "startDate", "endDate", status, "createdAt", "updatedAt";
+        RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
         `,
         {
           replacements: { status, projectId },
@@ -416,10 +419,10 @@ module.exports = {
       // Fetch assigned users
       const assignedUsers = await db.sequelize.query(
         `
-        SELECT u.email, u."firstName"
-        FROM "Users" u
-        INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-        WHERE ut."projectId" = :projectId
+        SELECT u.email, u.firstName, u.phoneNumber
+        FROM Users u
+        INNER JOIN UserTeams ut ON u.id = ut.userId
+        WHERE ut.projectId = :projectId
         `,
         {
           replacements: { projectId },
@@ -430,7 +433,7 @@ module.exports = {
       // Fetch admins and managers
       const adminsAndManagers = await db.sequelize.query(
         `
-        SELECT email, "firstName" FROM "Users"
+        SELECT email, firstName, phoneNumber FROM Users
         WHERE role IN ('admin', 'manager')
         `,
         {
@@ -452,6 +455,11 @@ module.exports = {
           html: `
             <p>Hello,</p>
             <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
+            <p><strong>Contact Phone:</strong> ${
+              assignedUsers.find((u) => u.email === email)?.phoneNumber ||
+              adminsAndManagers.find((u) => u.email === email)?.phoneNumber ||
+              "Not provided"
+            }</p>
             <p>Best regards,<br>Team</p>
           `,
         })
@@ -499,7 +507,7 @@ module.exports = {
 
       // Check if project exists
       const [project] = await db.sequelize.query(
-        `SELECT id, name FROM "Projects" WHERE id = :projectId`,
+        `SELECT id, name FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -523,11 +531,11 @@ module.exports = {
         replacements.description = description || null;
       }
       if (startDate) {
-        updates.push(`"startDate" = :startDate`);
+        updates.push(`startDate = :startDate`);
         replacements.startDate = startDate;
       }
       if (endDate !== undefined) {
-        updates.push(`"endDate" = :endDate`);
+        updates.push(`endDate = :endDate`);
         replacements.endDate = endDate || null;
       }
       if (status) {
@@ -540,7 +548,7 @@ module.exports = {
       }
       if (teamId) {
         const [team] = await db.sequelize.query(
-          `SELECT id FROM "Teams" WHERE id = :teamId`,
+          `SELECT id FROM Teams WHERE id = :teamId`,
           {
             replacements: { teamId },
             type: db.sequelize.QueryTypes.SELECT,
@@ -549,17 +557,17 @@ module.exports = {
         if (!team) {
           return res.status(404).json({ message: "Team not found" });
         }
-        updates.push(`"teamId" = :teamId`);
+        updates.push(`teamId = :teamId`);
         replacements.teamId = teamId;
       }
 
       let updatedProject;
       if (updates.length > 0) {
         const query = `
-          UPDATE "Projects"
-          SET ${updates.join(", ")}, "updatedAt" = NOW()
+          UPDATE Projects
+          SET ${updates.join(", ")}, updatedAt = NOW()
           WHERE id = :projectId
-          RETURNING id, name, description, "startDate", "endDate", status, "createdAt", "updatedAt";
+          RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
         `;
         [updatedProject] = await db.sequelize.query(query, {
           replacements,
@@ -567,7 +575,7 @@ module.exports = {
         });
       } else {
         [updatedProject] = await db.sequelize.query(
-          `SELECT id, name, description, "startDate", "endDate", status, "createdAt", "updatedAt" FROM "Projects" WHERE id = :projectId`,
+          `SELECT id, name, description, startDate, endDate, status, createdAt, updatedAt FROM Projects WHERE id = :projectId`,
           {
             replacements: { projectId },
             type: db.sequelize.QueryTypes.SELECT,
@@ -583,10 +591,10 @@ module.exports = {
       if (teamId) {
         const teamMembers = await db.sequelize.query(
           `
-          SELECT u.email, u."firstName"
-          FROM "Users" u
-          INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-          WHERE ut."teamId" = :teamId
+          SELECT u.email, u.firstName, u.phoneNumber
+          FROM Users u
+          INNER JOIN UserTeams ut ON u.id = ut.userId
+          WHERE ut.teamId = :teamId
           `,
           {
             replacements: { teamId },
@@ -601,6 +609,7 @@ module.exports = {
             html: `
               <p>Hello ${user.firstName},</p>
               <p>Your team has been assigned to the updated project <strong>${name || project.name}</strong>.</p>
+              <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
               <p>Check your dashboard for details.</p>
               <p>Best,<br>Team</p>
             `,
@@ -639,7 +648,7 @@ module.exports = {
       const { projectId } = req.params;
 
       const [project] = await db.sequelize.query(
-        `SELECT id, name FROM "Projects" WHERE id = :projectId`,
+        `SELECT id, name FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -651,10 +660,10 @@ module.exports = {
 
       const users = await db.sequelize.query(
         `
-        SELECT u.email, u."firstName"
-        FROM "Users" u
-        INNER JOIN "UserTeams" ut ON u.id = ut."userId"
-        WHERE ut."projectId" = :projectId
+        SELECT u.email, u.firstName, u.phoneNumber
+        FROM Users u
+        INNER JOIN UserTeams ut ON u.id = ut.userId
+        WHERE ut.projectId = :projectId
         `,
         {
           replacements: { projectId },
@@ -663,7 +672,7 @@ module.exports = {
       );
 
       await db.sequelize.query(
-        `DELETE FROM "Projects" WHERE id = :projectId`,
+        `DELETE FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.DELETE,
@@ -677,6 +686,7 @@ module.exports = {
           html: `
             <p>Hello ${user.firstName},</p>
             <p>The project <strong>${project.name}</strong> you were assigned to has been deleted.</p>
+            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
             <p>Thank you for your contribution.</p>
             <p>Best,<br>Team</p>
           `,
@@ -713,7 +723,7 @@ module.exports = {
       }
 
       const [project] = await db.sequelize.query(
-        `SELECT id FROM "Projects" WHERE id = :projectId`,
+        `SELECT id FROM Projects WHERE id = :projectId`,
         {
           replacements: { projectId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -724,7 +734,7 @@ module.exports = {
       }
 
       const [client] = await db.sequelize.query(
-        `SELECT id FROM "Clients" WHERE id = :clientId`,
+        `SELECT id FROM Clients WHERE id = :clientId`,
         {
           replacements: { clientId },
           type: db.sequelize.QueryTypes.SELECT,
@@ -736,9 +746,9 @@ module.exports = {
 
       await db.sequelize.query(
         `
-        INSERT INTO "ClientProjects" ("projectId", "clientId")
+        INSERT INTO ClientProjects (projectId, clientId)
         VALUES (:projectId, :clientId)
-        ON CONFLICT DO NOTHING
+        ON DUPLICATE KEY UPDATE projectId = projectId
         `,
         {
           replacements: { projectId, clientId },
@@ -771,8 +781,8 @@ module.exports = {
 
       const affectedRows = await db.sequelize.query(
         `
-        DELETE FROM "ClientProjects"
-        WHERE "projectId" = :projectId AND "clientId" = :clientId
+        DELETE FROM ClientProjects
+        WHERE projectId = :projectId AND clientId = :clientId
         `,
         {
           replacements: { projectId, clientId },
