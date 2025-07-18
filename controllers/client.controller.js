@@ -16,29 +16,33 @@ const generateOTP = () => {
 exports.createClient = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { firstName, lastName, email } = req.body;
+    const { firstName, lastName, email, phoneNumber } = req.body; // Added phoneNumber
     const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
+    // Validate required fields
     if (!firstName || !lastName || !email) {
       await transaction.rollback();
       return res.status(400).json({ message: "firstName, lastName, and email are required" });
     }
 
+    // Check if client already exists
     const exists = await Client.findOne({ where: { email }, transaction });
     if (exists) {
       await transaction.rollback();
       return res.status(409).json({ message: "Client with this email already exists" });
     }
 
+    // Generate password and OTP
     const autoPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(autoPassword, 10);
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+    // Insert new client into the database
     await sequelize.query(
-      `INSERT INTO Clients (firstName, lastName, email, password, image, emailVerified, otp, otpExpiresAt, createdAt, updatedAt)
-       VALUES (:firstName, :lastName, :email, :password, :image, :emailVerified, :otp, :otpExpiresAt, NOW(), NOW())`,
+      `INSERT INTO Clients (firstName, lastName, email, password, image, emailVerified, otp, otpExpiresAt, phoneNumber, createdAt, updatedAt)
+       VALUES (:firstName, :lastName, :email, :password, :image, :emailVerified, :otp, :otpExpiresAt, :phoneNumber, NOW(), NOW())`,
       {
         replacements: {
           firstName,
@@ -49,14 +53,17 @@ exports.createClient = async (req, res) => {
           emailVerified: false,
           otp: hashedOTP,
           otpExpiresAt,
+          phoneNumber, // Added phoneNumber
         },
         type: sequelize.QueryTypes.INSERT,
         transaction,
       }
     );
 
+    // Fetch the newly created client
     const client = await Client.findOne({ where: { email }, transaction });
 
+    // Send welcome email
     await sendMail({
       to: client.email,
       subject: "Welcome! Verify Your Client Account",
@@ -72,6 +79,7 @@ exports.createClient = async (req, res) => {
       `,
     });
 
+    // Commit transaction
     await transaction.commit();
     res.status(201).json({
       message: "Client created successfully, OTP and password sent to email",
@@ -81,6 +89,7 @@ exports.createClient = async (req, res) => {
         lastName: client.lastName,
         email: client.email,
         image: client.image,
+        phoneNumber: client.phoneNumber, // Include phoneNumber in response
       },
     });
   } catch (err) {
@@ -94,6 +103,7 @@ exports.createClient = async (req, res) => {
     res.status(500).json({ message: "Failed to create client", details: err.message });
   }
 };
+
 
 exports.loginClient = async (req, res) => {
   try {
@@ -491,14 +501,16 @@ exports.updateClient = async (req, res) => {
       return res.status(404).json({ error: "Client not found" });
     }
 
-    const { firstName, lastName, email } = req.body;
+    const { firstName, lastName, email, phoneNumber } = req.body; // Added phoneNumber
     const image = req.file ? `uploads/profiles/${req.file.filename}` : client.image;
 
+    // Handle file deletion if a new image is uploaded
     if (req.file && client.image) {
       const oldPath = path.join(__dirname, "../uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
+    // Check for email uniqueness if it is being updated
     if (email && email !== client.email) {
       const existingClient = await Client.findOne({ where: { email }, transaction });
       if (existingClient) {
@@ -507,9 +519,10 @@ exports.updateClient = async (req, res) => {
       }
     }
 
+    // Update the client in the database
     await sequelize.query(
       `UPDATE Clients 
-       SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, updatedAt = NOW()
+       SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, phoneNumber = :phoneNumber, updatedAt = NOW()
        WHERE id = :id`,
       {
         replacements: {
@@ -517,6 +530,7 @@ exports.updateClient = async (req, res) => {
           lastName: lastName || client.lastName,
           email: email || client.email,
           image,
+          phoneNumber: phoneNumber || client.phoneNumber, // Added phoneNumber
           id,
         },
         type: sequelize.QueryTypes.UPDATE,
