@@ -16,7 +16,7 @@ const generateOTP = () => {
 exports.createClient = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { firstName, lastName, email, phoneNumber } = req.body; // Added phoneNumber
+    const { firstName, lastName, email, phoneNumber } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
 
     // Validate required fields
@@ -39,29 +39,23 @@ exports.createClient = async (req, res) => {
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Insert new client into the database
-    await sequelize.query(
-      `INSERT INTO Clients (firstName, lastName, email, password, image, emailVerified, otp, otpExpiresAt, phoneNumber, createdAt, updatedAt)
-       VALUES (:firstName, :lastName, :email, :password, :image, :emailVerified, :otp, :otpExpiresAt, :phoneNumber, NOW(), NOW())`,
+    // Create new client using Sequelize
+    const client = await Client.create(
       {
-        replacements: {
-          firstName,
-          lastName,
-          email,
-          password: hashedPassword,
-          image,
-          emailVerified: false,
-          otp: hashedOTP,
-          otpExpiresAt,
-          phoneNumber, // Added phoneNumber
-        },
-        type: sequelize.QueryTypes.INSERT,
-        transaction,
-      }
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        image,
+        emailVerified: false,
+        otp: hashedOTP,
+        otpExpiresAt,
+        phoneNumber,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      { transaction }
     );
-
-    // Fetch the newly created client
-    const client = await Client.findOne({ where: { email }, transaction });
 
     // Send welcome email
     await sendMail({
@@ -89,7 +83,7 @@ exports.createClient = async (req, res) => {
         lastName: client.lastName,
         email: client.email,
         image: client.image,
-        phoneNumber: client.phoneNumber, // Include phoneNumber in response
+        phoneNumber: client.phoneNumber,
       },
     });
   } catch (err) {
@@ -103,7 +97,6 @@ exports.createClient = async (req, res) => {
     res.status(500).json({ message: "Failed to create client", details: err.message });
   }
 };
-
 
 exports.loginClient = async (req, res) => {
   try {
@@ -501,12 +494,12 @@ exports.updateClient = async (req, res) => {
       return res.status(404).json({ error: "Client not found" });
     }
 
-    const { firstName, lastName, email, phoneNumber } = req.body; // Added phoneNumber
+    const { firstName, lastName, email, phoneNumber } = req.body;
     const image = req.file ? `uploads/profiles/${req.file.filename}` : client.image;
 
     // Handle file deletion if a new image is uploaded
     if (req.file && client.image) {
-      const oldPath = path.join(__dirname, "../uploads", client.image);
+      const oldPath = path.join(__dirname, "../Uploads", client.image);
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
@@ -519,7 +512,7 @@ exports.updateClient = async (req, res) => {
       }
     }
 
-    // Update the client in the database
+    // Update the client in the database using raw SQL
     await sequelize.query(
       `UPDATE Clients 
        SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, phoneNumber = :phoneNumber, updatedAt = NOW()
@@ -530,7 +523,7 @@ exports.updateClient = async (req, res) => {
           lastName: lastName || client.lastName,
           email: email || client.email,
           image,
-          phoneNumber: phoneNumber || client.phoneNumber, // Added phoneNumber
+          phoneNumber: phoneNumber || client.phoneNumber,
           id,
         },
         type: sequelize.QueryTypes.UPDATE,
@@ -554,29 +547,22 @@ exports.updateClient = async (req, res) => {
   }
 };
 
-
 exports.deleteClient = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const client = await Client.findByPk(req.params.id, { transaction });
+    const { id } = req.params;
+    const client = await Client.findByPk(id, { transaction });
     if (!client) {
       await transaction.rollback();
       return res.status(404).json({ error: "Client not found" });
     }
 
     if (client.image) {
-      const filePath = path.join(__dirname, "../uploads", client.image);
+      const filePath = path.join(__dirname, "../Uploads", client.image);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
-    await sequelize.query(
-      `DELETE FROM Clients WHERE id = :id`,
-      {
-        replacements: { id: client.id },
-        type: sequelize.QueryTypes.DELETE,
-        transaction,
-      }
-    );
+    await Client.destroy({ where: { id }, transaction });
 
     await transaction.commit();
     res.json({ message: "Client deleted" });
@@ -594,16 +580,21 @@ exports.deleteClient = async (req, res) => {
 
 exports.notifyClientOnProjectCompletion = async (projectId) => {
   try {
-    const project = await Project.findByPk(projectId, { include: Client });
-    if (project && project.Client) {
-      await sendMail({
-        to: project.Client.email,
+    const project = await Project.findByPk(projectId, {
+      include: [{ model: Client, as: "Clients" }],
+    });
+    if (project && project.Clients && project.Clients.length > 0) {
+      const emails = project.Clients.map((client) => ({
+        to: client.email,
         subject: `Your project '${project.name}' is complete!`,
         html: `
-          <p>Hi ${project.Client.firstName},</p>
+          <p>Hi ${client.firstName},</p>
           <p>Your project <strong>${project.name}</strong> has been marked as completed.</p>
+          <p>Best,<br>Team</p>
         `,
-      });
+      }));
+
+      await Promise.all(emails.map((email) => sendMail(email)));
     }
   } catch (err) {
     console.error("Notify client error:", {
