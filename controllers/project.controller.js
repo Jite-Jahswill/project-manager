@@ -15,22 +15,18 @@ module.exports = {
       if (!name) {
         return res.status(400).json({ message: "Project name is required" });
       }
-      const [project] = await db.sequelize.query(
-        `
-        INSERT INTO Projects (name, description, startDate, endDate, status, createdAt, updatedAt)
-        VALUES (:name, :description, :startDate, :endDate, 'To Do', NOW(), NOW())
-        RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
-        `,
-        {
-          replacements: {
-            name,
-            description: description || null,
-            startDate: startDate || null,
-            endDate: endDate || null,
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-        }
-      );
+
+      // Create project using Sequelize
+      const project = await db.Project.create({
+        name,
+        description: description || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        status: "To Do",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
       return res
         .status(201)
         .json({ message: "Project created successfully", project });
@@ -231,8 +227,16 @@ module.exports = {
   // Get all projects (All authenticated users)
   async getAllProjects(req, res) {
     try {
-      const { projectName, status, startDate } = req.query;
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
 
+      // Validate page and limit
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+
+      // Build query
       let query = `
         SELECT p.id, p.name, p.description, p.startDate, p.endDate, p.status, p.teamId,
                c.id AS clientId, c.firstName AS clientFirstName, c.lastName AS clientLastName, c.email AS clientEmail, c.image AS clientImage,
@@ -262,8 +266,28 @@ module.exports = {
         query += ` WHERE ${whereClauses.join(" AND ")}`;
       }
 
+      // Add pagination
+      const offset = (pageNum - 1) * limitNum;
+      query += ` LIMIT :limit OFFSET :offset`;
+      replacements.limit = limitNum;
+      replacements.offset = offset;
+
+      // Fetch projects
       const projects = await db.sequelize.query(query, {
         replacements,
+        type: db.sequelize.QueryTypes.SELECT,
+      });
+
+      // Fetch total count for pagination
+      let countQuery = `SELECT COUNT(*) as total FROM Projects`;
+      const countReplacements = {};
+      if (whereClauses.length > 0) {
+        countQuery += ` WHERE ${whereClauses.join(" AND ")}`;
+        Object.assign(countReplacements, replacements);
+      }
+
+      const [{ total }] = await db.sequelize.query(countQuery, {
+        replacements: countReplacements,
         type: db.sequelize.QueryTypes.SELECT,
       });
 
@@ -337,7 +361,15 @@ module.exports = {
         })
       );
 
-      return res.status(200).json({ projects: formattedProjects });
+      // Pagination metadata
+      const pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        totalItems: parseInt(total, 10),
+        itemsPerPage: limitNum,
+      };
+
+      return res.status(200).json({ projects: formattedProjects, pagination });
     } catch (err) {
       console.error("Get projects error:", {
         message: err.message,
@@ -368,30 +400,17 @@ module.exports = {
       }
 
       // Check if project exists
-      const [project] = await db.sequelize.query(
-        `SELECT id, name FROM Projects WHERE id = :projectId`,
-        {
-          replacements: { projectId },
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
-
+      const project = await db.Project.findByPk(projectId, {
+        attributes: ["id", "name", "description", "startDate", "endDate", "status", "createdAt", "updatedAt"],
+      });
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
 
       // Check if user is assigned to the project
-      const [assigned] = await db.sequelize.query(
-        `
-        SELECT * FROM UserTeams
-        WHERE userId = :userId AND projectId = :projectId
-        `,
-        {
-          replacements: { userId: req.user.id, projectId },
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
-
+      const assigned = await db.UserTeam.findOne({
+        where: { userId: req.user.id, projectId },
+      });
       if (!assigned) {
         return res.status(403).json({
           message: "You're not assigned to this project",
@@ -399,19 +418,15 @@ module.exports = {
       }
 
       // Update project status
-      const [updatedProject] = await db.sequelize.query(
-        `
-        UPDATE Projects
-        SET status = :status, updatedAt = NOW()
-        WHERE id = :projectId
-        RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
-        `,
-        {
-          replacements: { status, projectId },
-          type: db.sequelize.QueryTypes.UPDATE,
-        }
+      await db.Project.update(
+        { status, updatedAt: new Date() },
+        { where: { id: projectId } }
       );
 
+      // Fetch updated project
+      const updatedProject = await db.Project.findByPk(projectId, {
+        attributes: ["id", "name", "description", "startDate", "endDate", "status", "createdAt", "updatedAt"],
+      });
       if (!updatedProject) {
         return res.status(500).json({ message: "Failed to update project status" });
       }
@@ -431,15 +446,10 @@ module.exports = {
       );
 
       // Fetch admins and managers
-      const adminsAndManagers = await db.sequelize.query(
-        `
-        SELECT email, firstName, phoneNumber FROM Users
-        WHERE role IN ('admin', 'manager')
-        `,
-        {
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
+      const adminsAndManagers = await db.User.findAll({
+        where: { role: ["admin", "manager"] },
+        attributes: ["email", "firstName", "phoneNumber"],
+      });
 
       // Collect unique emails
       const uniqueEmails = new Set([
@@ -506,83 +516,48 @@ module.exports = {
       const { name, description, startDate, endDate, status, teamId } = req.body;
 
       // Check if project exists
-      const [project] = await db.sequelize.query(
-        `SELECT id, name FROM Projects WHERE id = :projectId`,
-        {
-          replacements: { projectId },
-          type: db.sequelize.QueryTypes.SELECT,
-        }
-      );
-
+      const project = await db.Project.findByPk(projectId, {
+        attributes: ["id", "name"],
+      });
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Build the UPDATE query dynamically
-      const updates = [];
-      const replacements = { projectId };
+      // Validate teamId if provided
+      if (teamId) {
+        const team = await db.Team.findByPk(teamId, {
+          attributes: ["id"],
+        });
+        if (!team) {
+          return res.status(404).json({ message: "Team not found" });
+        }
+      }
 
-      if (name) {
-        updates.push(`name = :name`);
-        replacements.name = name;
-      }
-      if (description !== undefined) {
-        updates.push(`description = :description`);
-        replacements.description = description || null;
-      }
-      if (startDate) {
-        updates.push(`startDate = :startDate`);
-        replacements.startDate = startDate;
-      }
-      if (endDate !== undefined) {
-        updates.push(`endDate = :endDate`);
-        replacements.endDate = endDate || null;
-      }
+      // Build the update object
+      const updates = {};
+      if (name) updates.name = name;
+      if (description !== undefined) updates.description = description || null;
+      if (startDate) updates.startDate = startDate;
+      if (endDate !== undefined) updates.endDate = endDate || null;
       if (status) {
         const validStatuses = ["To Do", "In Progress", "Review", "Done"];
         if (!validStatuses.includes(status)) {
           return res.status(400).json({ message: "Invalid status value" });
         }
-        updates.push(`status = :status`);
-        replacements.status = status;
+        updates.status = status;
       }
-      if (teamId) {
-        const [team] = await db.sequelize.query(
-          `SELECT id FROM Teams WHERE id = :teamId`,
-          {
-            replacements: { teamId },
-            type: db.sequelize.QueryTypes.SELECT,
-          }
-        );
-        if (!team) {
-          return res.status(404).json({ message: "Team not found" });
-        }
-        updates.push(`teamId = :teamId`);
-        replacements.teamId = teamId;
+      if (teamId) updates.teamId = teamId;
+      updates.updatedAt = new Date();
+
+      // Update project
+      if (Object.keys(updates).length > 1 || (Object.keys(updates).length === 1 && !updates.updatedAt)) {
+        await db.Project.update(updates, { where: { id: projectId } });
       }
 
-      let updatedProject;
-      if (updates.length > 0) {
-        const query = `
-          UPDATE Projects
-          SET ${updates.join(", ")}, updatedAt = NOW()
-          WHERE id = :projectId
-          RETURNING id, name, description, startDate, endDate, status, createdAt, updatedAt;
-        `;
-        [updatedProject] = await db.sequelize.query(query, {
-          replacements,
-          type: db.sequelize.QueryTypes.UPDATE,
-        });
-      } else {
-        [updatedProject] = await db.sequelize.query(
-          `SELECT id, name, description, startDate, endDate, status, createdAt, updatedAt FROM Projects WHERE id = :projectId`,
-          {
-            replacements: { projectId },
-            type: db.sequelize.QueryTypes.SELECT,
-          }
-        );
-      }
-
+      // Fetch updated project
+      const updatedProject = await db.Project.findByPk(projectId, {
+        attributes: ["id", "name", "description", "startDate", "endDate", "status", "createdAt", "updatedAt"],
+      });
       if (!updatedProject) {
         return res.status(500).json({ message: "Failed to update project" });
       }
