@@ -215,6 +215,7 @@ exports.updateTeam = async (req, res) => {
             console.warn("Skipping user with missing userId", {
               user,
               teamId: id,
+              timestamp: new Date().toISOString(),
             });
             continue;
           }
@@ -228,14 +229,14 @@ exports.updateTeam = async (req, res) => {
             }
           );
           if (!userDetails) {
-            console.warn("User not found", { userId, teamId: id });
+            console.warn("User not found", { userId, teamId: id, timestamp: new Date().toISOString() });
             continue;
           }
 
           const [existing] = await db.sequelize.query(
             `
             SELECT * FROM UserTeams
-            WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+            WHERE userId = :userId AND teamId = :teamId AND (projectId = :projectId OR (projectId IS NULL AND :projectId IS NULL))
             `,
             {
               replacements: { userId, teamId: id, projectId: projectId || null },
@@ -249,7 +250,7 @@ exports.updateTeam = async (req, res) => {
               `
               UPDATE UserTeams
               SET role = :role, note = :note, projectId = :projectId, updatedAt = NOW()
-              WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+              WHERE userId = :userId AND teamId = :teamId AND (projectId = :projectId OR (projectId IS NULL AND :projectId IS NULL))
               `,
               {
                 replacements: {
@@ -490,7 +491,7 @@ exports.assignUsersToTeam = async (req, res) => {
         const [existing] = await db.sequelize.query(
           `
           SELECT * FROM UserTeams
-          WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+          WHERE userId = :userId AND teamId = :teamId AND (projectId = :projectId OR (projectId IS NULL AND :projectId IS NULL))
           `,
           {
             replacements: { userId, teamId, projectId: projectId || null },
@@ -595,5 +596,17 @@ exports.assignUsersToTeam = async (req, res) => {
         .status(500)
         .json({ error: "Failed to assign users to team", details: err.message });
     }
+  } catch (err) {
+    console.error("Assign users to team outer error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res
+      .status(500)
+      .json({ error: "Failed to assign users to team", details: err.message });
   }
 };
