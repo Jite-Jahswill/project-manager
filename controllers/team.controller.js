@@ -1,6 +1,5 @@
-const { Team, User, UserTeam, Project } = require("../models");
-const { Op } = require("sequelize");
-const sendMail = require("../utils/mailer");
+const db = require("../models");
+const { sendMail } = require("../utils/mailer");
 
 exports.createTeam = async (req, res) => {
   try {
@@ -15,9 +14,28 @@ exports.createTeam = async (req, res) => {
       return res.status(400).json({ message: "name is required" });
     }
 
-    const team = await Team.create({ name, description });
+    const [team] = await db.sequelize.query(
+      `
+      INSERT INTO Teams (name, description, createdAt, updatedAt)
+      VALUES (:name, :description, NOW(), NOW())
+      RETURNING id, name, description, createdAt, updatedAt;
+      `,
+      {
+        replacements: { name, description: description || null },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
+
     res.status(201).json({ message: "Team created", team });
   } catch (err) {
+    console.error("Create team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to create team", details: err.message });
@@ -27,28 +45,57 @@ exports.createTeam = async (req, res) => {
 exports.getAllTeams = async (req, res) => {
   try {
     const { search } = req.query;
-    const whereClause = {};
+    let query = `
+      SELECT t.id, t.name, t.description, t.createdAt, t.updatedAt
+      FROM Teams t
+      LEFT JOIN UserTeams ut ON t.id = ut.teamId
+      LEFT JOIN Users u ON ut.userId = u.id
+      WHERE ut.projectId IS NULL
+    `;
+    const replacements = {};
 
     if (search) {
-      whereClause.name = { [Op.like]: `%${search}%` };
+      query += ` AND t.name LIKE :search`;
+      replacements.search = `%${search}%`;
     }
 
-    const teams = await Team.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: User,
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: {
-            attributes: ["role", "note"],
-            where: { projectId: null }, // Exclude projectId to avoid join issues
-          },
-        },
-      ],
+    query += ` GROUP BY t.id`;
+
+    const teams = await db.sequelize.query(query, {
+      replacements,
+      type: db.sequelize.QueryTypes.SELECT,
     });
 
-    res.json(teams);
+    const formattedTeams = await Promise.all(
+      teams.map(async (team) => {
+        const users = await db.sequelize.query(
+          `
+          SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note
+          FROM Users u
+          INNER JOIN UserTeams ut ON u.id = ut.userId
+          WHERE ut.teamId = :teamId AND ut.projectId IS NULL
+          `,
+          {
+            replacements: { teamId: team.id },
+            type: db.sequelize.QueryTypes.SELECT,
+          }
+        );
+        return {
+          ...team,
+          Users: users,
+        };
+      })
+    );
+
+    res.json(formattedTeams);
   } catch (err) {
+    console.error("Get teams error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to fetch teams", details: err.message });
@@ -62,29 +109,52 @@ exports.getTeamById = async (req, res) => {
       return res.status(400).json({ error: "id is required" });
     }
 
-    const team = await Team.findByPk(id, {
-      include: [
-        {
-          model: User,
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: {
-            attributes: ["role", "note"],
-            where: { projectId: null },
-          },
-        },
-        {
-          model: Project,
-          attributes: ["id", "name"],
-        },
-      ],
-    });
+    const [team] = await db.sequelize.query(
+      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :id`,
+      {
+        replacements: { id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
 
     if (!team) {
       return res.status(404).json({ error: "Team not found" });
     }
 
-    res.json(team);
+    const users = await db.sequelize.query(
+      `
+      SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note
+      FROM Users u
+      INNER JOIN UserTeams ut ON u.id = ut.userId
+      WHERE ut.teamId = :teamId AND ut.projectId IS NULL
+      `,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    const projects = await db.sequelize.query(
+      `SELECT id, name FROM Projects WHERE teamId = :teamId`,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json({
+      ...team,
+      Users: users,
+      Projects: projects,
+    });
   } catch (err) {
+    console.error("Get team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      params: req.params,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to fetch team", details: err.message });
@@ -105,67 +175,169 @@ exports.updateTeam = async (req, res) => {
       return res.status(400).json({ message: "id is required" });
     }
 
-    const team = await Team.findByPk(id);
+    const [team] = await db.sequelize.query(
+      `SELECT id, name FROM Teams WHERE id = :id`,
+      {
+        replacements: { id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
     if (!team) {
       return res.status(404).json({ error: "Team not found" });
     }
 
-    await team.update({
-      name: name || team.name,
-      description: description || team.description,
-    });
+    const updates = [];
+    const replacements = { id };
+    if (name) {
+      updates.push(`name = :name`);
+      replacements.name = name;
+    }
+    if (description !== undefined) {
+      updates.push(`description = :description`);
+      replacements.description = description || null;
+    }
+
+    if (updates.length > 0) {
+      await db.sequelize.query(
+        `
+        UPDATE Teams
+        SET ${updates.join(", ")}, updatedAt = NOW()
+        WHERE id = :id
+        `,
+        {
+          replacements,
+          type: db.sequelize.QueryTypes.UPDATE,
+        }
+      );
+    }
 
     if (users && Array.isArray(users)) {
-      for (const user of users) {
-        const { id: userId, role, note, projectId } = user;
-        if (!userId) {
-          console.warn("Skipping user with missing userId", {
-            user,
-            teamId: team.id,
-          });
-          continue;
-        }
+      const transaction = await db.sequelize.transaction();
+      try {
+        for (const user of users) {
+          const { id: userId, role, note, projectId } = user;
+          if (!userId) {
+            console.warn("Skipping user with missing userId", {
+              user,
+              teamId: id,
+            });
+            continue;
+          }
 
-        const userTeamEntry = await UserTeam.findOne({
-          where: { userId, teamId: team.id, projectId: projectId || null },
-        });
+          const [userDetails] = await db.sequelize.query(
+            `SELECT id FROM Users WHERE id = :userId`,
+            {
+              replacements: { userId },
+              type: db.sequelize.QueryTypes.SELECT,
+              transaction,
+            }
+          );
+          if (!userDetails) {
+            console.warn("User not found", { userId, teamId: id });
+            continue;
+          }
 
-        if (userTeamEntry) {
-          await userTeamEntry.update({
-            role: role || userTeamEntry.role,
-            note: note || userTeamEntry.note,
-            projectId: projectId || userTeamEntry.projectId,
-          });
-        } else {
-          await UserTeam.create({
-            userId,
-            teamId: team.id,
-            projectId: projectId || null,
-            role: role || "Member",
-            note: note || null,
-          });
+          const [existing] = await db.sequelize.query(
+            `
+            SELECT * FROM UserTeams
+            WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+            `,
+            {
+              replacements: { userId, teamId: id, projectId: projectId || null },
+              type: db.sequelize.QueryTypes.SELECT,
+              transaction,
+            }
+          );
+
+          if (existing) {
+            await db.sequelize.query(
+              `
+              UPDATE UserTeams
+              SET role = :role, note = :note, projectId = :projectId, updatedAt = NOW()
+              WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+              `,
+              {
+                replacements: {
+                  userId,
+                  teamId: id,
+                  role: role || "Member",
+                  note: note || null,
+                  projectId: projectId || null,
+                },
+                type: db.sequelize.QueryTypes.UPDATE,
+                transaction,
+              }
+            );
+          } else {
+            await db.sequelize.query(
+              `
+              INSERT INTO UserTeams (userId, teamId, projectId, role, note, createdAt, updatedAt)
+              VALUES (:userId, :teamId, :projectId, :role, :note, NOW(), NOW())
+              `,
+              {
+                replacements: {
+                  userId,
+                  teamId: id,
+                  projectId: projectId || null,
+                  role: role || "Member",
+                  note: note || null,
+                },
+                type: db.sequelize.QueryTypes.INSERT,
+                transaction,
+              }
+            );
+          }
         }
+        await transaction.commit();
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
       }
     }
 
-    const updatedTeam = await Team.findByPk(id, {
-      include: [
-        {
-          model: User,
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: {
-            attributes: ["role", "note", "projectId"],
-          },
-        },
-        {
-          model: Project,
-          attributes: ["id", "name"],
-        },
-      ],
-    });
+    const [updatedTeam] = await db.sequelize.query(
+      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :id`,
+      {
+        replacements: { id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
 
-    res.json({ message: "Team updated", team: updatedTeam });
+    const usersData = await db.sequelize.query(
+      `
+      SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note, ut.projectId
+      FROM Users u
+      INNER JOIN UserTeams ut ON u.id = ut.userId
+      WHERE ut.teamId = :teamId
+      `,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    const projects = await db.sequelize.query(
+      `SELECT id, name FROM Projects WHERE teamId = :teamId`,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+
+    res.json({
+      message: "Team updated",
+      team: { ...updatedTeam, Users: usersData, Projects: projects },
+    });
   } catch (err) {
+    console.error("Update team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      params: req.params,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to update team", details: err.message });
@@ -185,17 +357,51 @@ exports.deleteTeam = async (req, res) => {
       return res.status(400).json({ error: "id is required" });
     }
 
-    const team = await Team.findByPk(id);
+    const [team] = await db.sequelize.query(
+      `SELECT id FROM Teams WHERE id = :id`,
+      {
+        replacements: { id },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
     if (!team) {
       return res.status(404).json({ error: "Team not found" });
     }
 
-    await UserTeam.destroy({ where: { teamId: team.id } });
-    await User.update({ teamId: null }, { where: { teamId: team.id } });
-    await team.destroy();
+    await db.sequelize.query(
+      `DELETE FROM UserTeams WHERE teamId = :teamId`,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.DELETE,
+      }
+    );
+
+    await db.sequelize.query(
+      `UPDATE Users SET teamId = NULL WHERE teamId = :teamId`,
+      {
+        replacements: { teamId: id },
+        type: db.sequelize.QueryTypes.UPDATE,
+      }
+    );
+
+    await db.sequelize.query(
+      `DELETE FROM Teams WHERE id = :id`,
+      {
+        replacements: { id },
+        type: db.sequelize.QueryTypes.DELETE,
+      }
+    );
 
     res.json({ message: "Team deleted" });
   } catch (err) {
+    console.error("Delete team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      params: req.params,
+      timestamp: new Date().toISOString(),
+    });
     res
       .status(500)
       .json({ error: "Failed to delete team", details: err.message });
@@ -217,91 +423,182 @@ exports.assignUsersToTeam = async (req, res) => {
         .json({ message: "teamId and users array are required" });
     }
 
-    const team = await Team.findByPk(teamId);
-    if (!team) {
-      return res.status(404).json({ error: "Team not found" });
-    }
-
-    const currentUser = await User.findByPk(req.user.id, {
-      attributes: ["firstName", "lastName"],
-    });
-    if (!currentUser) {
-      return res.status(404).json({ error: "Current user not found" });
-    }
-
-    for (const user of users) {
-      const { id: userId, role, note, projectId } = user;
-      if (!userId) {
-        console.warn("Skipping user with missing userId", { user, teamId });
-        continue;
-      }
-
-      const userDetails = await User.findByPk(userId, {
-        attributes: ["id", "email", "firstName", "lastName"],
-      });
-      if (!userDetails) {
-        console.warn("User not found", { userId, teamId });
-        continue;
-      }
-
-      const existing = await UserTeam.findOne({
-        where: { userId, teamId, projectId: projectId || null },
-      });
-      if (existing) {
-        console.warn("User already assigned to team", {
-          userId,
-          teamId,
-          projectId,
-        });
-        continue;
-      }
-
-      await UserTeam.create({
-        userId,
-        teamId,
-        projectId: projectId || null,
-        role: role || "Member",
-        note: note || null,
-      });
-
-      await sendMail(
-        userDetails.email,
-        `You’ve been added to the ${team.name} team`,
-        `<p>Hello ${userDetails.firstName},</p>
-         <p>You’ve been added to the <strong>${team.name}</strong> team by ${
-          currentUser.firstName
-        } ${currentUser.lastName}.</p>
-         <p>Role: ${role || "Member"}</p>
-         <p>Note: ${note || "N/A"}</p>
-         <p>Project: ${projectId ? `ID ${projectId}` : "N/A"}</p>
-         <p>Description: ${team.description || "N/A"}</p>`
+    const transaction = await db.sequelize.transaction();
+    try {
+      const [team] = await db.sequelize.query(
+        `SELECT id, name, description FROM Teams WHERE id = :teamId`,
+        {
+          replacements: { teamId },
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
       );
+      if (!team) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Team not found" });
+      }
+
+      const [currentUser] = await db.sequelize.query(
+        `SELECT id, firstName, lastName FROM Users WHERE id = :userId`,
+        {
+          replacements: { userId: req.user.id },
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!currentUser) {
+        await transaction.rollback();
+        return res.status(404).json({ error: "Current user not found" });
+      }
+
+      const results = [];
+      for (const user of users) {
+        const { id: userId, role, note, projectId } = user;
+        if (!userId) {
+          console.warn("Skipping user with missing userId", {
+            user,
+            teamId,
+            timestamp: new Date().toISOString(),
+          });
+          results.push({ userId: null, status: "skipped", reason: "Missing userId" });
+          continue;
+        }
+
+        const [userDetails] = await db.sequelize.query(
+          `SELECT id, email, firstName, lastName FROM Users WHERE id = :userId`,
+          {
+            replacements: { userId },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+        if (!userDetails) {
+          console.warn("User not found", {
+            userId,
+            teamId,
+            timestamp: new Date().toISOString(),
+          });
+          results.push({ userId, status: "failed", reason: "User not found" });
+          continue;
+        }
+
+        if (!userDetails.email) {
+          console.warn("User email missing", {
+            userId,
+            teamId,
+            timestamp: new Date().toISOString(),
+          });
+          results.push({ userId, status: "skipped", reason: "Missing email" });
+          continue;
+        }
+
+        const [existing] = await db.sequelize.query(
+          `
+          SELECT * FROM UserTeams
+          WHERE userId = :userId AND teamId = :teamId AND projectId IS NULL
+          `,
+          {
+            replacements: { userId, teamId, projectId: projectId || null },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+
+        if (existing) {
+          console.warn("User already assigned to team", {
+            userId,
+            teamId,
+            projectId,
+            timestamp: new Date().toISOString(),
+          });
+          results.push({ userId, status: "skipped", reason: "Already assigned" });
+          continue;
+        }
+
+        await db.sequelize.query(
+          `
+          INSERT INTO UserTeams (userId, teamId, projectId, role, note, createdAt, updatedAt)
+          VALUES (:userId, :teamId, :projectId, :role, :note, NOW(), NOW())
+          `,
+          {
+            replacements: {
+              userId,
+              teamId,
+              projectId: projectId || null,
+              role: role || "Member",
+              note: note || null,
+            },
+            type: db.sequelize.QueryTypes.INSERT,
+            transaction,
+          }
+        );
+
+        await sendMail({
+          to: userDetails.email,
+          subject: `You’ve been added to the ${team.name} team`,
+          html: `
+            <p>Hello ${userDetails.firstName},</p>
+            <p>You’ve been added to the <strong>${team.name}</strong> team by ${currentUser.firstName} ${currentUser.lastName}.</p>
+            <p>Role: ${role || "Member"}</p>
+            <p>Note: ${note || "N/A"}</p>
+            <p>Project: ${projectId ? `ID ${projectId}` : "N/A"}</p>
+            <p>Description: ${team.description || "N/A"}</p>
+          `,
+        });
+
+        results.push({ userId, status: "success" });
+      }
+
+      await transaction.commit();
+
+      const [updatedTeam] = await db.sequelize.query(
+        `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
+        {
+          replacements: { teamId },
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      const usersData = await db.sequelize.query(
+        `
+        SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note, ut.projectId
+        FROM Users u
+        INNER JOIN UserTeams ut ON u.id = ut.userId
+        WHERE ut.teamId = :teamId
+        `,
+        {
+          replacements: { teamId },
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      const projects = await db.sequelize.query(
+        `SELECT id, name FROM Projects WHERE teamId = :teamId`,
+        {
+          replacements: { teamId },
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      res.status(200).json({
+        message: "Users assigned to team",
+        team: { ...updatedTeam, Users: usersData, Projects: projects },
+        userCount: users.length,
+        results,
+      });
+    } catch (err) {
+      await transaction.rollback();
+      console.error("Assign users to team error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      res
+        .status(500)
+        .json({ error: "Failed to assign users to team", details: err.message });
     }
-
-    const updatedTeam = await Team.findByPk(teamId, {
-      include: [
-        {
-          model: User,
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: {
-            attributes: ["role", "note", "projectId"],
-          },
-        },
-        {
-          model: Project,
-          attributes: ["id", "name"],
-        },
-      ],
-    });
-
-    res.status(200).json({
-      message: "Users assigned to team",
-      team: updatedTeam,
-      userCount: users.length,
-    });
-  } catch (err) {
-    res
-      .status(500)
-      .json({ error: "Failed to assign users to team", details: err.message });
   }
 };
