@@ -1,5 +1,5 @@
 const db = require("../models");
-const { sendMail } = require("../utils/mailer");
+const sendMail = require("../utils/mailer");
 
 exports.createTeam = async (req, res) => {
   try {
