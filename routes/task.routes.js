@@ -10,6 +10,67 @@ module.exports = (app) => {
    * tags:
    *   - name: Tasks
    *     description: Task management endpoints
+   *
+   * components:
+   *   schemas:
+   *     Task:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         title:
+   *           type: string
+   *           example: "Design Homepage"
+   *         description:
+   *           type: string
+   *           example: "Create wireframes and mockups for the homepage"
+   *           nullable: true
+   *         dueDate:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-20T00:00:00Z"
+   *           nullable: true
+   *         projectId:
+   *           type: integer
+   *           example: 1
+   *         assignedTo:
+   *           type: integer
+   *           example: 1
+   *         status:
+   *           type: string
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *           example: "To Do"
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-11T12:00:00Z"
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-12T12:00:00Z"
+   *           nullable: true
+   *         project:
+   *           type: object
+   *           properties:
+   *             id:
+   *               type: integer
+   *               example: 1
+   *             name:
+   *               type: string
+   *               example: "Website Redesign"
+   *         assignee:
+   *           type: object
+   *           properties:
+   *             id:
+   *               type: integer
+   *               example: 1
+   *             name:
+   *               type: string
+   *               example: "John Doe"
+   *             email:
+   *               type: string
+   *               example: "john.doe@example.com"
    */
 
   /**
@@ -53,7 +114,7 @@ module.exports = (app) => {
    *               assignedTo:
    *                 type: integer
    *                 example: 1
-   *                 description: ID of the user assigned to the task (must be part of a team assigned to the project)
+   *                 description: ID of the user assigned to the task (must be part of the project's team)
    *               status:
    *                 type: string
    *                 enum: ["To Do", "In Progress", "Review", "Done"]
@@ -72,59 +133,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Task created successfully"
    *                 task:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     title:
-   *                       type: string
-   *                       example: "Design Homepage"
-   *                     description:
-   *                       type: string
-   *                       example: "Create wireframes and mockups for the homepage"
-   *                       nullable: true
-   *                     dueDate:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-20T00:00:00Z"
-   *                       nullable: true
-   *                     projectId:
-   *                       type: integer
-   *                       example: 1
-   *                     assignedTo:
-   *                       type: integer
-   *                       example: 1
-   *                     status:
-   *                       type: string
-   *                       example: "To Do"
-   *                     project:
-   *                       $ref: '#/components/schemas/Project'
-   *                     assignee:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         name:
-   *                           type: string
-   *                           example: "John Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
-   *                     team:
-   *                       type: object
-   *                       properties:
-   *                         teamId:
-   *                           type: integer
-   *                           example: 1
-   *                         name:
-   *                           type: string
-   *                           example: "Dev Team"
-   *                         note:
-   *                           type: string
-   *                           example: "Team assignment"
-   *                           nullable: true
+   *                   $ref: '#/components/schemas/Task'
    *             example:
    *               message: "Task created successfully"
    *               task:
@@ -135,6 +144,7 @@ module.exports = (app) => {
    *                 projectId: 1
    *                 assignedTo: 1
    *                 status: "To Do"
+   *                 createdAt: "2025-07-11T12:00:00Z"
    *                 project:
    *                   id: 1
    *                   name: "Website Redesign"
@@ -142,12 +152,8 @@ module.exports = (app) => {
    *                   id: 1
    *                   name: "John Doe"
    *                   email: "john.doe@example.com"
-   *                 team:
-   *                   teamId: 1
-   *                   name: "Dev Team"
-   *                   note: "Team assignment"
    *       400:
-   *         description: Missing required fields, invalid input, or user not in project team
+   *         description: Missing required fields, invalid input, or user not in project's team
    *         content:
    *           application/json:
    *             schema:
@@ -155,7 +161,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Assigned user is not part of a team working on this project"
+   *                   example: "Assigned user is not part of the project's team"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -212,7 +218,7 @@ module.exports = (app) => {
    * /api/tasks/project/{projectId}:
    *   get:
    *     summary: Get all tasks for a specific project
-   *     description: Admins and managers can view all tasks for a project. Staff can only view their assigned tasks.
+   *     description: Admins and managers can view all tasks for a project. Staff can only view their assigned tasks within the project.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -309,6 +315,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - User not assigned to project
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "You're not assigned to this project"
    *       404:
    *         description: Project not found
    *         content:
@@ -390,7 +406,7 @@ module.exports = (app) => {
    *         example: 20
    *     responses:
    *       200:
-   *         description: List of all tasks matching the filters
+   *         description: List of tasks matching the filters
    *         content:
    *           application/json:
    *             schema:
@@ -447,16 +463,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Access denied - Only admins or managers can view all tasks; staff limited to own tasks
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers can view all tasks"
    *       500:
    *         description: Internal server error
    *         content:
@@ -480,8 +486,8 @@ module.exports = (app) => {
   /**
    * @swagger
    * /api/tasks/{taskId}/status:
-   *   put:
-   *     summary: Update the status of a task (Admin or Manager only)
+   *   patch:
+   *     summary: Update the status of a task (Admin, Manager, or assigned user)
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -560,7 +566,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Unauthorized"
    *       403:
-   *         description: Access denied - Only admins or managers can update task status
+   *         description: Access denied - User not assigned to task or not admin/manager
    *         content:
    *           application/json:
    *             schema:
@@ -568,7 +574,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can update task status"
+   *                   example: "Only admins, managers, or the assigned user can update task status"
    *       404:
    *         description: Task not found
    *         content:
@@ -593,11 +599,153 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put(
+  router.patch(
     "/:taskId/status",
     auth.verifyToken,
-    auth.isAdminOrManager,
     taskController.updateTaskStatus
+  );
+
+  /**
+   * @swagger
+   * /api/tasks/{taskId}:
+   *   patch:
+   *     summary: Update task details (Admin or Manager only)
+   *     tags: [Tasks]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: taskId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Task ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               title:
+   *                 type: string
+   *                 example: "Design Homepage Updated"
+   *                 description: Updated task title
+   *                 nullable: true
+   *               description:
+   *                 type: string
+   *                 example: "Updated wireframes and mockups for the homepage"
+   *                 description: Updated task description
+   *                 nullable: true
+   *               dueDate:
+   *                 type: string
+   *                 format: date-time
+   *                 example: "2025-07-25T00:00:00Z"
+   *                 description: Updated due date for the task (ISO 8601 format)
+   *                 nullable: true
+   *               assignedTo:
+   *                 type: integer
+   *                 example: 2
+   *                 description: ID of the user to reassign the task to (must be part of the project's team)
+   *                 nullable: true
+   *               status:
+   *                 type: string
+   *                 enum: ["To Do", "In Progress", "Review", "Done"]
+   *                 example: "In Progress"
+   *                 description: Updated task status
+   *                 nullable: true
+   *     responses:
+   *       200:
+   *         description: Task updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Task updated successfully"
+   *                 task:
+   *                   $ref: '#/components/schemas/Task'
+   *             example:
+   *               message: "Task updated successfully"
+   *               task:
+   *                 id: 1
+   *                 title: "Design Homepage Updated"
+   *                 description: "Updated wireframes and mockups for the homepage"
+   *                 dueDate: "2025-07-25T00:00:00Z"
+   *                 projectId: 1
+   *                 assignedTo: 2
+   *                 status: "In Progress"
+   *                 createdAt: "2025-07-11T12:00:00Z"
+   *                 updatedAt: "2025-07-12T12:00:00Z"
+   *                 project:
+   *                   id: 1
+   *                   name: "Website Redesign"
+   *                 assignee:
+   *                   id: 2
+   *                   name: "Jane Smith"
+   *                   email: "jane.smith@example.com"
+   *       400:
+   *         description: Invalid input or user not in project's team
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Assigned user is not part of the project's team"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - Only admins or managers can update task details
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Only admins or managers can update task details"
+   *       404:
+   *         description: Task or user not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Task not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to update task"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.patch(
+    "/:taskId",
+    auth.verifyToken,
+    auth.isAdminOrManager,
+    taskController.updateTask
   );
 
   /**
