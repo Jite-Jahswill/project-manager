@@ -38,6 +38,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true, // Change to false if you want it to be required
     },
+    otp: {
+      type: DataTypes.STRING,
+      allowNull: true, // Change to false if you want it to be required
+    },
+    otpExpiresAt: {
+      type: DataTypes.DATE,
+      allowNull: true, // Change to false if you want it to be required
+    },
     fullName: {
       type: DataTypes.VIRTUAL,
       get() {
