@@ -34,6 +34,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
+    phoneNumber: {
+      type: DataTypes.STRING,
+      allowNull: true, // Change to false if you want it to be required
+    },
     fullName: {
       type: DataTypes.VIRTUAL,
       get() {
