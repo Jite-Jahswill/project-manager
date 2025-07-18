@@ -127,46 +127,6 @@ exports.createTask = async (req, res) => {
   }
 };
 
-exports.getProjectTasks = async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    if (!projectId) {
-      return res.status(400).json({ error: "projectId is required" });
-    }
-
-    const project = await Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ error: "Project not found" });
-    }
-
-    const tasks = await Task.findAll({
-      where: { projectId },
-      include: [
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "firstName", "lastName", "email"],
-        },
-        { model: Project, attributes: ["id", "name"] },
-      ],
-    });
-
-    res.json(tasks);
-  } catch (err) {
-    console.error("Get project tasks error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      projectId: req.params.projectId,
-      timestamp: new Date().toISOString(),
-    });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch tasks", details: err.message });
-  }
-};
-
-// controllers/task.controller.js
 exports.updateTaskStatus = async (req, res) => {
   try {
     const { status } = req.body;
@@ -279,7 +239,6 @@ exports.updateTaskStatus = async (req, res) => {
   }
 };
 
-// controllers/task.controller.js
 exports.getProjectTasks = async (req, res) => {
   try {
     const { projectId } = req.params;
