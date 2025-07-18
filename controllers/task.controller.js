@@ -409,7 +409,7 @@ exports.updateTaskStatus = async (req, res) => {
         },
         {
           model: db.Project,
-          as: "project",
+          as: "Project", // Fixed alias to match association
           attributes: ["id", "name"],
         },
       ],
@@ -445,7 +445,7 @@ exports.updateTaskStatus = async (req, res) => {
         },
         {
           model: db.Project,
-          as: "project",
+          as: "Project", // Fixed alias to match association
           attributes: ["id", "name"],
         },
       ],
@@ -467,8 +467,8 @@ exports.updateTaskStatus = async (req, res) => {
       createdAt: updatedTask.createdAt,
       updatedAt: updatedTask.updatedAt,
       project: {
-        id: updatedTask.project.id,
-        name: updatedTask.project.name,
+        id: updatedTask.Project.id, // Use uppercase Project to match alias
+        name: updatedTask.Project.name,
       },
       assignee: {
         id: updatedTask.assignee.id,
@@ -493,7 +493,7 @@ exports.updateTaskStatus = async (req, res) => {
           <p>Hello,</p>
           <p>The task <strong>${updatedTask.title}</strong> has been updated from <em>${task.status}</em> to <strong>${status}</strong>.</p>
           <p><strong>Assigned To:</strong> ${updatedTask.assignee.firstName} ${updatedTask.assignee.lastName}</p>
-          <p><strong>Project:</strong> ${updatedTask.project.name}</p>
+          <p><strong>Project:</strong> ${updatedTask.Project.name}</p>
           <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
           <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
           <p>Best,<br>Team</p>
@@ -548,7 +548,7 @@ exports.updateTask = async (req, res) => {
       include: [
         {
           model: db.Project,
-          as: "project",
+          as: "Project", // Fixed alias to match association
           attributes: ["id", "name", "teamId"],
         },
         {
@@ -575,7 +575,7 @@ exports.updateTask = async (req, res) => {
 
       // Validate that the new user is in the project's team
       const teamMember = await db.UserTeam.findOne({
-        where: { teamId: task.project.teamId, userId: assignedTo },
+        where: { teamId: task.Project.teamId, userId: assignedTo }, // Use uppercase Project
       });
       if (!teamMember) {
         return res
@@ -606,7 +606,7 @@ exports.updateTask = async (req, res) => {
       include: [
         {
           model: db.Project,
-          as: "project",
+          as: "Project", // Fixed alias to match association
           attributes: ["id", "name"],
         },
         {
@@ -633,8 +633,8 @@ exports.updateTask = async (req, res) => {
       createdAt: updatedTask.createdAt,
       updatedAt: updatedTask.updatedAt,
       project: {
-        id: updatedTask.project.id,
-        name: updatedTask.project.name,
+        id: updatedTask.Project.id, // Use uppercase Project
+        name: updatedTask.Project.name,
       },
       assignee: {
         id: newAssignee.id,
@@ -659,7 +659,7 @@ exports.updateTask = async (req, res) => {
           <p>Hello,</p>
           <p>The task <strong>${updatedTask.title}</strong> has been updated.</p>
           <p><strong>Assigned To:</strong> ${newAssignee.firstName} ${newAssignee.lastName}</p>
-          <p><strong>Project:</strong> ${updatedTask.project.name}</p>
+          <p><strong>Project:</strong> ${updatedTask.Project.name}</p>
           <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
           <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
           <p><strong>Status:</strong> ${updatedTask.status}</p>
