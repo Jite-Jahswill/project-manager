@@ -250,7 +250,7 @@ exports.getProjectTasks = async (req, res) => {
     const [project] = await db.sequelize.query(
       `SELECT id FROM Projects WHERE id = ?`,
       {
- | replacements: [projectId],
+        replacements: [projectId],
         type: db.sequelize.QueryTypes.SELECT,
       }
     );
@@ -290,6 +290,7 @@ exports.getProjectTasks = async (req, res) => {
       .json({ error: "Failed to fetch tasks", details: err.message });
   }
 };
+
 
 exports.getAllTasks = async (req, res) => {
   try {
