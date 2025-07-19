@@ -23,7 +23,7 @@ module.exports = {
       // Fetch team with users and projects
       const formattedTeam = await db.Team.findByPk(team.id, {
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
@@ -35,7 +35,7 @@ module.exports = {
         description: formattedTeam.description,
         createdAt: formattedTeam.createdAt,
         updatedAt: formattedTeam.updatedAt,
-        users: formattedTeam.users.map((user) => ({
+        users: formattedTeam.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -133,7 +133,7 @@ module.exports = {
       const { count, rows } = await db.Team.findAndCountAll({
         where: whereClause,
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
         limit: limitNum,
@@ -148,7 +148,7 @@ module.exports = {
         description: team.description,
         createdAt: team.createdAt,
         updatedAt: team.updatedAt,
-        users: team.users.map((user) => ({
+        users: team.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -216,7 +216,7 @@ module.exports = {
       // Fetch team with Sequelize
       const team = await db.Team.findByPk(id, {
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
@@ -232,7 +232,7 @@ module.exports = {
         description: team.description,
         createdAt: team.createdAt,
         updatedAt: team.updatedAt,
-        users: team.users.map((user) => ({
+        users: team.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -405,7 +405,7 @@ module.exports = {
       // Fetch updated team
       const updatedTeam = await db.Team.findByPk(id, {
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
@@ -421,7 +421,7 @@ module.exports = {
         description: updatedTeam.description,
         createdAt: updatedTeam.createdAt,
         updatedAt: updatedTeam.updatedAt,
-        users: updatedTeam.users.map((user) => ({
+        users: updatedTeam.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -451,7 +451,7 @@ module.exports = {
         where: { role: ["admin", "manager"] },
         attributes: ["email"],
       });
-      const userEmails = updatedTeam.users.map((u) => u.email);
+      const userEmails = updatedTeam.Users.map((u) => u.email);
       const emails = [...adminsAndManagers.map((u) => u.email), ...userEmails].filter(
         (email, index, self) => email && self.indexOf(email) === index
       );
@@ -464,7 +464,7 @@ module.exports = {
             <p>Hello,</p>
             <p>The team <strong>${updatedTeam.name}</strong> has been updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
             <p><strong>Description:</strong> ${updatedTeam.description || "No description"}</p>
-            <p><strong>Users:</strong> ${updatedTeam.users.map((u) => `${u.firstName} ${u.lastName}`).join(", ") || "None"}</p>
+            <p><strong>Users:</strong> ${updatedTeam.Users.map((u) => `${u.firstName} ${u.lastName}`).join(", ") || "None"}</p>
             <p>Best,<br>Team</p>
           `,
         });
@@ -684,7 +684,7 @@ module.exports = {
       // Fetch updated team
       const updatedTeam = await db.Team.findByPk(teamId, {
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
@@ -696,7 +696,7 @@ module.exports = {
         description: updatedTeam.description,
         createdAt: updatedTeam.createdAt,
         updatedAt: updatedTeam.updatedAt,
-        users: updatedTeam.users.map((user) => ({
+        users: updatedTeam.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
@@ -852,7 +852,7 @@ module.exports = {
       // Fetch updated team
       const updatedTeam = await db.Team.findByPk(teamId, {
         include: [
-          { model: db.User, as: "users", through: { attributes: ["role", "note", "projectId"] } },
+          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
           { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
@@ -864,7 +864,7 @@ module.exports = {
         description: updatedTeam.description,
         createdAt: updatedTeam.createdAt,
         updatedAt: updatedTeam.updatedAt,
-        users: updatedTeam.users.map((user) => ({
+        users: updatedTeam.Users.map((user) => ({
           userId: user.id,
           firstName: user.firstName,
           lastName: user.lastName,
