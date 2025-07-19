@@ -32,9 +32,8 @@ exports.createTeam = async (req, res) => {
     res.status(201).json({
       message: "Team created",
       team: {
-        id: team.id,
-        name: team.name,
-        description: team.description,
+        teamId: team.id,
+        teamName: team.name,
         createdAt: team.createdAt,
         updatedAt: team.updatedAt,
       },
@@ -72,9 +71,9 @@ exports.getAllTeams = async (req, res) => {
       return res.status(400).json({ message: "Invalid page or limit" });
     }
 
-    // Build query
+    // Build query for teams
     let query = `
-      SELECT id, name, description, createdAt, updatedAt
+      SELECT id, name, createdAt, updatedAt
       FROM Teams
     `;
     const replacements = {};
@@ -114,7 +113,7 @@ exports.getAllTeams = async (req, res) => {
       type: db.sequelize.QueryTypes.SELECT,
     });
 
-    // Fetch users for each team
+    // Fetch users, projects, and tasks for each team
     const formattedTeams = await Promise.all(
       teams.map(async (team) => {
         const users = await db.sequelize.query(
@@ -129,9 +128,70 @@ exports.getAllTeams = async (req, res) => {
             type: db.sequelize.QueryTypes.SELECT,
           }
         );
+
+        const projects = await db.sequelize.query(
+          `
+          SELECT id, name
+          FROM Projects
+          WHERE teamId = :teamId
+          `,
+          {
+            replacements: { teamId: team.id },
+            type: db.sequelize.QueryTypes.SELECT,
+          }
+        );
+
+        const tasks = projects.length
+          ? await db.sequelize.query(
+              `
+              SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId,
+                     u.id AS userId, u.firstName, u.lastName, u.email
+              FROM Tasks t
+              LEFT JOIN Users u ON t.assignedTo = u.id
+              WHERE t.projectId IN (:projectIds)
+              `,
+              {
+                replacements: { projectIds: projects.map((p) => p.id) },
+                type: db.sequelize.QueryTypes.SELECT,
+              }
+            )
+          : [];
+
         return {
-          ...team,
-          Users: users,
+          teamId: team.id,
+          teamName: team.name,
+          createdAt: team.createdAt,
+          updatedAt: team.updatedAt,
+          users: users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            role: user.role,
+            note: user.note,
+            projectId: user.projectId,
+          })),
+          projects: projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            tasks: tasks
+              .filter((task) => task.projectId === project.id)
+              .map((task) => ({
+                id: task.id,
+                title: task.title,
+                description: task.description,
+                status: task.status,
+                dueDate: task.dueDate,
+                assignee: task.userId
+                  ? {
+                      userId: task.userId,
+                      firstName: task.firstName,
+                      lastName: task.lastName,
+                      email: task.email,
+                    }
+                  : null,
+              })),
+          })),
         };
       })
     );
@@ -173,7 +233,7 @@ exports.getTeamById = async (req, res) => {
     }
 
     const [team] = await db.sequelize.query(
-      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :id`,
+      `SELECT id, name, createdAt, updatedAt FROM Teams WHERE id = :id`,
       {
         replacements: { id },
         type: db.sequelize.QueryTypes.SELECT,
@@ -205,10 +265,57 @@ exports.getTeamById = async (req, res) => {
       }
     );
 
+    const tasks = projects.length
+      ? await db.sequelize.query(
+          `
+          SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId,
+                 u.id AS userId, u.firstName, u.lastName, u.email
+          FROM Tasks t
+          LEFT JOIN Users u ON t.assignedTo = u.id
+          WHERE t.projectId IN (:projectIds)
+          `,
+          {
+            replacements: { projectIds: projects.map((p) => p.id) },
+            type: db.sequelize.QueryTypes.SELECT,
+          }
+        )
+      : [];
+
     res.json({
-      ...team,
-      Users: users,
-      Projects: projects,
+      teamId: team.id,
+      teamName: team.name,
+      createdAt: team.createdAt,
+      updatedAt: team.updatedAt,
+      users: users.map((user) => ({
+        userId: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role,
+        note: user.note,
+        projectId: user.projectId,
+      })),
+      projects: projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        tasks: tasks
+          .filter((task) => task.projectId === project.id)
+          .map((task) => ({
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            dueDate: task.dueDate,
+            assignee: task.userId
+              ? {
+                  userId: task.userId,
+                  firstName: task.firstName,
+                  lastName: task.lastName,
+                  email: task.email,
+                }
+              : null,
+          })),
+      })),
     });
   } catch (err) {
     console.error("Get team error:", {
@@ -375,7 +482,7 @@ exports.updateTeam = async (req, res) => {
     }
 
     const [updatedTeam] = await db.sequelize.query(
-      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :id`,
+      `SELECT id, name, createdAt, updatedAt FROM Teams WHERE id = :id`,
       {
         replacements: { id },
         type: db.sequelize.QueryTypes.SELECT,
@@ -406,10 +513,62 @@ exports.updateTeam = async (req, res) => {
       }
     );
 
+    const tasks = projects.length
+      ? await db.sequelize.query(
+          `
+          SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId,
+                 u.id AS userId, u.firstName, u.lastName, u.email
+          FROM Tasks t
+          LEFT JOIN Users u ON t.assignedTo = u.id
+          WHERE t.projectId IN (:projectIds)
+          `,
+          {
+            replacements: { projectIds: projects.map((p) => p.id) },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        )
+      : [];
+
     await transaction.commit();
     res.json({
       message: "Team updated",
-      team: { ...updatedTeam, Users: usersData, Projects: projects },
+      team: {
+        teamId: updatedTeam.id,
+        teamName: updatedTeam.name,
+        createdAt: updatedTeam.createdAt,
+        updatedAt: updatedTeam.updatedAt,
+        users: usersData.map((user) => ({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          note: user.note,
+          projectId: user.projectId,
+        })),
+        projects: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          tasks: tasks
+            .filter((task) => task.projectId === project.id)
+            .map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueDate: task.dueDate,
+              assignee: task.userId
+                ? {
+                    userId: task.userId,
+                    firstName: task.firstName,
+                    lastName: task.lastName,
+                    email: task.email,
+                  }
+                : null,
+            })),
+        })),
+      },
     });
   } catch (err) {
     await transaction.rollback();
@@ -641,7 +800,7 @@ exports.assignUsersToTeam = async (req, res) => {
     }
 
     const [updatedTeam] = await db.sequelize.query(
-      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
+      `SELECT id, name, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
       {
         replacements: { teamId },
         type: db.sequelize.QueryTypes.SELECT,
@@ -672,10 +831,62 @@ exports.assignUsersToTeam = async (req, res) => {
       }
     );
 
+    const tasks = projects.length
+      ? await db.sequelize.query(
+          `
+          SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId,
+                 u.id AS userId, u.firstName, u.lastName, u.email
+          FROM Tasks t
+          LEFT JOIN Users u ON t.assignedTo = u.id
+          WHERE t.projectId IN (:projectIds)
+          `,
+          {
+            replacements: { projectIds: projects.map((p) => p.id) },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        )
+      : [];
+
     await transaction.commit();
     res.status(200).json({
       message: "Users assigned to team",
-      team: { ...updatedTeam, Users: usersData, Projects: projects },
+      team: {
+        teamId: updatedTeam.id,
+        teamName: updatedTeam.name,
+        createdAt: updatedTeam.createdAt,
+        updatedAt: updatedTeam.updatedAt,
+        users: usersData.map((user) => ({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          note: user.note,
+          projectId: user.projectId,
+        })),
+        projects: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          tasks: tasks
+            .filter((task) => task.projectId === project.id)
+            .map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueDate: task.dueDate,
+              assignee: task.userId
+                ? {
+                    userId: task.userId,
+                    firstName: task.firstName,
+                    lastName: task.lastName,
+                    email: task.email,
+                  }
+                : null,
+            })),
+        })),
+      },
       userCount: users.length,
       results,
     });
@@ -828,7 +1039,7 @@ exports.unassignUsersFromTeam = async (req, res) => {
     }
 
     const [updatedTeam] = await db.sequelize.query(
-      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
+      `SELECT id, name, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
       {
         replacements: { teamId },
         type: db.sequelize.QueryTypes.SELECT,
@@ -859,10 +1070,62 @@ exports.unassignUsersFromTeam = async (req, res) => {
       }
     );
 
+    const tasks = projects.length
+      ? await db.sequelize.query(
+          `
+          SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId,
+                 u.id AS userId, u.firstName, u.lastName, u.email
+          FROM Tasks t
+          LEFT JOIN Users u ON t.assignedTo = u.id
+          WHERE t.projectId IN (:projectIds)
+          `,
+          {
+            replacements: { projectIds: projects.map((p) => p.id) },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        )
+      : [];
+
     await transaction.commit();
     res.status(200).json({
       message: "Users unassigned from team",
-      team: { ...updatedTeam, Users: usersData, Projects: projects },
+      team: {
+        teamId: updatedTeam.id,
+        teamName: updatedTeam.name,
+        createdAt: updatedTeam.createdAt,
+        updatedAt: updatedTeam.updatedAt,
+        users: usersData.map((user) => ({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          note: user.note,
+          projectId: user.projectId,
+        })),
+        projects: projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          tasks: tasks
+            .filter((task) => task.projectId === project.id)
+            .map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueDate: task.dueDate,
+              assignee: task.userId
+                ? {
+                    userId: task.userId,
+                    firstName: task.firstName,
+                    lastName: task.lastName,
+                    email: task.email,
+                  }
+                : null,
+            })),
+        })),
+      },
       userCount: userIds.length,
       results,
     });
