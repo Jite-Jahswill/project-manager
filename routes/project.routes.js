@@ -50,17 +50,27 @@ module.exports = (app) => {
    *         teamId:
    *           type: integer
    *           example: 1
-   *         name:
+   *         teamName:
    *           type: string
    *           example: "Dev Team"
-   *         description:
-   *           type: string
-   *           example: "Development team"
-   *           nullable: true
    *         members:
    *           type: array
    *           items:
-   *             $ref: '#/components/schemas/Member'
+   *             type: object
+   *             properties:
+   *               userId:
+   *                 type: integer
+   *                 example: 1
+   *               email:
+   *                 type: string
+   *                 example: "john.doe@example.com"
+   *               name:
+   *                 type: string
+   *                 example: "John Doe"
+   *               phoneNumber:
+   *                 type: string
+   *                 example: "123-456-7890"
+   *                 nullable: true
    *     Member:
    *       type: object
    *       properties:
@@ -188,13 +198,6 @@ module.exports = (app) => {
    *                   example: "Project created successfully"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *                 team:
-   *                   $ref: '#/components/schemas/Team'
-   *                   nullable: true
-   *                 tasks:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Task'
    *             example:
    *               message: "Project created successfully"
    *               project:
@@ -205,20 +208,6 @@ module.exports = (app) => {
    *                 endDate: "2025-12-31"
    *                 status: "To Do"
    *                 teamId: 1
-   *               team:
-   *                 teamId: 1
-   *                 name: "Dev Team"
-   *                 description: "Development team"
-   *                 members:
-   *                   - userId: 1
-   *                     name: "John Doe"
-   *                     email: "john.doe@example.com"
-   *                     tasks: []
-   *                   - userId: 2
-   *                     name: "Jane Smith"
-   *                     email: "jane.smith@example.com"
-   *                     tasks: []
-   *               tasks: []
    *       400:
    *         description: Missing required fields or invalid input
    *         content:
@@ -316,33 +305,23 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team assigned to project successfully"
+   *                   example: "Team \"Dev Team\" assigned to project successfully."
    *                 team:
    *                   $ref: '#/components/schemas/Team'
    *             example:
-   *               message: "Team assigned to project successfully"
+   *               message: "Team \"Dev Team\" assigned to project successfully."
    *               team:
    *                 teamId: 1
-   *                 name: "Dev Team"
-   *                 description: "Development team"
+   *                 teamName: "Dev Team"
    *                 members:
    *                   - userId: 1
-   *                     name: "John Doe"
    *                     email: "john.doe@example.com"
-   *                     tasks:
-   *                       - id: 1
-   *                         title: "Implement login page"
-   *                         description: "Create the login page UI and backend"
-   *                         status: "To Do"
-   *                         dueDate: "2025-08-01T00:00:00.000Z"
-   *                         assignee:
-   *                           id: 1
-   *                           name: "John Doe"
-   *                           email: "john.doe@example.com"
+   *                     name: "John Doe"
+   *                     phoneNumber: "123-456-7890"
    *                   - userId: 2
-   *                     name: "Jane Smith"
    *                     email: "jane.smith@example.com"
-   *                     tasks: []
+   *                     name: "Jane Smith"
+   *                     phoneNumber: null
    *       400:
    *         description: Missing required fields or invalid input
    *         content:
@@ -406,6 +385,120 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/projects/remove-team:
+   *   post:
+   *     summary: Remove a team from a project (Admin or Manager only)
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - teamId
+   *               - projectId
+   *             properties:
+   *               teamId:
+   *                 type: integer
+   *                 example: 1
+   *                 description: ID of the team to remove
+   *               projectId:
+   *                 type: integer
+   *                 example: 1
+   *                 description: ID of the project to remove the team from
+   *     responses:
+   *       200:
+   *         description: Team removed from project successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Team \"Dev Team\" removed from project successfully."
+   *                 team:
+   *                   $ref: '#/components/schemas/Team'
+   *             example:
+   *               message: "Team \"Dev Team\" removed from project successfully."
+   *               team:
+   *                 teamId: 1
+   *                 teamName: "Dev Team"
+   *                 members:
+   *                   - userId: 1
+   *                     email: "john.doe@example.com"
+   *                     name: "John Doe"
+   *                     phoneNumber: "123-456-7890"
+   *                   - userId: 2
+   *                     email: "jane.smith@example.com"
+   *                     name: "Jane Smith"
+   *                     phoneNumber: null
+   *       400:
+   *         description: Missing required fields or team not assigned
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "teamId and projectId are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - Only admins or managers can remove teams
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Only admins or managers can remove teams from projects."
+   *       404:
+   *         description: Team or project not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Team not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to remove team from project"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.post(
+    "/remove-team",
+    authMiddleware.verifyToken,
+    authMiddleware.isAdminOrManager,
+    projectController.removeTeamFromProject
+  );
+
+  /**
+   * @swagger
    * /api/projects/{projectId}/members:
    *   get:
    *     summary: Get all members of a project with their tasks
@@ -428,56 +521,44 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 project:
-   *                   $ref: '#/components/schemas/Project'
-   *                 team:
-   *                   $ref: '#/components/schemas/Team'
-   *                   nullable: true
-   *                 tasks:
+   *                 members:
    *                   type: array
    *                   items:
-   *                     $ref: '#/components/schemas/Task'
+   *                     type: object
+   *                     properties:
+   *                       userId:
+   *                         type: integer
+   *                         example: 1
+   *                       firstName:
+   *                         type: string
+   *                         example: "John"
+   *                       lastName:
+   *                         type: string
+   *                         example: "Doe"
+   *                       email:
+   *                         type: string
+   *                         example: "john.doe@example.com"
+   *                       phoneNumber:
+   *                         type: string
+   *                         example: "123-456-7890"
+   *                         nullable: true
+   *                       role:
+   *                         type: string
+   *                         example: "Developer"
    *             example:
-   *               project:
-   *                 id: 1
-   *                 name: "Website Redesign"
-   *                 description: "Redesign company website for better UX"
-   *                 startDate: "2025-07-15"
-   *                 endDate: "2025-12-31"
-   *                 status: "To Do"
-   *                 teamId: 1
-   *               team:
-   *                 teamId: 1
-   *                 name: "Dev Team"
-   *                 description: "Development team"
-   *                 members:
-   *                   - userId: 1
-   *                     name: "John Doe"
-   *                     email: "john.doe@example.com"
-   *                     tasks:
-   *                       - id: 1
-   *                         title: "Implement login page"
-   *                         description: "Create the login page UI and backend"
-   *                         status: "To Do"
-   *                         dueDate: "2025-08-01T00:00:00.000Z"
-   *                         assignee:
-   *                           id: 1
-   *                           name: "John Doe"
-   *                           email: "john.doe@example.com"
-   *                   - userId: 2
-   *                     name: "Jane Smith"
-   *                     email: "jane.smith@example.com"
-   *                     tasks: []
-   *               tasks:
-   *                 - id: 1
-   *                   title: "Implement login page"
-   *                   description: "Create the login page UI and backend"
-   *                   status: "To Do"
-   *                   dueDate: "2025-08-01T00:00:00.000Z"
-   *                   assignee:
-   *                     id: 1
-   *                     name: "John Doe"
-   *                     email: "john.doe@example.com"
+   *               members:
+   *                 - userId: 1
+   *                   firstName: "John"
+   *                   lastName: "Doe"
+   *                   email: "john.doe@example.com"
+   *                   phoneNumber: "123-456-7890"
+   *                   role: "Developer"
+   *                 - userId: 2
+   *                   firstName: "Jane"
+   *                   lastName: "Smith"
+   *                   email: "jane.smith@example.com"
+   *                   phoneNumber: null
+   *                   role: "Designer"
    *       400:
    *         description: Invalid project ID
    *         content:
@@ -577,118 +658,16 @@ module.exports = (app) => {
    *         description: Number of projects per page
    *         example: 20
    *     responses:
-   *       200:
-   *         description: List of projects matching the search criteria
+   *       400:
+   *         description: Invalid page or limit
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 projects:
-   *                   type: array
-   *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       name:
-   *                         type: string
-   *                         example: "Website Redesign"
-   *                       description:
-   *                         type: string
-   *                         example: "Redesign company website for better UX"
-   *                         nullable: true
-   *                       startDate:
-   *                         type: string
-   *                         format: date
-   *                         example: "2025-07-15"
-   *                         nullable: true
-   *                       endDate:
-   *                         type: string
-   *                         format: date
-   *                         example: "2025-12-31"
-   *                         nullable: true
-   *                       status:
-   *                         type: string
-   *                         enum: ["To Do", "In Progress", "Review", "Done"]
-   *                         example: "To Do"
-   *                       client:
-   *                         $ref: '#/components/schemas/Client'
-   *                         nullable: true
-   *                       team:
-   *                         $ref: '#/components/schemas/Team'
-   *                         nullable: true
-   *                       tasks:
-   *                         type: array
-   *                         items:
-   *                           $ref: '#/components/schemas/Task'
-   *                 pagination:
-   *                   type: object
-   *                   properties:
-   *                     currentPage:
-   *                       type: integer
-   *                       example: 1
-   *                     totalPages:
-   *                       type: integer
-   *                       example: 1
-   *                     totalItems:
-   *                       type: integer
-   *                       example: 1
-   *                     itemsPerPage:
-   *                       type: integer
-   *                       example: 20
-   *             example:
-   *               projects:
-   *                 - id: 1
-   *                   name: "Website Redesign"
-   *                   description: "Redesign company website for better UX"
-   *                   startDate: "2025-07-15"
-   *                   endDate: "2025-12-31"
-   *                   status: "To Do"
-   *                   client:
-   *                     id: 1
-   *                     firstName: "Jane"
-   *                     lastName: "Smith"
-   *                     email: "jane.smith@example.com"
-   *                     image: "https://example.com/image.jpg"
-   *                   team:
-   *                     teamId: 1
-   *                     name: "Dev Team"
-   *                     description: "Development team"
-   *                     members:
-   *                       - userId: 1
-   *                         name: "John Doe"
-   *                         email: "john.doe@example.com"
-   *                         tasks:
-   *                           - id: 1
-   *                             title: "Implement login page"
-   *                             description: "Create the login page UI and backend"
-   *                             status: "To Do"
-   *                             dueDate: "2025-08-01T00:00:00.000Z"
-   *                             assignee:
-   *                               id: 1
-   *                               name: "John Doe"
-   *                               email: "john.doe@example.com"
-   *                       - userId: 2
-   *                         name: "Jane Smith"
-   *                         email: "jane.smith@example.com"
-   *                         tasks: []
-   *                   tasks:
-   *                     - id: 1
-   *                       title: "Implement login page"
-   *                       description: "Create the login page UI and backend"
-   *                       status: "To Do"
-   *                       dueDate: "2025-08-01T00:00:00.000Z"
-   *                       assignee:
-   *                         id: 1
-   *                         name: "John Doe"
-   *                         email: "john.doe@example.com"
-   *               pagination:
-   *                 currentPage: 1
-   *                 totalPages: 1
-   *                 totalItems: 1
-   *                 itemsPerPage: 20
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -896,13 +875,6 @@ module.exports = (app) => {
    *                   example: "Project updated"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *                 team:
-   *                   $ref: '#/components/schemas/Team'
-   *                   nullable: true
-   *                 tasks:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Task'
    *             example:
    *               message: "Project updated"
    *               project:
@@ -913,38 +885,6 @@ module.exports = (app) => {
    *                 endDate: "2025-12-31"
    *                 status: "In Progress"
    *                 teamId: 1
-   *               team:
-   *                 teamId: 1
-   *                 name: "Dev Team"
-   *                 description: "Development team"
-   *                 members:
-   *                   - userId: 1
-   *                     name: "John Doe"
-   *                     email: "john.doe@example.com"
-   *                     tasks:
-   *                       - id: 1
-   *                         title: "Implement login page"
-   *                         description: "Create the login page UI and backend"
-   *                         status: "To Do"
-   *                         dueDate: "2025-08-01T00:00:00.000Z"
-   *                         assignee:
-   *                           id: 1
-   *                           name: "John Doe"
-   *                           email: "john.doe@example.com"
-   *                   - userId: 2
-   *                     name: "Jane Smith"
-   *                     email: "jane.smith@example.com"
-   *                     tasks: []
-   *               tasks:
-   *                 - id: 1
-   *                   title: "Implement login page"
-   *                   description: "Create the login page UI and backend"
-   *                   status: "To Do"
-   *                   dueDate: "2025-08-01T00:00:00.000Z"
-   *                   assignee:
-   *                     id: 1
-   *                     name: "John Doe"
-   *                     email: "john.doe@example.com"
    *       400:
    *         description: Invalid input or project ID
    *         content:
