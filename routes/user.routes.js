@@ -28,6 +28,10 @@ module.exports = (app) => {
    *         email:
    *           type: string
    *           example: "john.doe@example.com"
+   *         phoneNumber:
+   *           type: string
+   *           example: "+1234567890"
+   *           nullable: true
    *         role:
    *           type: string
    *           example: "staff"
@@ -38,19 +42,28 @@ module.exports = (app) => {
    *         createdAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T22:01:00.000Z"
+   *           example: "2025-07-19T22:55:00.000Z"
    *         updatedAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T22:01:00.000Z"
+   *           example: "2025-07-19T22:55:00.000Z"
+   *     Error:
+   *       type: object
+   *       properties:
+   *         message:
+   *           type: string
+   *           example: "Failed to fetch users"
+   *         details:
+   *           type: string
+   *           example: "Database error"
    */
 
   /**
    * @swagger
    * /api/users:
    *   get:
-   *     summary: Get all users (Admin or Manager only)
-   *     description: Retrieves a list of all users with optional filters for role, firstName, or lastName. Only accessible to admins or managers.
+   *     summary: Get all users (Admin only)
+   *     description: Retrieves a list of all users with optional filters for role, firstName, or lastName. Only accessible to admins.
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -124,53 +137,74 @@ module.exports = (app) => {
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
+   *               $ref: '#/components/schemas/Error'
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/Error'
    *       403:
-   *         description: Access denied - Only admins or managers can view all users
+   *         description: Access denied - Only admins can view all users
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers can view all users"
+   *               $ref: '#/components/schemas/Error'
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
+   *               $ref: '#/components/schemas/Error'
+   */
+  router.get("/", verifyToken, userController.getAllUsers);
+
+  /**
+   * @swagger
+   * /api/users/me:
+   *   get:
+   *     summary: Get current user's details
+   *     description: Retrieves the details of the authenticated user.
+   *     tags: [Users]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Current user details
+   *         content:
+   *           application/json:
+   *             schema:
    *               type: object
    *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to fetch users"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *                 user:
+   *                   $ref: '#/components/schemas/User'
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
    */
-  router.get("/", verifyToken, isAdminOrManager, userController.getAllUsers);
+  router.get("/me", verifyToken, userController.getCurrentUser);
 
   /**
    * @swagger
    * /api/users/{id}:
    *   get:
    *     summary: Get a single user by ID
-   *     description: Retrieves a user's details. Staff can only view their own details; admins or managers can view any user's details.
+   *     description: Retrieves a user's details. Staff can only view their own details; admins can view any user's details.
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -188,59 +222,165 @@ module.exports = (app) => {
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/User'
+   *               type: object
+   *               properties:
+   *                 user:
+   *                   $ref: '#/components/schemas/User'
+   *       400:
+   *         description: Invalid user ID
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/Error'
    *       403:
    *         description: Access denied - Staff can only view their own details
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Staff can only view their own details"
+   *               $ref: '#/components/schemas/Error'
    *       404:
    *         description: User not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User not found"
+   *               $ref: '#/components/schemas/Error'
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to fetch user"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/Error'
    */
   router.get("/:id", verifyToken, userController.getUserById);
+
+  /**
+   * @swagger
+   * /api/users/me:
+   *   put:
+   *     summary: Update current user's details
+   *     description: Updates the authenticated user's details, such as firstName, lastName, email, or phoneNumber.
+   *     tags: [Users]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               firstName:
+   *                 type: string
+   *                 example: "John"
+   *               lastName:
+   *                 type: string
+   *                 example: "Doe"
+   *               email:
+   *                 type: string
+   *                 example: "john.doe@example.com"
+   *               phoneNumber:
+   *                 type: string
+   *                 example: "+1234567890"
+   *                 nullable: true
+   *     responses:
+   *       200:
+   *         description: User updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "User updated"
+   *                 user:
+   *                   $ref: '#/components/schemas/User'
+   *       400:
+   *         description: Invalid request body
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       409:
+   *         description: Email already in use
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   */
+  router.put("/me", verifyToken, userController.updateCurrentUser);
+
+  /**
+   * @swagger
+   * /api/users/me:
+   *   delete:
+   *     summary: Delete current user
+   *     description: Deletes the authenticated user's account.
+   *     tags: [Users]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: User deleted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "User deleted successfully"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Error'
+   */
+  router.delete("/me", verifyToken, userController.deleteCurrentUser);
 
   /**
    * @swagger
    * /api/users/{userId}/projects:
    *   get:
    *     summary: Get all projects a user is assigned to
-   *     description: Retrieves all projects a user is assigned to via their team(s). Staff can only view their own projects; admins or managers can view any user's projects.
+   *     description: Retrieves all projects a user is assigned to via their team(s). Staff can only view their own projects; admins can view any user's projects.
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -294,6 +434,66 @@ module.exports = (app) => {
    *                             type: string
    *                             example: "Redesign company website"
    *                             nullable: true
+   *                           startDate:
+   *                             type: string
+   *                             format: date
+   *                             example: "2025-07-01"
+   *                             nullable: true
+   *                           endDate:
+   *                             type: string
+   *                             format: date
+   *                             example: "2025-12-31"
+   *                             nullable: true
+   *                           status:
+   *                             type: string
+   *                             example: "In Progress"
+   *                           createdAt:
+   *                             type: string
+   *                             format: date-time
+   *                             example: "2025-07-19T22:55:00.000Z"
+   *                           updatedAt:
+   *                             type: string
+   *                             format: date-time
+   *                             example: "2025-07-19T22:55:00.000Z"
+   *                           tasks:
+   *                             type: array
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 id:
+   *                                   type: integer
+   *                                   example: 1
+   *                                 title:
+   *                                   type: string
+   *                                   example: "Implement login feature"
+   *                                 description:
+   *                                   type: string
+   *                                   example: "Create login functionality"
+   *                                   nullable: true
+   *                                 status:
+   *                                   type: string
+   *                                   example: "In Progress"
+   *                                 dueDate:
+   *                                   type: string
+   *                                   format: date
+   *                                   example: "2025-07-19"
+   *                                   nullable: true
+   *                                 assignee:
+   *                                   type: object
+   *                                   nullable: true
+   *                                   properties:
+   *                                     userId:
+   *                                       type: integer
+   *                                       example: 2
+   *                                     firstName:
+   *                                       type: string
+   *                                       example: "Jane"
+   *                                     lastName:
+   *                                       type: string
+   *                                       example: "Doe"
+   *                                     email:
+   *                                       type: string
+   *                                       example: "jane.doe@example.com"
    *                       role:
    *                         type: string
    *                         example: "Developer"
@@ -317,58 +517,35 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid page or limit
+   *         description: Invalid user ID or pagination parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
+   *               $ref: '#/components/schemas/Error'
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/Error'
    *       403:
    *         description: Access denied - Staff can only view their own projects
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Staff can only view their own projects"
+   *               $ref: '#/components/schemas/Error'
    *       404:
    *         description: User not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User not found"
+   *               $ref: '#/components/schemas/Error'
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to fetch user projects"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/Error'
    */
   router.get("/:userId/projects", verifyToken, userController.getUserProjects);
 
@@ -377,7 +554,7 @@ module.exports = (app) => {
    * /api/users/{userId}/tasks:
    *   get:
    *     summary: Get all tasks for the user's team(s)
-   *     description: Retrieves all tasks associated with the user's team(s). Staff can only view their own tasks; admins or managers can view any user's tasks.
+   *     description: Retrieves all tasks associated with the user's team(s). Staff can only view their own tasks; admins can view any user's tasks.
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -427,6 +604,7 @@ module.exports = (app) => {
    *                       description:
    *                         type: string
    *                         example: "Create a login feature for the application"
+   *                         nullable: true
    *                       status:
    *                         type: string
    *                         example: "In Progress"
@@ -434,6 +612,7 @@ module.exports = (app) => {
    *                         type: string
    *                         format: date
    *                         example: "2025-07-19"
+   *                         nullable: true
    *                       project:
    *                         type: object
    *                         properties:
@@ -454,6 +633,7 @@ module.exports = (app) => {
    *                             example: "Development Team"
    *                       assignee:
    *                         type: object
+   *                         nullable: true
    *                         properties:
    *                           userId:
    *                             type: integer
@@ -483,58 +663,35 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid page or limit
+   *         description: Invalid user ID or pagination parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
+   *               $ref: '#/components/schemas/Error'
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/Error'
    *       403:
    *         description: Access denied - Staff can only view their own tasks
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Staff can only view their own tasks"
+   *               $ref: '#/components/schemas/Error'
    *       404:
    *         description: User not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User not found"
+   *               $ref: '#/components/schemas/Error'
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to fetch user tasks"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/Error'
    */
   router.get("/:userId/tasks", verifyToken, userController.getUserTasks);
 
