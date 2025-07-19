@@ -178,6 +178,143 @@ module.exports = {
     }
   },
 
+  // Remove a team from a project
+  async removeTeamFromProject(req, res) {
+    try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({
+          message: "Only admins or managers can remove teams from projects.",
+        });
+      }
+
+      const { teamId, projectId } = req.body;
+      if (!teamId || !projectId) {
+        return res.status(400).json({
+          message: "teamId and projectId are required",
+        });
+      }
+
+      // Start a transaction to ensure atomicity
+      const transaction = await db.sequelize.transaction();
+
+      try {
+        // Check if team exists
+        const [team] = await db.sequelize.query(
+          `SELECT id, name FROM Teams WHERE id = :teamId`,
+          {
+            replacements: { teamId },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+        if (!team) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "Team not found" });
+        }
+
+        // Check if project exists and is assigned to the team
+        const [project] = await db.sequelize.query(
+          `SELECT id, name, startDate, endDate, teamId FROM Projects WHERE id = :projectId`,
+          {
+            replacements: { projectId },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+        if (!project) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "Project not found" });
+        }
+        if (project.teamId !== parseInt(teamId)) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "Team is not assigned to this project" });
+        }
+
+        // Fetch team members
+        const teamMembers = await db.sequelize.query(
+          `
+          SELECT u.id, u.email, u.firstName, u.lastName, u.phoneNumber
+          FROM Users u
+          INNER JOIN UserTeams ut ON u.id = ut.userId
+          WHERE ut.teamId = :teamId
+          `,
+          {
+            replacements: { teamId },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+
+        // Remove team from project by setting teamId to NULL
+        await db.sequelize.query(
+          `UPDATE Projects SET teamId = NULL, updatedAt = NOW() WHERE id = :projectId`,
+          {
+            replacements: { projectId },
+            type: db.sequelize.QueryTypes.UPDATE,
+            transaction,
+          }
+        );
+
+        // Notify team members
+        const emailPromises = teamMembers.map((user) =>
+          sendMail({
+            to: user.email,
+            subject: `Your Team Has Been Removed from Project: ${project.name}`,
+            html: `
+              <p>Hello ${user.firstName},</p>
+              <p>Your team <strong>${team.name}</strong> has been removed from the project <strong>${project.name}</strong>.</p>
+              <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+              <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+              <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+              <p>Please check your dashboard for updated assignments.</p>
+              <p>Best,<br>Team</p>
+            `,
+          })
+        );
+
+        await Promise.all(emailPromises);
+
+        await transaction.commit();
+
+        return res.status(200).json({
+          message: `Team "${team.name}" removed from project successfully.`,
+          team: {
+            teamId: team.id,
+            teamName: team.name,
+            members: teamMembers.map((u) => ({
+              userId: u.id,
+              email: u.email,
+              name: `${u.firstName} ${u.lastName}`,
+              phoneNumber: u.phoneNumber || null,
+            })),
+          },
+        });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
+    } catch (err) {
+      console.error("Remove team from project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        role: req.user?.role,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      if (err.message.includes("prepare statement needs to be reprepared")) {
+        return res.status(500).json({
+          message: "Database connection issue occurred",
+          details: "Please try again or contact support if the issue persists",
+        });
+      }
+      return res.status(500).json({
+        message: "Failed to remove team from project",
+        details: err.message,
+      });
+    }
+  },
+
   // Get all members of a project with roles (All authenticated users)
   async getProjectMembers(req, res) {
     try {
@@ -354,7 +491,7 @@ module.exports = {
               id: task.id,
               title: task.title,
               description: task.description,
-              status: task.status,
+              status:Profile picture updated successfully task.status,
               dueDate: task.dueDate,
             })),
           };
