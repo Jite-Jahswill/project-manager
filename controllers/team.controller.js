@@ -315,7 +315,7 @@ exports.updateTeam = async (req, res) => {
           const [project] = await db.sequelize.query(
             `SELECT id FROM Projects WHERE id = :projectId`,
             {
-              replacements: { projectId },
+              replacements: { teamId: id, projectId },
               type: db.sequelize.QueryTypes.SELECT,
               transaction,
             }
@@ -588,27 +588,6 @@ exports.assignUsersToTeam = async (req, res) => {
         continue;
       }
 
-      if (projectId) {
-        const [project] = await db.sequelize.query(
-          `SELECT id FROM Projects WHERE id = :projectId`,
-          {
-            replacements: { projectId },
-            type: db.sequelize.QueryTypes.SELECT,
-            transaction,
-          }
-        );
-        if (!project) {
-          console.warn("Project not found", {
-            userId,
-            teamId,
-            projectId,
-            timestamp: new Date().toISOString(),
-          });
-          results.push({ userId, status: "failed", reason: "Project ID not found" });
-          continue;
-        }
-      }
-
       const [existing] = await db.sequelize.query(
         `
         SELECT * FROM UserTeams
@@ -719,5 +698,192 @@ exports.assignUsersToTeam = async (req, res) => {
     res
       .status(500)
       .json({ error: "Failed to assign users to team", details: err.message });
+  }
+};
+
+exports.unassignUsersFromTeam = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      await transaction.rollback();
+      return res
+        .status(403)
+        .json({ message: "Only admins or managers can unassign users from teams" });
+    }
+
+    const { teamId, userIds } = req.body;
+    if (!teamId || !userIds || !Array.isArray(userIds)) {
+      await transaction.rollback();
+      return res
+        .status(400)
+        .json({ message: "teamId and userIds array are required" });
+    }
+
+    const [team] = await db.sequelize.query(
+      `SELECT id, name, description FROM Teams WHERE id = :teamId`,
+      {
+        replacements: { teamId },
+        type: db.sequelize.QueryTypes.SELECT,
+        transaction,
+      }
+    );
+    if (!team) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Team not found" });
+    }
+
+    const [currentUser] = await db.sequelize.query(
+      `SELECT id, firstName, lastName FROM Users WHERE id = :userId`,
+      {
+        replacements: { userId: req.user.id },
+        type: db.sequelize.QueryTypes.SELECT,
+        transaction,
+      }
+    );
+    if (!currentUser) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Current user not found" });
+    }
+
+    const results = [];
+    for (const userId of userIds) {
+      if (!userId) {
+        console.warn("Skipping user with missing userId", {
+          userId,
+          teamId,
+          timestamp: new Date().toISOString(),
+        });
+        results.push({ userId: null, status: "skipped", reason: "Missing userId" });
+        continue;
+      }
+
+      const [userDetails] = await db.sequelize.query(
+        `SELECT id, email, firstName, lastName FROM Users WHERE id = :userId`,
+        {
+          replacements: { userId },
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!userDetails) {
+        console.warn("User not found", {
+          userId,
+          teamId,
+          timestamp: new Date().toISOString(),
+        });
+        results.push({ userId, status: "failed", reason: "User ID not found" });
+        continue;
+      }
+
+      if (!userDetails.email) {
+        console.warn("User email missing", {
+          userId,
+          teamId,
+          timestamp: new Date().toISOString(),
+        });
+        results.push({ userId, status: "skipped", reason: "Missing email" });
+        continue;
+      }
+
+      const [existing] = await db.sequelize.query(
+        `
+        SELECT * FROM UserTeams
+        WHERE userId = :userId AND teamId = :teamId
+        `,
+        {
+          replacements: { userId, teamId },
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+
+      if (!existing) {
+        console.warn("User not assigned to team", {
+          userId,
+          teamId,
+          timestamp: new Date().toISOString(),
+        });
+        results.push({ userId, status: "skipped", reason: "Not assigned" });
+        continue;
+      }
+
+      await db.UserTeam.destroy(
+        {
+          where: { userId, teamId },
+        },
+        { transaction }
+      );
+
+      await sendMail({
+        to: userDetails.email,
+        subject: `You’ve been removed from the ${team.name} team`,
+        html: `
+          <p>Hello ${userDetails.firstName},</p>
+          <p>You’ve been removed from the <strong>${team.name}</strong> team by ${currentUser.firstName} ${currentUser.lastName}.</p>
+          <p>Description: ${team.description || "N/A"}</p>
+        `,
+      });
+
+      results.push({ userId, status: "success" });
+    }
+
+    const [updatedTeam] = await db.sequelize.query(
+      `SELECT id, name, description, createdAt, updatedAt FROM Teams WHERE id = :teamId`,
+      {
+        replacements: { teamId },
+        type: db.sequelize.QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    const usersData = await db.sequelize.query(
+      `
+      SELECT u.id, u.firstName, u.lastName, u.email, ut.role, ut.note, ut.projectId
+      FROM Users u
+      INNER JOIN UserTeams ut ON u.id = ut.userId
+      WHERE ut.teamId = :teamId
+      `,
+      {
+        replacements: { teamId },
+        type: db.sequelize.QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    const projects = await db.sequelize.query(
+      `SELECT id, name FROM Projects WHERE teamId = :teamId`,
+      {
+        replacements: { teamId },
+        type: db.sequelize.QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    await transaction.commit();
+    res.status(200).json({
+      message: "Users unassigned from team",
+      team: { ...updatedTeam, Users: usersData, Projects: projects },
+      userCount: userIds.length,
+      results,
+    });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Unassign users from team error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    if (err.message.includes("prepare statement needs to be reprepared")) {
+      return res.status(500).json({
+        message: "Database connection issue occurred",
+        details: "Please try again or contact support if the issue persists",
+      });
+    }
+    res
+      .status(500)
+      .json({ error: "Failed to unassign users from team", details: err.message });
   }
 };
