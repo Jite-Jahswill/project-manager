@@ -491,7 +491,7 @@ module.exports = {
               id: task.id,
               title: task.title,
               description: task.description,
-              status:Profile picture updated successfully task.status,
+              status: task.status,
               dueDate: task.dueDate,
             })),
           };
