@@ -53,7 +53,7 @@ module.exports = {
     }
   },
 
-  // Get project by ID (All authenticated users, restricted to assigned projects)
+  // Get project by ID (All authenticated users, restricted to assigned projects for staff)
   async getProjectById(req, res) {
     try {
       const { projectId } = req.params;
@@ -63,16 +63,7 @@ module.exports = {
 
       // Check if user is assigned to the project
       let isAssigned = false;
-      if (req.user.role === "client") {
-        const clientAssignment = await db.sequelize.query(
-          `SELECT 1 FROM ClientProjects WHERE clientId = :userId AND projectId = :projectId`,
-          {
-            replacements: { userId: req.user.id, projectId: parseInt(projectId) },
-            type: db.sequelize.QueryTypes.SELECT,
-          }
-        );
-        isAssigned = clientAssignment.length > 0;
-      } else if (req.user.role === "staff") {
+      if (req.user.role === "staff") {
         const userAssignment = await db.sequelize.query(
           `SELECT 1 FROM UserTeams WHERE userId = :userId AND projectId = :projectId`,
           {
@@ -81,11 +72,13 @@ module.exports = {
           }
         );
         isAssigned = userAssignment.length > 0;
-      } else if (!["admin", "manager"].includes(req.user.role)) {
+      } else if (["admin", "manager"].includes(req.user.role)) {
+        isAssigned = true; // Admins and managers have unrestricted access
+      } else {
         return res.status(403).json({ message: "Unauthorized role" });
       }
 
-      if (!isAssigned && !["admin", "manager"].includes(req.user.role)) {
+      if (!isAssigned) {
         return res.status(403).json({ message: "Unauthorized to view this project" });
       }
 
@@ -1191,7 +1184,6 @@ module.exports = {
         }
 
         // No association is made here (as requested)
-
         await transaction.commit();
         return res.status(200).json({ message: "Client validated for project successfully" });
       } catch (err) {
@@ -1212,7 +1204,7 @@ module.exports = {
   },
 
   // Remove a client from a project (Admin or Manager only)
-  async removeClientFromProject(req, clients) {
+  async removeClientFromProject(req, res) {
     try {
       if (!["admin", "manager"].includes(req.user.role)) {
         return res.status(403).json({ message: "Only admins or managers can remove clients" });
@@ -1253,9 +1245,7 @@ module.exports = {
         }
 
         // No actual disassociation done here as requested
-
         await transaction.commit();
-
         return res.status(200).json({ message: "Client validated and would be removed from project successfully" });
       } catch (err) {
         await transaction.rollback();
