@@ -1,164 +1,143 @@
 const db = require("../models");
-const sendMail = require("../utils/mailer");
-const Report = db.Report;
+const Leave = db.Leave;
 const User = db.User;
-const Project = db.Project;
-const ProjectUser = db.ProjectUser; // Junction table for project assignments
-
-// Helper: Notify admins and managers
-async function notifyAdminsAndManagers(subject, html) {
-  try {
-    const recipients = await User.findAll({
-      where: {
-        role: ["admin", "manager"],
-      },
-      attributes: ["email"],
-    });
-
-    const emailPromises = recipients
-      .map((user) => user.email)
-      .filter(Boolean)
-      .map((email) =>
-        sendMail({
-          to: email,
-          subject,
-          html,
-        })
-      );
-
-    await Promise.all(emailPromises);
-  } catch (error) {
-    console.error("Notify admins and managers error:", {
-      message: error.message,
-      stack: error.stack,
-      subject,
-      timestamp: new Date().toISOString(),
-    });
-  }
-}
+const sendMail = require("../utils/mailer");
 
 module.exports = {
-  // Create a new report (Staff, Admin, Manager)
-  async createReport(req, res) {
+  // Create a new leave request (Staff, Admin, Manager)
+  async createLeave(req, res) {
     try {
-      const { projectId, title, content } = req.body;
+      const { startDate, endDate, reason } = req.body;
 
       // Validate input
-      if (!projectId || !title || !content) {
-        return res.status(400).json({ message: "projectId, title, and content are required" });
+      if (!startDate || !endDate || !reason) {
+        return res.status(400).json({ message: "All fields are required" });
       }
 
-      // Check if project exists
-      const project = await Project.findByPk(projectId, {
-        attributes: ["id", "name"],
+      // Fetch user data using req.user.id
+      const user = await User.findByPk(req.user.id, {
+        attributes: ["firstName", "lastName", "email"],
       });
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Check if user is assigned to the project (for staff)
-      if (req.user.role === "staff") {
-        const assignment = await ProjectUser.findOne({
-          where: { projectId, userId: req.user.id },
-        });
-        if (!assignment) {
-          return res.status(403).json({ message: "User not assigned to this project" });
-        }
-      }
-
-      // Fetch user data
-      const author = await User.findByPk(req.user.id, {
-        attributes: ["id", "firstName", "lastName", "email"],
-      });
-      if (!author) {
+      if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Create report
-      const report = await Report.create({
+      // Create new leave entry
+      const newLeave = await Leave.create({
         userId: req.user.id,
-        projectId,
-        title,
-        content,
+        startDate,
+        endDate,
+        reason,
+        status: "pending", // Default status
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      // Prepare email notification
-      const html = `
-        <h3>New Report Created</h3>
-        <p><strong>Title:</strong> ${title}</p>
-        <p><strong>Content:</strong> ${content}</p>
-        <p><strong>Project:</strong> ${project.name}</p>
-        <p><strong>By:</strong> ${author.firstName} ${author.lastName} (${author.email})</p>
-      `;
+      // Notify admins and managers
+      const admins = await User.findAll({
+        where: { role: ["admin", "manager"] },
+        attributes: ["email"],
+      });
 
-      await notifyAdminsAndManagers("New Report Submitted", html);
+      const adminEmails = admins.map((admin) => admin.email).filter(Boolean);
+
+      if (adminEmails.length === 0) {
+        console.warn("No admin or manager emails found. No notifications sent.", {
+          userId: req.user.id,
+          timestamp: new Date().toISOString(),
+        });
+        return res.status(201).json({
+          message: "Leave created, but no notifications sent",
+          leave: {
+            id: newLeave.id,
+            userId: newLeave.userId,
+            startDate: newLeave.startDate,
+            endDate: newLeave.endDate,
+            reason: newLeave.reason,
+            status: newLeave.status,
+            createdAt: newLeave.createdAt,
+            updatedAt: newLeave.updatedAt,
+            User: user,
+          },
+        });
+      }
+
+      // Send notification email
+      await sendMail({
+        to: adminEmails,
+        subject: "New Leave Request Submitted",
+        html: `
+          <p>Hello,</p>
+          <p><strong>${user.firstName} ${user.lastName}</strong> has submitted a leave request from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
+          <p>Reason: ${reason}</p>
+          <p>Visit the dashboard to review and take action.</p>
+          <p>Best,<br>Team</p>
+        `,
+      });
 
       res.status(201).json({
-        message: "Report created successfully",
-        report: {
-          id: report.id,
-          userId: report.userId,
-          projectId: report.projectId,
-          title: report.title,
-          content: report.content,
-          createdAt: report.createdAt,
-          updatedAt: report.updatedAt,
-          User: author,
-          Project: project,
+        message: "Leave created successfully",
+        leave: {
+          id: newLeave.id,
+          userId: newLeave.userId,
+          startDate: newLeave.startDate,
+          endDate: newLeave.endDate,
+          reason: newLeave.reason,
+          status: newLeave.status,
+          createdAt: newLeave.createdAt,
+          updatedAt: newLeave.updatedAt,
+          User: user,
         },
       });
     } catch (error) {
-      console.error("Create report error:", {
+      console.error("Error creating leave:", {
         message: error.message,
         stack: error.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         body: req.body,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Error creating report", details: error.message });
+      res.status(500).json({ message: "Error creating leave", details: error.message });
     }
   },
 
-  // Get all reports (Staff see own, Admins/Managers see all with filters)
-  async getAllReports(req, res) {
+  // Get all leaves (Staff see own, Admins/Managers see all with filters)
+  async getAllLeaves(req, res) {
     try {
-      const { projectId, userName, projectName, page = 1, limit = 20 } = req.query;
+      const { status, userId, startDate, endDate, page = 1, limit = 20 } = req.query;
+
       const whereClause = {};
 
       // Role-based visibility
       if (req.user.role === "staff") {
         whereClause.userId = req.user.id;
-      } else if (projectId) {
-        whereClause.projectId = projectId;
+      }
+
+      // Optional filters for admins/managers
+      if (userId && ["admin", "manager"].includes(req.user.role)) {
+        whereClause.userId = userId;
+      }
+      if (status) {
+        whereClause.status = status;
+      }
+      if (startDate) {
+        whereClause.startDate = {
+          [db.Sequelize.Op.gte]: new Date(startDate),
+        };
+      }
+      if (endDate) {
+        whereClause.endDate = {
+          [db.Sequelize.Op.lte]: new Date(endDate),
+        };
       }
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
-      const { count, rows } = await Report.findAndCountAll({
+      const { count, rows } = await Leave.findAndCountAll({
         where: whereClause,
         include: [
           {
             model: User,
             attributes: ["id", "firstName", "lastName", "email"],
-            where: userName
-              ? {
-                  [db.Sequelize.Op.or]: [
-                    { firstName: { [db.Sequelize.Op.like]: `%${userName}%` } },
-                    { lastName: { [db.Sequelize.Op.like]: `%${userName}%` } },
-                  ],
-                }
-              : undefined,
-          },
-          {
-            model: Project,
-            attributes: ["id", "name"],
-            where: projectName
-              ? {
-                  name: { [db.Sequelize.Op.like]: `%${projectName}%` },
-                }
-              : undefined,
           },
         ],
         order: [["createdAt", "DESC"]],
@@ -169,7 +148,7 @@ module.exports = {
       const totalPages = Math.ceil(count / limit);
 
       res.status(200).json({
-        reports: rows,
+        leaves: rows,
         pagination: {
           currentPage: parseInt(page),
           totalPages,
@@ -178,7 +157,7 @@ module.exports = {
         },
       });
     } catch (error) {
-      console.error("Get all reports error:", {
+      console.error("Error fetching leaves:", {
         message: error.message,
         stack: error.stack,
         userId: req.user?.id,
@@ -186,178 +165,248 @@ module.exports = {
         query: req.query,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Error fetching reports", details: error.message });
+      res.status(500).json({ message: "Error fetching leaves", details: error.message });
     }
   },
 
-  // Get a single report by ID (Staff see own, Admins/Managers see all)
-  async getReportById(req, res) {
+  // Get a single leave by ID (Staff see own, Admins/Managers see all)
+  async getLeaveById(req, res) {
     try {
       const { id } = req.params;
 
-      const report = await Report.findByPk(id, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
+      const leave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
       });
 
-      if (!report) {
-        return res.status(404).json({ message: "Report not found" });
+      if (!leave) {
+        return res.status(404).json({ message: "Leave not found" });
       }
 
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to view this report" });
+      // Restrict staff to their own leaves
+      if (req.user.role === "staff" && leave.userId !== req.user.id) {
+        return res.status(403).json({ message: "Unauthorized to view this leave" });
       }
 
-      res.status(200).json({ report });
+      res.status(200).json({ leave });
     } catch (error) {
-      console.error("Get report error:", {
+      console.error("Error retrieving leave:", {
         message: error.message,
         stack: error.stack,
         userId: req.user?.id,
-        role: req.user?.role,
-        reportId: req.params.id,
+        leaveId: req.params.id,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Error retrieving report", details: error.message });
+      res.status(500).json({ message: "Error retrieving leave", details: error.message });
     }
   },
 
-  // Update a report (Staff can update own, Admins/Managers can update any)
-  async updateReport(req, res) {
+  // Update a leave request (Staff can update own, Admins/Managers can update any)
+  async updateLeave(req, res) {
     try {
       const { id } = req.params;
-      const { title, content } = req.body;
+      const { startDate, endDate, reason } = req.body;
+
+      const leave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      });
+
+      if (!leave) {
+        return res.status(404).json({ message: "Leave not found" });
+      }
+
+      // Restrict staff to their own leaves
+      if (req.user.role === "staff" && leave.userId !== req.user.id) {
+        return res.status(403).json({ message: "Unauthorized to update this leave" });
+      }
+
+      // Prevent updates if status is not pending
+      if (leave.status !== "pending") {
+        return res.status(400).json({ message: "Cannot update a leave that is not pending" });
+      }
 
       // Validate input
-      if (!title && !content) {
-        return res.status(400).json({ message: "At least one field (title, content) is required" });
+      if (!startDate && !endDate && !reason) {
+        return res.status(400).json({ message: "At least one field (startDate, endDate, reason) is required" });
       }
 
-      const report = await Report.findByPk(id, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
-      });
+      // Build raw SQL query
+      const updates = [];
+      if (startDate) updates.push(`startDate = '${new Date(startDate).toISOString().replace(/'/g, "\\'")}'`);
+      if (endDate) updates.push(`endDate = '${new Date(endDate).toISOString().replace(/'/g, "\\'")}'`);
+      if (reason) updates.push(`reason = '${reason.replace(/'/g, "\\'")}'`);
+      updates.push(`updatedAt = NOW()`);
 
-      if (!report) {
-        return res.status(404).json({ message: "Report not found" });
+      if (updates.length > 1 || (updates.length === 1 && !updates.includes(`updatedAt = NOW()`))) {
+        const query = `
+          UPDATE Leaves
+          SET ${updates.join(", ")}
+          WHERE id = ${parseInt(id)}
+        `;
+        await db.sequelize.query(query, { type: db.sequelize.QueryTypes.UPDATE });
       }
 
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to update this report" });
-      }
-
-      // Update report
-      const updates = {};
-      if (title) updates.title = title;
-      if (content) updates.content = content;
-      updates.updatedAt = new Date();
-
-      await Report.update(updates, { where: { id } });
-
-      // Fetch updated report
-      const updatedReport = await Report.findByPk(id, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
-      });
-
-      // Send update notification
-      const html = `
-        <h3>Report Updated</h3>
-        <p><strong>Title:</strong> ${updatedReport.title}</p>
-        <p><strong>Content:</strong> ${updatedReport.content}</p>
-        <p><strong>Project:</strong> ${updatedReport.Project?.name}</p>
-        <p><strong>By:</strong> ${updatedReport.User.firstName} ${updatedReport.User.lastName} (${updatedReport.User.email})</p>
-      `;
-
-      await notifyAdminsAndManagers("Report Updated", html);
-
-      res.status(200).json({
-        message: "Report updated successfully",
-        report: updatedReport,
-      });
-    } catch (error) {
-      console.error("Update report error:", {
-        message: error.message,
-        stack: error.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        reportId: req.params.id,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Error updating report", details: error.message });
-    }
-  },
-
-  // Delete a report (Staff can delete own, Admins/Managers can delete any)
-  async deleteReport(req, res) {
-    try {
-      const { id } = req.params;
-
-      const report = await Report.findByPk(id, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
-      });
-
-      if (!report) {
-        return res.status(404).json({ message: "Report not found" });
-      }
-
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to delete this report" });
-      }
-
-      // Send deletion notification
-      const html = `
-        <h3>Report Deleted</h3>
-        <p><strong>Title:</strong> ${report.title}</p>
-        <p><strong>Project:</strong> ${report.Project?.name}</p>
-        <p><strong>By:</strong> ${report.User.firstName} ${report.User.lastName} (${report.User.email})</p>
-        <p>Deleted by: ${req.user.firstName} ${req.user.lastName} (${req.user.email})</p>
-      `;
-
-      // Notify admins/managers and the report's creator (if different from deleter)
-      const recipients = [{ email: report.User.email, role: "staff" }].filter(
-        (recipient) => recipient.email !== req.user.email // Avoid notifying the deleter
-      );
-      const adminManagerEmails = await User.findAll({
+      // Notify admins and managers
+      const admins = await User.findAll({
         where: { role: ["admin", "manager"] },
         attributes: ["email"],
-      }).then((users) => users.map((u) => u.email).filter(Boolean));
+      });
 
-      const allRecipients = [...recipients.map((r) => r.email), ...adminManagerEmails];
-      if (allRecipients.length > 0) {
+      const adminEmails = admins.map((admin) => admin.email).filter(Boolean);
+
+      if (adminEmails.length > 0) {
         await sendMail({
-          to: allRecipients,
-          subject: "Report Deleted",
-          html,
+          to: adminEmails,
+          subject: "Leave Request Updated",
+          html: `
+            <p>Hello,</p>
+            <p><strong>${leave.User.firstName} ${leave.User.lastName}</strong> has updated their leave request (ID: ${id}) from <strong>${startDate || leave.startDate}</strong> to <strong>${endDate || leave.endDate}</strong>.</p>
+            <p>Reason: ${reason || leave.reason}</p>
+            <p>Visit the dashboard to review and take action.</p>
+            <p>Best,<br>Team</p>
+          `,
         });
       }
 
-      await report.destroy();
+      const updatedLeave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      });
 
-      res.status(200).json({ message: "Report deleted successfully" });
+      res.status(200).json({
+        message: "Leave updated successfully",
+        leave: updatedLeave,
+      });
     } catch (error) {
-      console.error("Delete report error:", {
+      console.error("Error updating leave:", {
         message: error.message,
         stack: error.stack,
         userId: req.user?.id,
-        role: req.user?.role,
-        reportId: req.params.id,
+        leaveId: req.params.id,
+        body: req.body,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Error deleting report", details: error.message });
+      res.status(500).json({ message: "Error updating leave", details: error.message });
+    }
+  },
+
+  // Update leave status (Admins and Managers only)
+  async updateLeaveStatus(req, res) {
+    try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can update leave status" });
+      }
+
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Status must be 'approved' or 'rejected'" });
+      }
+
+      const leave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["email", "firstName", "lastName"],
+        },
+      });
+
+      if (!leave) {
+        return res.status(404).json({ message: "Leave not found" });
+      }
+
+      await Leave.update({ status, updatedAt: new Date() }, { where: { id } });
+
+      const user = leave.User;
+      await sendMail({
+        to: user.email,
+        subject: `Your Leave Request has been ${status.toUpperCase()}`,
+        html: `
+          <p>Hi ${user.firstName},</p>
+          <p>Your leave request from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been <strong>${status}</strong>.</p>
+          <p>${
+            status === "approved"
+              ? "We hope you enjoy your time off. Take care and come back refreshed!"
+              : "We understand this might be disappointing. Feel free to reach out if you have questions or want to reschedule."
+          }</p>
+          <p>Best,<br>Team</p>
+        `,
+      });
+
+      const updatedLeave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      });
+
+      res.status(200).json({
+        message: "Leave status updated successfully",
+        leave: updatedLeave,
+      });
+    } catch (error) {
+      console.error("Error updating leave status:", {
+        message: error.message,
+        stack: error.stack,
+        userId: req.user?.id,
+        leaveId: req.params.id,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Error updating leave status", details: error.message });
+    }
+  },
+
+  // Delete a leave request (Admins and Managers only)
+  async deleteLeave(req, res) {
+    try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can delete leave requests" });
+      }
+
+      const { id } = req.params;
+
+      const leave = await Leave.findByPk(id, {
+        include: {
+          model: User,
+          attributes: ["email", "firstName", "lastName"],
+        },
+      });
+
+      if (!leave) {
+        return res.status(404).json({ message: "Leave not found" });
+      }
+
+      await leave.destroy();
+
+      await sendMail({
+        to: leave.User.email,
+        subject: "Your Leave Request has been Deleted",
+        html: `
+          <p>Hi ${leave.User.firstName},</p>
+          <p>Your leave request from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been deleted.</p>
+          <p>Please contact us if you have any questions.</p>
+          <p>Best,<br>Team</p>
+        `,
+      });
+
+      res.status(200).json({ message: "Leave deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting leave:", {
+        message: error.message,
+        stack: error.stack,
+        userId: req.user?.id,
+        leaveId: req.params.id,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Error deleting leave", details: error.message });
     }
   },
 };
