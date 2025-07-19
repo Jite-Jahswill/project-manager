@@ -1,3 +1,4 @@
+```javascript
 const db = require("../models");
 const sendMail = require("../utils/mailer");
 const { notifyClientOnProjectCompletion } = require("./client.controller");
@@ -72,7 +73,7 @@ module.exports = {
           }
         );
         isAssigned = clientAssignment.length > 0;
-      } else {
+      } else if (req.user.role === "staff") {
         const userAssignment = await db.sequelize.query(
           `SELECT 1 FROM UserTeams WHERE userId = :userId AND projectId = :projectId`,
           {
@@ -81,6 +82,8 @@ module.exports = {
           }
         );
         isAssigned = userAssignment.length > 0;
+      } else if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Unauthorized role" });
       }
 
       if (!isAssigned && !["admin", "manager"].includes(req.user.role)) {
@@ -322,7 +325,7 @@ module.exports = {
     }
   },
 
-  // Get all projects (All authenticated users, restricted to assigned projects)
+  // Get all projects (All authenticated users, restricted to assigned projects for staff)
   async getAllProjects(req, res) {
     try {
       const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
@@ -344,12 +347,14 @@ module.exports = {
             `(SELECT projectId FROM ClientProjects WHERE clientId = ${req.user.id})`
           ),
         };
-      } else if (!["admin", "manager"].includes(req.user.role)) {
+      } else if (req.user.role === "staff") {
         where.id = {
           [db.Sequelize.Op.in]: db.sequelize.literal(
             `(SELECT projectId FROM UserTeams WHERE userId = ${req.user.id} AND projectId IS NOT NULL)`
           ),
         };
+      } else if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Unauthorized role" });
       }
 
       const { count, rows } = await db.Project.findAndCountAll({
@@ -1208,7 +1213,7 @@ module.exports = {
   },
 
   // Remove a client from a project (Admin or Manager only)
-  async removeClientFromProject(req, res) {
+  async removeClientFromProject(req, clients) {
     try {
       if (!["admin", "manager"].includes(req.user.role)) {
         return res.status(403).json({ message: "Only admins or managers can remove clients" });
@@ -1271,3 +1276,4 @@ module.exports = {
     }
   },
 };
+```
