@@ -40,122 +40,101 @@ async function notifyAdminsAndManagers(subject, html) {
 
 module.exports = {
   // Create a new report (open to any authenticated user)
-  async createReport(req, res) {
-    const transaction = await db.sequelize.transaction();
-    try {
-      // // Check if required models are defined
-      // if (!User || typeof User.findOne !== "function") {
-      //   throw new Error("User model is undefined or invalid");
-      // }
-      // if (!Report || typeof Report.create !== "function") {
-      //   throw new Error("Report model is undefined or invalid");
-      // }
-      // if (!Error || typeof Error.create !== "function") {
-      //   throw new Error("Error model is undefined or invalid");
-      // }
+async createReport(req, res) {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const { title, description, teamId, projectId } = req.body;
 
-      const { title, description, teamId, projectId } = req.body;
+    // Validate input
+    if (!title) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Title is required" });
+    }
 
-      // Validate input
-      if (!title) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "title is required" });
+    // Verify user exists
+    const user = await User.findOne({
+      where: { id: req.user.id },
+      attributes: ["id", "firstName", "lastName", "email"],
+      transaction,
+    });
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Verify team exists (if provided)
+    let team = null;
+    if (teamId) {
+      if (!Team || typeof Team.findOne !== "function") {
+        throw new Error("Team model is undefined or invalid");
       }
-
-      // Verify user exists
-      const user = await User.findOne({
-        where: { id: req.user.id },
-        attributes: ["id", "firstName", "lastName", "email"],
+      team = await Team.findOne({
+        where: { id: teamId },
+        attributes: ["id", "name"],
         transaction,
       });
-      if (!user) {
+      if (!team) {
         await transaction.rollback();
-        return res.status(404).json({ message: "User not found" });
+        return res.status(404).json({ message: "Team not found" });
       }
-
-      // Verify team exists (if provided)
-      let team = null;
-      if (teamId) {
-        if (!Team || typeof Team.findOne !== "function") {
-          throw new Error("Team model is undefined or invalid");
-        }
-        team = await Team.findOne({
-          where: { id: teamId },
-          attributes: ["id", "name"],
-          transaction,
-        });
-        if (!team) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Team not found" });
-        }
-      }
-
-      // Verify project exists (if provided)
-      let project = null;
-      if (projectId) {
-        if (!Project || typeof Project.findOne !== "function") {
-          throw new Error("Project model is undefined or invalid");
-        }
-        project = await Project.findOne({
-          where: { id: projectId },
-          attributes: ["id", "name"],
-          transaction,
-        });
-        if (!project) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Project not found" });
-        }
-      }
-
-      // Create report using Sequelize
-      const report = await Report.create(
-        {
-          title,
-          description: description || null,
-          userId: req.user.id,
-          teamId: teamId || null,
-          projectId: projectId || null,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        { transaction }
-      );
-
-      // Format response
-      const reportResponse = {
-        id: report.id,
-        title: report.title,
-        description: report.description,
-        user: {
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-        },
-        team: team ? { teamId: team.id, name: team.name } : null,
-        project: project ? { projectId: project.id, name: project.name } : null,
-        createdAt: report.createdAt,
-        updatedAt: report.updatedAt,
-      };
-
-      await transaction.commit();
-      res.status(201).json({ message: "Report created", report: reportResponse });
-    } catch (err) {
-      await transaction.rollback();
-      await Error.create(
-        {
-          message: err.message,
-          stack: err.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({ endpoint: "createReport", body: req.body }),
-          timestamp: new Date(),
-        },
-        { transaction }
-      );
-      res.status(500).json({ message: "Error creating report", details: err.message });
     }
-  },
 
+    // Verify project exists (if provided)
+    let project = null;
+    if (projectId) {
+      if (!Project || typeof Project.findOne !== "function") {
+        throw new Error("Project model is undefined or invalid");
+      }
+      project = await Project.findOne({
+        where: { id: projectId },
+        attributes: ["id", "name"],
+        transaction,
+      });
+      if (!project) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Project not found" });
+      }
+    }
+
+    // Create report using Sequelize
+    const report = await Report.create(
+      {
+        title,
+        description: description || null,
+        userId: req.user.id,
+        teamId: teamId || null,
+        projectId: projectId || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      { transaction }
+    );
+
+    // Format response
+    const reportResponse = {
+      id: report.id,
+      title: report.title,
+      description: report.description,
+      user: {
+        userId: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+      },
+      team: team ? { teamId: team.id, name: team.name } : null,
+      project: project ? { projectId: project.id, name: project.name } : null,
+      createdAt: report.createdAt,
+      updatedAt: report.updatedAt,
+    };
+
+    await transaction.commit();
+    res.status(201).json({ message: "Report created", report: reportResponse });
+  } catch (err) {
+    await transaction.rollback();
+    // No error logging to the Error model
+    res.status(500).json({ message: "Error creating report", details: err.message });
+  }
+},
   // Get all reports (Staff see own, Admins/Managers see all with filters)
   async getAllReports(req, res) {
     try {
