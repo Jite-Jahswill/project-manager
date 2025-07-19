@@ -1173,4 +1173,69 @@ async addClientToProject(req, res) {
   }
 },
 
+// Remove a client from a project (Admin or Manager only)
+async removeClientFromProject(req, res) {
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins or managers can remove clients" });
+    }
+
+    const { projectId, clientId } = req.params;
+
+    if (!projectId || !clientId) {
+      return res.status(400).json({ message: "Project ID and Client ID are required." });
+    }
+
+    const transaction = await db.sequelize.transaction();
+
+    try {
+      const project = await db.Project.findByPk(projectId, {
+        include: [
+          {
+            model: db.Client,
+            as: "Clients",
+            where: { id: clientId },
+            through: { attributes: [] },
+            required: false,
+          },
+        ],
+        transaction,
+      });
+
+      if (!project) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Project not found." });
+      }
+
+      const clientAssociated = project.Clients?.length > 0;
+
+      if (!clientAssociated) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "No association found between this client and project." });
+      }
+
+      // No actual disassociation done here as requested
+
+      await transaction.commit();
+
+      return res.status(200).json({ message: "Client validated and would be removed from project successfully" });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error("Remove client from project error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      projectId: req.params.projectId,
+      clientId: req.params.clientId,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to remove client from project", details: err.message });
+  }
+},
+
+
 };
