@@ -38,9 +38,8 @@ async function notifyAdminsAndManagers(subject, html) {
 }
 
 module.exports = {
-  // Create a new report (Staff, Admin, Manager)
+   // Create a new report (open to any authenticated user)
   async createReport(req, res) {
-      async createReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
       // Check if required models are defined
@@ -49,12 +48,6 @@ module.exports = {
       }
       if (!Report || typeof Report.create !== "function") {
         throw new Error("Report model is undefined or invalid");
-      }
-
-      // Role-based access control
-      if (!["admin", "manager"].includes(req.user.role)) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Only admins or managers can create reports" });
       }
 
       const { title, description, teamId, projectId } = req.body;
@@ -68,7 +61,7 @@ module.exports = {
       // Verify user exists
       const user = await User.findOne({
         where: { id: req.user.id },
-        attributes: ["id", "firstName", "lastName", "email", "role"],
+        attributes: ["id", "firstName", "lastName", "email"],
         transaction,
       });
       if (!user) {
@@ -84,6 +77,7 @@ module.exports = {
         }
         team = await Team.findOne({
           where: { id: teamId },
+          attributes: ["id", "name"],
           transaction,
         });
         if (!team) {
@@ -100,6 +94,7 @@ module.exports = {
         }
         project = await Project.findOne({
           where: { id: projectId },
+          attributes: ["id", "name"],
           transaction,
         });
         if (!project) {
@@ -108,49 +103,25 @@ module.exports = {
         }
       }
 
-      // Create report using raw SQL
-      const [reportId] = await db.sequelize.query(
-        `
-        INSERT INTO Reports (title, description, userId, teamId, projectId, createdAt, updatedAt)
-        VALUES (:title, :description, :userId, :teamId, :projectId, NOW(), NOW())
-        `,
+      // Create report using Sequelize
+      const report = await Report.create(
         {
-          replacements: {
-            title,
-            description: description || null,
-            userId: req.user.id,
-            teamId: teamId || null,
-            projectId: projectId || null,
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-          transaction,
-        }
+          title,
+          description: description || null,
+          userId: req.user.id,
+          teamId: teamId || null,
+          projectId: projectId || null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        { transaction }
       );
-
-      // Fetch created report
-      const report = await db.sequelize.query(
-        `
-        SELECT id, title, description, userId, teamId, projectId, createdAt, updatedAt
-        FROM Reports
-        WHERE id = ?
-        `,
-        {
-          replacements: [reportId],
-          type: db.sequelize.QueryTypes.SELECT,
-          transaction,
-        }
-      );
-
-      if (!report[0]) {
-        await transaction.rollback();
-        return res.status(500).json({ message: "Failed to fetch created report" });
-      }
 
       // Format response
       const reportResponse = {
-        id: report[0].id,
-        title: report[0].title,
-        description: report[0].description,
+        id: report.id,
+        title: report.title,
+        description: report.description,
         user: {
           userId: user.id,
           firstName: user.firstName,
@@ -159,8 +130,8 @@ module.exports = {
         },
         team: team ? { teamId: team.id, name: team.name } : null,
         project: project ? { projectId: project.id, name: project.name } : null,
-        createdAt: report[0].createdAt,
-        updatedAt: report[0].updatedAt,
+        createdAt: report.createdAt,
+        updatedAt: report.updatedAt,
       };
 
       await transaction.commit();
