@@ -1,6 +1,6 @@
 const express = require("express");
 const teamController = require("../controllers/team.controller");
-const auth = require("../middlewares/auth.middleware");
+const { verifyToken, isAdminOrManager } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -22,14 +22,18 @@ module.exports = (app) => {
    *         teamName:
    *           type: string
    *           example: "Dev Team"
+   *         description:
+   *           type: string
+   *           example: "Team for handling web development projects"
+   *           nullable: true
    *         createdAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T00:00:00.000Z"
+   *           example: "2025-07-19T20:30:00.000Z"
    *         updatedAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T00:00:00.000Z"
+   *           example: "2025-07-19T20:30:00.000Z"
    *         users:
    *           type: array
    *           items:
@@ -59,9 +63,11 @@ module.exports = (app) => {
    *         note:
    *           type: string
    *           example: null
+   *           nullable: true
    *         projectId:
    *           type: integer
    *           example: null
+   *           nullable: true
    *     Project:
    *       type: object
    *       properties:
@@ -87,6 +93,7 @@ module.exports = (app) => {
    *         description:
    *           type: string
    *           example: "Create login page UI and backend"
+   *           nullable: true
    *         status:
    *           type: string
    *           enum: ["To Do", "In Progress", "Review", "Done"]
@@ -95,6 +102,7 @@ module.exports = (app) => {
    *           type: string
    *           format: date-time
    *           example: "2025-08-01T00:00:00.000Z"
+   *           nullable: true
    *         assignee:
    *           type: object
    *           nullable: true
@@ -111,12 +119,14 @@ module.exports = (app) => {
    *             email:
    *               type: string
    *               example: "john.doe@example.com"
+   */
 
   /**
    * @swagger
    * /api/teams:
    *   post:
    *     summary: Create a new team (Admin or Manager only)
+   *     description: Creates a new team. Only accessible to admins or managers.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -132,9 +142,12 @@ module.exports = (app) => {
    *               name:
    *                 type: string
    *                 example: "New Development Team"
+   *                 description: Name of the team
    *               description:
    *                 type: string
    *                 example: "Team for handling web development projects"
+   *                 description: Optional description of the team
+   *                 nullable: true
    *     responses:
    *       201:
    *         description: Team created successfully
@@ -158,6 +171,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "name is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       403:
    *         description: Access denied - Only admins or managers can create teams
    *         content:
@@ -182,18 +205,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post(
-    "/",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.createTeam
-  );
+  router.post("/", verifyToken, isAdminOrManager, teamController.createTeam);
 
   /**
    * @swagger
    * /api/teams:
    *   get:
-   *     summary: Get all teams with pagination (Accessible to all authenticated users)
+   *     summary: Get all teams with pagination
+   *     description: Staff can view teams they are part of. Admins and managers can view all teams. Supports pagination and search by team name.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -202,7 +221,7 @@ module.exports = (app) => {
    *         name: search
    *         schema:
    *           type: string
-   *         description: Team name to search for
+   *         description: Team name to search for (partial match)
    *         example: "Development"
    *       - in: query
    *         name: page
@@ -257,6 +276,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Invalid page or limit"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       500:
    *         description: Internal server error
    *         content:
@@ -271,13 +300,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", auth.verifyToken, teamController.getAllTeams);
+  router.get("/", verifyToken, teamController.getAllTeams);
 
   /**
    * @swagger
    * /api/teams/{id}:
    *   get:
-   *     summary: Get a single team by ID (Accessible to all authenticated users)
+   *     summary: Get a single team by ID
+   *     description: Staff can view details of a team they are part of. Admins and managers can view any team.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -306,6 +336,26 @@ module.exports = (app) => {
    *                 error:
    *                   type: string
    *                   example: "id is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Forbidden - Staff not part of the team
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized to view this team"
    *       404:
    *         description: Team not found
    *         content:
@@ -330,13 +380,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", auth.verifyToken, teamController.getTeamById);
+  router.get("/:id", verifyToken, teamController.getTeamById);
 
   /**
    * @swagger
    * /api/teams/{id}:
    *   put:
    *     summary: Update a team's name, description, or user assignments (Admin or Manager only)
+   *     description: Updates team details or user assignments. Only accessible to admins or managers.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -358,9 +409,13 @@ module.exports = (app) => {
    *               name:
    *                 type: string
    *                 example: "Updated Development Team"
+   *                 description: Updated team name
+   *                 nullable: true
    *               description:
    *                 type: string
    *                 example: "Updated description for web development team"
+   *                 description: Updated team description
+   *                 nullable: true
    *               users:
    *                 type: array
    *                 items:
@@ -369,16 +424,21 @@ module.exports = (app) => {
    *                     id:
    *                       type: integer
    *                       example: 1
+   *                       description: User ID
    *                     role:
    *                       type: string
    *                       example: "Member"
+   *                       description: User role in the team
    *                     note:
    *                       type: string
    *                       example: "New member"
+   *                       description: Optional note about the user
+   *                       nullable: true
    *                     projectId:
    *                       type: integer
    *                       example: null
    *                       description: Optional project ID
+   *                       nullable: true
    *     responses:
    *       200:
    *         description: Team updated successfully
@@ -392,6 +452,20 @@ module.exports = (app) => {
    *                   example: "Team updated"
    *                 team:
    *                   $ref: '#/components/schemas/Team'
+   *                 userResults:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       userId:
+   *                         type: integer
+   *                         example: 1
+   *                       status:
+   *                         type: string
+   *                         example: "success"
+   *                       reason:
+   *                         type: string
+   *                         example: "Missing userId"
    *       400:
    *         description: Missing required field 'id'
    *         content:
@@ -402,6 +476,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "id is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       403:
    *         description: Access denied - Only admins or managers can update teams
    *         content:
@@ -436,18 +520,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put(
-    "/:id",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.updateTeam
-  );
+  router.put("/:id", verifyToken, isAdminOrManager, teamController.updateTeam);
 
   /**
    * @swagger
    * /api/teams/{id}:
    *   delete:
    *     summary: Delete a team and unassign its users (Admin or Manager only)
+   *     description: Deletes a team and removes all user assignments. Only accessible to admins or managers.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -480,6 +560,16 @@ module.exports = (app) => {
    *                 error:
    *                   type: string
    *                   example: "id is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       403:
    *         description: Access denied - Only admins or managers can delete teams
    *         content:
@@ -514,18 +604,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete(
-    "/:id",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.deleteTeam
-  );
+  router.delete("/:id", verifyToken, isAdminOrManager, teamController.deleteTeam);
 
   /**
    * @swagger
    * /api/teams/assign:
    *   post:
    *     summary: Assign users to a team (Admin or Manager only)
+   *     description: Assigns users to a team with specified roles and optional notes or project IDs. Only accessible to admins or managers.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -542,6 +628,7 @@ module.exports = (app) => {
    *               teamId:
    *                 type: integer
    *                 example: 1
+   *                 description: ID of the team
    *               users:
    *                 type: array
    *                 items:
@@ -552,6 +639,7 @@ module.exports = (app) => {
    *                     id:
    *                       type: integer
    *                       example: 1
+   *                       description: User ID
    *                     role:
    *                       type: string
    *                       example: "Member"
@@ -560,10 +648,12 @@ module.exports = (app) => {
    *                       type: string
    *                       example: "New member"
    *                       description: Optional note about the user
+   *                       nullable: true
    *                     projectId:
    *                       type: integer
    *                       example: null
    *                       description: Optional project ID
+   *                       nullable: true
    *     responses:
    *       200:
    *         description: Users assigned to team successfully
@@ -604,6 +694,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "teamId and users array are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       403:
    *         description: Access denied - Only admins or managers can assign users
    *         content:
@@ -638,18 +738,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post(
-    "/assign",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.assignUsersToTeam
-  );
+  router.post("/assign", verifyToken, isAdminOrManager, teamController.assignUsersToTeam);
 
   /**
    * @swagger
    * /api/teams/unassign:
    *   post:
    *     summary: Unassign users from a team (Admin or Manager only)
+   *     description: Unassigns users from a team. Only accessible to admins or managers.
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -666,6 +762,7 @@ module.exports = (app) => {
    *               teamId:
    *                 type: integer
    *                 example: 1
+   *                 description: ID of the team
    *               userIds:
    *                 type: array
    *                 items:
@@ -712,6 +809,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "teamId and userIds array are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       403:
    *         description: Access denied - Only admins or managers can unassign users
    *         content:
@@ -746,12 +853,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post(
-    "/unassign",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.unassignUsersFromTeam
-  );
+  router.post("/unassign", verifyToken, isAdminOrManager, teamController.unassignUsersFromTeam);
 
   app.use("/api/teams", router);
 };
