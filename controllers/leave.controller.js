@@ -235,14 +235,20 @@ module.exports = {
         return res.status(400).json({ message: "At least one field (startDate, endDate, reason) is required" });
       }
 
-      const updates = {};
-      if (startDate) updates.startDate = startDate;
-      if (endDate) updates.endDate = endDate;
-      if (reason) updates.reason = reason;
-      updates.updatedAt = new Date();
+      // Build raw SQL query
+      const updates = [];
+      if (startDate) updates.push(`startDate = '${new Date(startDate).toISOString().replace(/'/g, "\\'")}'`);
+      if (endDate) updates.push(`endDate = '${new Date(endDate).toISOString().replace(/'/g, "\\'")}'`);
+      if (reason) updates.push(`reason = '${reason.replace(/'/g, "\\'")}'`);
+      updates.push(`updatedAt = NOW()`);
 
-      if (Object.keys(updates).length > 1 || (Object.keys(updates).length === 1 && !updates.updatedAt)) {
-        await Leave.update(updates, { where: { id } });
+      if (updates.length > 1 || (updates.length === 1 && !updates.includes(`updatedAt = NOW()`))) {
+        const query = `
+          UPDATE Leaves
+          SET ${updates.join(", ")}
+          WHERE id = ${parseInt(id)}
+        `;
+        await db.sequelize.query(query, { type: db.sequelize.QueryTypes.UPDATE });
       }
 
       // Notify admins and managers
@@ -259,8 +265,8 @@ module.exports = {
           subject: "Leave Request Updated",
           html: `
             <p>Hello,</p>
-            <p><strong>${leave.User.firstName} ${leave.User.lastName}</strong> has updated their leave request (ID: ${id}) from <strong>${updates.startDate || leave.startDate}</strong> to <strong>${updates.endDate || leave.endDate}</strong>.</p>
-            <p>Reason: ${updates.reason || leave.reason}</p>
+            <p><strong>${leave.User.firstName} ${leave.User.lastName}</strong> has updated their leave request (ID: ${id}) from <strong>${startDate || leave.startDate}</strong> to <strong>${endDate || leave.endDate}</strong>.</p>
+            <p>Reason: ${reason || leave.reason}</p>
             <p>Visit the dashboard to review and take action.</p>
             <p>Best,<br>Team</p>
           `,
