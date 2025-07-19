@@ -53,12 +53,38 @@ module.exports = {
     }
   },
 
-  // Get project by ID (All authenticated users)
+  // Get project by ID (All authenticated users, restricted to assigned projects)
   async getProjectById(req, res) {
     try {
       const { projectId } = req.params;
       if (!projectId) {
         return res.status(400).json({ message: "projectId is required" });
+      }
+
+      // Check if user is assigned to the project
+      let isAssigned = false;
+      if (req.user.role === "client") {
+        const clientAssignment = await db.sequelize.query(
+          `SELECT 1 FROM ClientProjects WHERE clientId = :userId AND projectId = :projectId`,
+          {
+            replacements: { userId: req.user.id, projectId: parseInt(projectId) },
+            type: db.sequelize.QueryTypes.SELECT,
+          }
+        );
+        isAssigned = clientAssignment.length > 0;
+      } else {
+        const userAssignment = await db.sequelize.query(
+          `SELECT 1 FROM UserTeams WHERE userId = :userId AND projectId = :projectId`,
+          {
+            replacements: { userId: req.user.id, projectId: parseInt(projectId) },
+            type: db.sequelize.QueryTypes.SELECT,
+          }
+        );
+        isAssigned = userAssignment.length > 0;
+      }
+
+      if (!isAssigned && !["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Unauthorized to view this project" });
       }
 
       const project = await db.Project.findByPk(projectId, {
@@ -76,7 +102,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "Tasks", // Fixed alias to match model
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
@@ -206,7 +232,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "Tasks", // Fixed alias to match model
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
@@ -296,11 +322,10 @@ module.exports = {
     }
   },
 
-  // Get all projects (All authenticated users)
+  // Get all projects (All authenticated users, restricted to assigned projects)
   async getAllProjects(req, res) {
     try {
       const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
       if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
@@ -311,6 +336,21 @@ module.exports = {
       if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
       if (status) where.status = status;
       if (startDate) where.startDate = startDate;
+
+      // Restrict to projects the user is assigned to
+      if (req.user.role === "client") {
+        where.id = {
+          [db.Sequelize.Op.in]: db.sequelize.literal(
+            `(SELECT projectId FROM ClientProjects WHERE clientId = ${req.user.id})`
+          ),
+        };
+      } else if (!["admin", "manager"].includes(req.user.role)) {
+        where.id = {
+          [db.Sequelize.Op.in]: db.sequelize.literal(
+            `(SELECT projectId FROM UserTeams WHERE userId = ${req.user.id} AND projectId IS NOT NULL)`
+          ),
+        };
+      }
 
       const { count, rows } = await db.Project.findAndCountAll({
         where,
@@ -328,7 +368,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "Tasks", // Fixed alias to match model
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
@@ -708,7 +748,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "Tasks", // Fixed alias to match model
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
@@ -858,23 +898,28 @@ module.exports = {
         }
       }
 
-      const updates = {};
-      if (name) updates.name = name;
-      if (description !== undefined) updates.description = description;
-      if (startDate) updates.startDate = startDate;
-      if (endDate !== undefined) updates.endDate = endDate;
+      const updates = [];
+      if (name) updates.push(`name = '${name.replace(/'/g, "\\'")}'`);
+      if (description !== undefined) updates.push(`description = ${description ? `'${description.replace(/'/g, "\\'")}'` : 'NULL'}`);
+      if (startDate) updates.push(`startDate = '${new Date(startDate).toISOString().replace(/'/g, "\\'")}'`);
+      if (endDate !== undefined) updates.push(`endDate = ${endDate ? `'${new Date(endDate).toISOString().replace(/'/g, "\\'")}'` : 'NULL'}`);
       if (status) {
         const validStatuses = ["To Do", "In Progress", "Review", "Done"];
         if (!validStatuses.includes(status)) {
           return res.status(400).json({ message: "Invalid status value" });
         }
-        updates.status = status;
+        updates.push(`status = '${status.replace(/'/g, "\\'")}'`);
       }
-      if (teamId) updates.teamId = teamId;
-      updates.updatedAt = new Date();
+      if (teamId) updates.push(`teamId = ${parseInt(teamId)}`);
+      updates.push(`updatedAt = NOW()`);
 
-      if (Object.keys(updates).length > 0) {
-        await db.Project.update(updates, { where: { id: projectId } });
+      if (updates.length > 1 || (updates.length === 1 && !updates.includes(`updatedAt = NOW()`))) {
+        const query = `
+          UPDATE Projects
+          SET ${updates.join(", ")}
+          WHERE id = ${parseInt(projectId)}
+        `;
+        await db.sequelize.query(query, { type: db.sequelize.QueryTypes.UPDATE });
       }
 
       const updatedProject = await db.Project.findByPk(projectId, {
@@ -892,7 +937,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "Tasks", // Fixed alias to match model
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
