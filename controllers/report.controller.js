@@ -155,7 +155,6 @@ module.exports = {
       res.status(500).json({ message: "Error creating report", details: err.message });
     }
   },
-},
 
   // Get all reports (Staff see own, Admins/Managers see all with filters)
   async getAllReports(req, res) {
