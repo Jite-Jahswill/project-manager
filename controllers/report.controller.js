@@ -4,6 +4,7 @@ const Report = db.Report;
 const User = db.User;
 const Project = db.Project;
 const ProjectUser = db.ProjectUser; // Junction table for project assignments
+const Team = db.Team;
 
 // Helper: Notify admins and managers
 async function notifyAdminsAndManagers(subject, html) {
@@ -38,17 +39,20 @@ async function notifyAdminsAndManagers(subject, html) {
 }
 
 module.exports = {
-   // Create a new report (open to any authenticated user)
+  // Create a new report (open to any authenticated user)
   async createReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
-      // Check if required models are defined
-      if (!User || typeof User.findOne !== "function") {
-        throw new Error("User model is undefined or invalid");
-      }
-      if (!Report || typeof Report.create !== "function") {
-        throw new Error("Report model is undefined or invalid");
-      }
+      // // Check if required models are defined
+      // if (!User || typeof User.findOne !== "function") {
+      //   throw new Error("User model is undefined or invalid");
+      // }
+      // if (!Report || typeof Report.create !== "function") {
+      //   throw new Error("Report model is undefined or invalid");
+      // }
+      // if (!Error || typeof Error.create !== "function") {
+      //   throw new Error("Error model is undefined or invalid");
+      // }
 
       const { title, description, teamId, projectId } = req.body;
 
@@ -138,22 +142,20 @@ module.exports = {
       res.status(201).json({ message: "Report created", report: reportResponse });
     } catch (err) {
       await transaction.rollback();
-      await db.sequelize.query(
-        "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      await Error.create(
         {
-          replacements: {
-            message: err.message,
-            stack: err.stack,
-            userId: req.user?.id || null,
-            context: JSON.stringify({ endpoint: "createReport", body: req.body }),
-            timestamp: new Date().toISOString(),
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-        }
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ endpoint: "createReport", body: req.body }),
+          timestamp: new Date(),
+        },
+        { transaction }
       );
       res.status(500).json({ message: "Error creating report", details: err.message });
     }
   },
+};
 
   // Get all reports (Staff see own, Admins/Managers see all with filters)
   async getAllReports(req, res) {
