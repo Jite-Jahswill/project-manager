@@ -49,6 +49,14 @@ module.exports = (app) => {
    *                     description:
    *                       type: string
    *                       example: "Team for handling web development projects"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
    *       400:
    *         description: Missing required field 'name'
    *         content:
@@ -94,7 +102,7 @@ module.exports = (app) => {
    * @swagger
    * /api/teams:
    *   get:
-   *     summary: Get all teams (Admin or Manager only)
+   *     summary: Get all teams with pagination (Admin or Manager only)
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -105,45 +113,69 @@ module.exports = (app) => {
    *           type: string
    *         description: Team name to search for
    *         example: "Development"
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         description: Page number for pagination
+   *         example: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 20
+   *         description: Number of teams per page
+   *         example: 20
    *     responses:
    *       200:
-   *         description: List of teams
+   *         description: List of teams with pagination metadata
    *         content:
    *           application/json:
    *             schema:
-   *               type: array
-   *               items:
-   *                 type: object
-   *                 properties:
-   *                   id:
-   *                     type: integer
-   *                     example: 1
-   *                   name:
-   *                     type: string
-   *                     example: "New Development Team"
-   *                   description:
-   *                     type: string
-   *                     example: "Team for handling web development projects"
-   *                   Users:
-   *                     type: array
-   *                     items:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         firstName:
-   *                           type: string
-   *                           example: "John"
-   *                         lastName:
-   *                           type: string
-   *                           example: "Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
-   *                         UserTeam:
+   *               type: object
+   *               properties:
+   *                 teams:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                         example: 1
+   *                       name:
+   *                         type: string
+   *                         example: "New Development Team"
+   *                       description:
+   *                         type: string
+   *                         example: "Team for handling web development projects"
+   *                       createdAt:
+   *                         type: string
+   *                         format: date-time
+   *                         example: "2025-07-18T14:37:00.000Z"
+   *                       updatedAt:
+   *                         type: string
+   *                         format: date-time
+   *                         example: "2025-07-18T14:37:00.000Z"
+   *                       Users:
+   *                         type: array
+   *                         items:
    *                           type: object
    *                           properties:
+   *                             id:
+   *                               type: integer
+   *                               example: 1
+   *                             firstName:
+   *                               type: string
+   *                               example: "John"
+   *                             lastName:
+   *                               type: string
+   *                               example: "Doe"
+   *                             email:
+   *                               type: string
+   *                               example: "john.doe@example.com"
    *                             role:
    *                               type: string
    *                               example: "Member"
@@ -153,6 +185,31 @@ module.exports = (app) => {
    *                             projectId:
    *                               type: integer
    *                               example: null
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 1
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 10
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid page or limit
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid page or limit"
    *       403:
    *         description: Access denied - Only admins or managers can view teams
    *         content:
@@ -175,7 +232,7 @@ module.exports = (app) => {
    *                   example: "Failed to fetch teams"
    *                 details:
    *                   type: string
-   *                   example: "Cannot read properties of undefined (reading 'getTableName')"
+   *                   example: "Database error"
    */
   router.get(
     "/",
@@ -217,6 +274,14 @@ module.exports = (app) => {
    *                 description:
    *                   type: string
    *                   example: "Team for handling web development projects"
+   *                 createdAt:
+   *                   type: string
+   *                   format: date-time
+   *                   example: "2025-07-18T14:37:00.000Z"
+   *                 updatedAt:
+   *                   type: string
+   *                   format: date-time
+   *                   example: "2025-07-18T14:37:00.000Z"
    *                 Users:
    *                   type: array
    *                   items:
@@ -234,18 +299,15 @@ module.exports = (app) => {
    *                       email:
    *                         type: string
    *                         example: "john.doe@example.com"
-   *                       UserTeam:
-   *                         type: object
-   *                         properties:
-   *                           role:
-   *                             type: string
-   *                             example: "Member"
-   *                           note:
-   *                             type: string
-   *                             example: null
-   *                           projectId:
-   *                             type: integer
-   *                             example: null
+   *                       role:
+   *                         type: string
+   *                         example: "Member"
+   *                       note:
+   *                         type: string
+   *                         example: null
+   *                       projectId:
+   *                         type: integer
+   *                         example: null
    *                 Projects:
    *                   type: array
    *                   items:
@@ -297,7 +359,7 @@ module.exports = (app) => {
    * @swagger
    * /api/teams/{id}:
    *   put:
-   *     summary: Update a team's name or description (Admin or Manager only)
+   *     summary: Update a team's name, description, or user assignments (Admin or Manager only)
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -315,8 +377,6 @@ module.exports = (app) => {
    *         application/json:
    *           schema:
    *             type: object
-   *             required:
-   *               - name
    *             properties:
    *               name:
    *                 type: string
@@ -341,6 +401,7 @@ module.exports = (app) => {
    *                     projectId:
    *                       type: integer
    *                       example: null
+   *                       description: Optional project ID (not validated, can be updated later)
    *     responses:
    *       200:
    *         description: Team updated successfully
@@ -364,6 +425,14 @@ module.exports = (app) => {
    *                     description:
    *                       type: string
    *                       example: "Updated description for web development team"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
    *                     Users:
    *                       type: array
    *                       items:
@@ -381,18 +450,15 @@ module.exports = (app) => {
    *                           email:
    *                             type: string
    *                             example: "john.doe@example.com"
-   *                           UserTeam:
-   *                             type: object
-   *                             properties:
-   *                               role:
-   *                                 type: string
-   *                                 example: "Member"
-   *                               note:
-   *                                 type: string
-   *                                 example: "New member"
-   *                               projectId:
-   *                                 type: integer
-   *                                 example: null
+   *                           role:
+   *                             type: string
+   *                             example: "Member"
+   *                           note:
+   *                             type: string
+   *                             example: "New member"
+   *                           projectId:
+   *                             type: integer
+   *                             example: null
    *                     Projects:
    *                       type: array
    *                       items:
@@ -567,12 +633,15 @@ module.exports = (app) => {
    *                     role:
    *                       type: string
    *                       example: "Member"
+   *                       description: User role in the team (defaults to "Member")
    *                     note:
    *                       type: string
    *                       example: "New member"
+   *                       description: Optional note about the user
    *                     projectId:
    *                       type: integer
    *                       example: null
+   *                       description: Optional project ID (not validated, can be updated later)
    *     responses:
    *       200:
    *         description: Users assigned to team successfully
@@ -596,6 +665,14 @@ module.exports = (app) => {
    *                     description:
    *                       type: string
    *                       example: "Team for handling web development projects"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
    *                     Users:
    *                       type: array
    *                       items:
@@ -613,18 +690,15 @@ module.exports = (app) => {
    *                           email:
    *                             type: string
    *                             example: "john.doe@example.com"
-   *                           UserTeam:
-   *                             type: object
-   *                             properties:
-   *                               role:
-   *                                 type: string
-   *                                 example: "Member"
-   *                               note:
-   *                                 type: string
-   *                                 example: "New member"
-   *                               projectId:
-   *                                 type: integer
-   *                                 example: null
+   *                           role:
+   *                             type: string
+   *                             example: "Member"
+   *                           note:
+   *                             type: string
+   *                             example: "New member"
+   *                           projectId:
+   *                             type: integer
+   *                             example: null
    *                     Projects:
    *                       type: array
    *                       items:
@@ -638,56 +712,233 @@ module.exports = (app) => {
    *                             example: "Website Redesign"
    *                 userCount:
    *                   type: integer
-   *                   example: 1
-   *       400:
-   *         description: Missing required fields
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "teamId and users array are required"
-   *       403:
-   *         description: Access denied - Only admins or managers can assign users
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers can assign users to teams"
-   *       404:
-   *         description: Team or user not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Team not found"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to assign users to team"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *                   example: 2
+   *                 results:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       userId:
+   *                         type: integer
+   *                         example: 1
+   *                       status:
+   *                         type: string
+   *                         example: "success"
+   *                       reason:
+   *                         type: string
+   *                         example: "Missing userId"
+   *     400:
+   *       description: Missing required fields
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               message:
+   *                 type: string
+   *                 example: "teamId and users array are required"
+   *     403:
+   *       description: Access denied - Only admins or managers can assign users
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               message:
+   *                 type: string
+   *                 example: "Only admins or managers can assign users to teams"
+   *     404:
+   *       description: Team or user not found
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               error:
+   *                 type: string
+   *                 example: "Team not found"
+   *     500:
+   *       description: Internal server error
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               error:
+   *                 type: string
+   *                 example: "Failed to assign users to team"
+   *               details:
+   *                 type: string
+   *                 example: "Database error"
    */
   router.post(
     "/assign",
     auth.verifyToken,
     auth.isAdminOrManager,
     teamController.assignUsersToTeam
+  );
+
+  /**
+   * @swagger
+   * /api/teams/unassign:
+   *   post:
+   *     summary: Unassign users from a team (Admin or Manager only)
+   *     tags: [Teams]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - teamId
+   *               - userIds
+   *             properties:
+   *               teamId:
+   *                 type: integer
+   *                 example: 1
+   *               userIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                   example: 1
+   *                 description: Array of user IDs to unassign from the team
+   *     responses:
+   *       200:
+   *         description: Users unassigned from team successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Users unassigned from team"
+   *                 team:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     name:
+   *                       type: string
+   *                       example: "New Development Team"
+   *                     description:
+   *                       type: string
+   *                       example: "Team for handling web development projects"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-18T14:37:00.000Z"
+   *                     Users:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           id:
+   *                             type: integer
+   *                             example: 1
+   *                           firstName:
+   *                             type: string
+   *                             example: "John"
+   *                           lastName:
+   *                             type: string
+   *                             example: "Doe"
+   *                           email:
+   *                             type: string
+   *                             example: "john.doe@example.com"
+   *                           role:
+   *                             type: string
+   *                             example: "Member"
+   *                           note:
+   *                             type: string
+   *                             example: null
+   *                           projectId:
+   *                             type: integer
+   *                             example: null
+   *                     Projects:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           id:
+   *                             type: integer
+   *                             example: 1
+   *                           name:
+   *                             type: string
+   *                             example: "Website Redesign"
+   *                 userCount:
+   *                   type: integer
+   *                   example: 2
+   *                 results:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       userId:
+   *                         type: integer
+   *                         example: 1
+   *                       status:
+   *                         type: string
+   *                         example: "success"
+   *                       reason:
+   *                         type: string
+   *                         example: "Not assigned"
+   *     400:
+   *       description: Missing required fields
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               message:
+   *                 type: string
+   *                 example: "teamId and userIds array are required"
+   *     403:
+   *       description: Access denied - Only admins or managers can unassign users
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               message:
+   *                 type: string
+   *                 example: "Only admins or managers can unassign users from teams"
+   *     404:
+   *       description: Team or user not found
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               error:
+   *                 type: string
+   *                 example: "Team not found"
+   *     500:
+   *       description: Internal server error
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               error:
+   *                 type: string
+   *                 example: "Failed to unassign users from team"
+   *               details:
+   *                 type: string
+   *                 example: "Database error"
+   */
+  router.post(
+    "/unassign",
+    auth.verifyToken,
+    auth.isAdminOrManager,
+    teamController.unassignUsersFromTeam
   );
 
   app.use("/api/teams", router);
