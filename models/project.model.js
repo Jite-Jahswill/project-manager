@@ -38,7 +38,11 @@ module.exports = (sequelize, DataTypes) => {
       through: models.UserTeam,
       foreignKey: "projectId",
     });
-    Project.hasMany(models.Task, { foreignKey: "projectId" });
+    Project.hasMany(models.Task, {
+      foreignKey: "projectId",
+      as: "tasks",
+      onDelete: "CASCADE",
+    });
   };
 
   return Project;
