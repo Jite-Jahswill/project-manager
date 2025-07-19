@@ -42,6 +42,12 @@ module.exports = {
       }
 
       const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+
       const whereClause = {};
 
       if (role) {
@@ -64,19 +70,19 @@ module.exports = {
         where: whereClause,
         attributes: { exclude: ["password"] },
         order: [["createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
       });
 
-      const totalPages = Math.ceil(count / limit);
+      const totalPages = Math.ceil(count / limitNum);
 
       res.status(200).json({
         users: rows,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalItems: count,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limitNum,
         },
       });
     } catch (err) {
@@ -156,15 +162,40 @@ module.exports = {
         }
       }
 
-      const updates = {};
-      if (firstName) updates.firstName = firstName;
-      if (lastName) updates.lastName = lastName;
-      if (email) updates.email = email;
-      if (phoneNumber !== undefined) updates.phoneNumber = phoneNumber || null;
-      updates.updatedAt = new Date();
+      // Build update query
+      const updateFields = [];
+      const updateReplacements = [];
+      if (firstName) {
+        updateFields.push("firstName = ?");
+        updateReplacements.push(firstName);
+      }
+      if (lastName) {
+        updateFields.push("lastName = ?");
+        updateReplacements.push(lastName);
+      }
+      if (email) {
+        updateFields.push("email = ?");
+        updateReplacements.push(email);
+      }
+      if (phoneNumber !== undefined) {
+        updateFields.push("phoneNumber = ?");
+        updateReplacements.push(phoneNumber || null);
+      }
+      updateFields.push("updatedAt = NOW()");
 
-      if (Object.keys(updates).length > 1 || (Object.keys(updates).length === 1 && !updates.updatedAt)) {
-        await User.update(updates, { where: { id: req.user.id }, transaction });
+      if (updateFields.length > 1) {
+        await db.sequelize.query(
+          `
+          UPDATE Users
+          SET ${updateFields.join(", ")}
+          WHERE id = ?
+          `,
+          {
+            replacements: [...updateReplacements, req.user.id],
+            type: db.sequelize.QueryTypes.UPDATE,
+            transaction,
+          }
+        );
       }
 
       const updatedUser = await User.findByPk(req.user.id, {
@@ -187,6 +218,7 @@ module.exports = {
             timestamp: new Date().toISOString(),
           },
           type: db.sequelize.QueryTypes.INSERT,
+          transaction,
         }
       );
       res.status(500).json({ message: "Failed to update user", details: err.message });
@@ -197,6 +229,11 @@ module.exports = {
   async deleteCurrentUser(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
+      if (req.user.role !== "admin" && req.user.id !== parseInt(req.user.id)) {
+        await transaction.rollback();
+        return res.status(403).json({ message: "Unauthorized to delete this user" });
+      }
+
       const user = await User.findByPk(req.user.id, { transaction });
       if (!user) {
         await transaction.rollback();
@@ -220,6 +257,7 @@ module.exports = {
             timestamp: new Date().toISOString(),
           },
           type: db.sequelize.QueryTypes.INSERT,
+          transaction,
         }
       );
       res.status(500).json({ message: "Failed to delete user", details: err.message });
@@ -231,6 +269,11 @@ module.exports = {
     try {
       const { userId } = req.params;
       const { page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
 
       if (!userId) {
         return res.status(400).json({ message: "userId is required" });
@@ -257,7 +300,7 @@ module.exports = {
             include: [
               {
                 model: Task,
-                as: "tasks",
+                as: "Tasks",
                 attributes: ["id", "title", "description", "status", "dueDate"],
                 include: [
                   {
@@ -271,8 +314,8 @@ module.exports = {
           },
         ],
         order: [[{ model: Project }, "createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
       });
 
       const projects = rows.map((ut) => ({
@@ -283,7 +326,7 @@ module.exports = {
           startDate: ut.Project.startDate,
           endDate: ut.Project.endDate,
           status: ut.Project.status,
-          tasks: ut.Project.tasks.map((task) => ({
+          tasks: ut.Project.Tasks.map((task) => ({
             id: task.id,
             title: task.title,
             description: task.description,
@@ -303,15 +346,15 @@ module.exports = {
         note: ut.note,
       }));
 
-      const totalPages = Math.ceil(count / limit);
+      const totalPages = Math.ceil(count / limitNum);
 
       res.status(200).json({
         projects,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalItems: count,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limitNum,
         },
       });
     } catch (err) {
@@ -337,6 +380,11 @@ module.exports = {
     try {
       const { userId } = req.params;
       const { page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
 
       if (!userId) {
         return res.status(400).json({ message: "userId is required" });
@@ -360,10 +408,10 @@ module.exports = {
         return res.status(200).json({
           tasks: [],
           pagination: {
-            currentPage: parseInt(page),
+            currentPage: pageNum,
             totalPages: 0,
             totalItems: 0,
-            itemsPerPage: parseInt(limit),
+            itemsPerPage: limitNum,
           },
         });
       }
@@ -392,8 +440,8 @@ module.exports = {
           },
         ],
         order: [["createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
       });
 
       const tasks = rows.map((task) => ({
@@ -420,15 +468,15 @@ module.exports = {
           : null,
       }));
 
-      const totalPages = Math.ceil(count / limit);
+      const totalPages = Math.ceil(count / limitNum);
 
       res.status(200).json({
         tasks,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalItems: count,
-          itemsPerPage: parseInt(limit),
+          itemsPerPage: limitNum,
         },
       });
     } catch (err) {
