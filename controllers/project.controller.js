@@ -1123,4 +1123,54 @@ module.exports = {
       return res.status(500).json({ message: "Failed to delete project", details: err.message });
     }
   },
+
+  // Add a client to a project (Admin or Manager only)
+async addClientToProject(req, res) {
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins or managers can add clients" });
+    }
+
+    const { projectId, clientId } = req.body;
+
+    if (!projectId || !clientId) {
+      return res.status(400).json({ message: "Project ID and Client ID are required." });
+    }
+
+    const transaction = await db.sequelize.transaction();
+
+    try {
+      const project = await db.Project.findByPk(projectId, { transaction });
+      if (!project) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Project not found." });
+      }
+
+      const client = await db.Client.findByPk(clientId, { transaction });
+      if (!client) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Client not found." });
+      }
+
+      // No association is made here (as requested)
+
+      await transaction.commit();
+      return res.status(200).json({ message: "Client validated for project successfully" });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error("Add client to project error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to add client to project", details: err.message });
+  }
+},
+
 };
