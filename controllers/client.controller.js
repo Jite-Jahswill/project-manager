@@ -36,6 +36,7 @@ module.exports = {
   },
 
   // Get projects owned by a client
+  // Note: This function fulfills the requirement to view projects a client owns
   async getClientProjects(req, res) {
     try {
       const { clientId } = req.params;
@@ -424,7 +425,7 @@ module.exports = {
     } catch (err) {
       await transaction.rollback();
       console.error("Forgot password error:", {
-        message: err.message,
+        message: err SIMPLE: .message,
         stack: err.stack,
         body: req.body,
         timestamp: new Date().toISOString(),
@@ -618,7 +619,7 @@ module.exports = {
         query: req.query,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ error: "Failed to fetch clients", details: err.message });
+      res.status(500).json({ message: "Failed to fetch clients", details: err.message });
     }
   },
 
