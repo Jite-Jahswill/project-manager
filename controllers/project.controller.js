@@ -664,74 +664,270 @@ module.exports = {
 
   // Update project status
   async updateProjectStatus(req, res) {
-    try {
-      const { projectId } = req.params;
-      const { status } = req.body;
-      if (!status) {
-        return res.status(400).json({ message: "Status is required" });
-      }
+  try {
+    const { projectId } = req.params;
+    const { status } = req.body;
 
+    if (!status) {
+      return res.status(400).json({ message: "Status is required" });
+    }
+
+    const validStatuses = ["To Do", "In Progress", "Review", "Done"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: "Invalid status value" });
+    }
+
+    const project = await db.Project.findByPk(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    const assigned = await db.UserTeam.findOne({
+      where: { userId: req.user.id, projectId },
+    });
+
+    if (!assigned && req.user.role !== "client" && req.user.role !== "admin") {
+      return res.status(403).json({ message: "You're not assigned to this project" });
+    }
+    const statusEscaped = status.replace(/'/g, "\\'");
+    const query = `
+      UPDATE Projects
+      SET status = '${statusEscaped}', updatedAt = NOW()
+      WHERE id = ${parseInt(projectId)}
+    `;
+    await db.sequelize.query(query);
+
+    const updatedProject = await db.Project.findByPk(projectId, {
+      include: [
+        {
+          model: db.Team,
+          attributes: ["id", "name"],
+          include: [
+            {
+              model: db.User,
+              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+              through: { attributes: ["role", "note"] },
+            },
+          ],
+        },
+        {
+          model: db.Task,
+          as: "tasks",
+          attributes: ["id", "title", "description", "status", "dueDate"],
+          include: [
+            {
+              model: db.User,
+              as: "assignee",
+              attributes: ["id", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+        {
+          model: db.Client,
+          as: "Clients",
+          attributes: ["id", "firstName", "lastName", "email", "image"],
+          through: { attributes: [] },
+        },
+      ],
+    });
+
+    const assignedUsers = await db.User.findAll({
+      include: [
+        {
+          model: db.Project,
+          where: { id: projectId },
+          attributes: [],
+          through: { attributes: [] },
+        },
+      ],
+      attributes: ["email", "firstName", "phoneNumber"],
+    });
+
+    const adminsAndManagers = await db.User.findAll({
+      where: { role: ["admin", "manager"] },
+      attributes: ["email", "firstName", "phoneNumber"],
+    });
+
+    const uniqueEmails = new Set([
+      ...assignedUsers.map((u) => u.email),
+      ...adminsAndManagers.map((u) => u.email),
+    ]);
+
+    const emailPromises = Array.from(uniqueEmails).map((email) =>
+      sendMail({
+        to: email,
+        subject: `Project Status Updated: ${project.name}`,
+        html: `
+          <p>Hello,</p>
+          <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
+          <p><strong>Contact Phone:</strong> ${
+            assignedUsers.find((u) => u.email === email)?.phoneNumber ||
+            adminsAndManagers.find((u) => u.email === email)?.phoneNumber ||
+            "Not provided"
+          }</p>
+          <p>Best regards,<br>Team</p>
+        `,
+      })
+    );
+
+    await Promise.all(emailPromises);
+
+    if (status.toLowerCase() === "done") {
+      await notifyClientOnProjectCompletion(projectId);
+    }
+
+    return res.status(200).json({
+      message: "Status updated successfully",
+      project: {
+        id: updatedProject.id,
+        name: updatedProject.name,
+        description: updatedProject.description,
+        startDate: updatedProject.startDate,
+        endDate: updatedProject.endDate,
+        status: updatedProject.status,
+        createdAt: updatedProject.createdAt,
+        updatedAt: updatedProject.updatedAt,
+        team: updatedProject.Team
+          ? {
+              teamId: updatedProject.Team.id,
+              teamName: updatedProject.Team.name,
+              members: updatedProject.Team.Users.map((user) => ({
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber || null,
+                role: user.UserTeam.role,
+                note: user.UserTeam.note,
+              })),
+            }
+          : null,
+        tasks: updatedProject.tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+        clients: updatedProject.Clients.map((client) => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+        })),
+      },
+    });
+  } catch (err) {
+    console.error("Update status error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      projectId: req.params.projectId,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to update status", details: err.message });
+  }
+},
+
+
+  // Update full project (admin or manager)
+  async updateProject(req, res) {
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins or managers can update projects" });
+    }
+
+    const { projectId } = req.params;
+    const { name, description, startDate, endDate, status, teamId } = req.body;
+
+    const project = await db.Project.findByPk(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    if (teamId) {
+      const team = await db.Team.findByPk(teamId);
+      if (!team) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+    }
+
+    const updates = [];
+    if (name) updates.push(`name = '${name.replace(/'/g, "\\'")}'`);
+    if (description !== undefined)
+      updates.push(`description = ${description ? `'${description.replace(/'/g, "\\'")}'` : "NULL"}`);
+    if (startDate) updates.push(`startDate = '${startDate}'`);
+    if (endDate !== undefined) updates.push(`endDate = ${endDate ? `'${endDate}'` : "NULL"}`);
+    if (status) {
       const validStatuses = ["To Do", "In Progress", "Review", "Done"];
       if (!validStatuses.includes(status)) {
         return res.status(400).json({ message: "Invalid status value" });
       }
+      updates.push(`status = '${status}'`);
+    }
+    if (teamId) updates.push(`teamId = ${parseInt(teamId)}`);
+    updates.push(`updatedAt = NOW()`); // Always update updatedAt
 
-      const project = await db.Project.findByPk(projectId);
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
+    if (updates.length > 0) {
+      const updateQuery = `
+        UPDATE Projects
+        SET ${updates.join(", ")}
+        WHERE id = ${parseInt(projectId)}
+      `;
+      await db.sequelize.query(updateQuery);
+    }
 
-      const assigned = await db.UserTeam.findOne({
-        where: { userId: req.user.id, projectId },
-      });
-      if (!assigned && req.user.role !== "client" && req.user.role !== "admin") {
-        return res.status(403).json({ message: "You're not assigned to this project" });
-      }
+    const updatedProject = await db.Project.findByPk(projectId, {
+      include: [
+        {
+          model: db.Team,
+          attributes: ["id", "name"],
+          include: [
+            {
+              model: db.User,
+              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+              through: { attributes: ["role", "note"] },
+            },
+          ],
+        },
+        {
+          model: db.Task,
+          as: "tasks",
+          attributes: ["id", "title", "description", "status", "dueDate"],
+          include: [
+            {
+              model: db.User,
+              as: "assignee",
+              attributes: ["id", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+        {
+          model: db.Client,
+          as: "Clients",
+          attributes: ["id", "firstName", "lastName", "email", "image"],
+          through: { attributes: [] },
+        },
+      ],
+    });
 
-      await db.Project.update(
-        { status, updatedAt: new Date() },
-        { where: { id: projectId } }
-      );
-
-      const updatedProject = await db.Project.findByPk(projectId, {
+    if (teamId) {
+      const teamMembers = await db.User.findAll({
         include: [
           {
             model: db.Team,
-            attributes: ["id", "name"],
-            include: [
-              {
-                model: db.User,
-                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-                through: { attributes: ["role", "note"] },
-              },
-            ],
-          },
-          {
-            model: db.Task,
-            as: "tasks",
-            attributes: ["id", "title", "description", "status", "dueDate"],
-            include: [
-              {
-                model: db.User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName", "email"],
-              },
-            ],
-          },
-          {
-            model: db.Client,
-            as: "Clients",
-            attributes: ["id", "firstName", "lastName", "email", "image"],
-            through: { attributes: [] },
-          },
-        ],
-      });
-
-      const assignedUsers = await db.User.findAll({
-        include: [
-          {
-            model: db.Project,
-            where: { id: projectId },
+            where: { id: teamId },
             attributes: [],
             through: { attributes: [] },
           },
@@ -739,278 +935,93 @@ module.exports = {
         attributes: ["email", "firstName", "phoneNumber"],
       });
 
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email", "firstName", "phoneNumber"],
-      });
-
-      const uniqueEmails = new Set([
-        ...assignedUsers.map((u) => u.email),
-        ...adminsAndManagers.map((u) => u.email),
-      ]);
-
-      const emailPromises = Array.from(uniqueEmails).map((email) =>
+      const emailPromises = teamMembers.map((user) =>
         sendMail({
-          to: email,
-          subject: `Project Status Updated: ${project.name}`,
+          to: user.email,
+          subject: `Project Updated: ${name || project.name}`,
           html: `
-            <p>Hello,</p>
-            <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
-            <p><strong>Contact Phone:</strong> ${
-              assignedUsers.find((u) => u.email === email)?.phoneNumber ||
-              adminsAndManagers.find((u) => u.email === email)?.phoneNumber ||
-              "Not provided"
-            }</p>
-            <p>Best regards,<br>Team</p>
+            <p>Hello ${user.firstName},</p>
+            <p>Your team has been assigned to the updated project <strong>${name || project.name}</strong>.</p>
+            <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
+            <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
+            <p><strong>Status:</strong> ${status || project.status}</p>
+            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+            <p>Check your dashboard for details.</p>
+            <p>Best,<br>Team</p>
           `,
         })
       );
 
       await Promise.all(emailPromises);
+    }
 
-      if (status.toLowerCase() === "done") {
-        await notifyClientOnProjectCompletion(projectId);
-      }
+    if (status && status.toLowerCase() === "done") {
+      await notifyClientOnProjectCompletion(projectId);
+    }
 
-      return res.status(200).json({
-        message: "Status updated successfully",
-        project: {
-          id: updatedProject.id,
-          name: updatedProject.name,
-          description: updatedProject.description,
-          startDate: updatedProject.startDate,
-          endDate: updatedProject.endDate,
-          status: updatedProject.status,
-          createdAt: updatedProject.createdAt,
-          updatedAt: updatedProject.updatedAt,
-          team: updatedProject.Team
+    return res.status(200).json({
+      message: "Project updated successfully",
+      project: {
+        id: updatedProject.id,
+        name: updatedProject.name,
+        description: updatedProject.description,
+        startDate: updatedProject.startDate,
+        endDate: updatedProject.endDate,
+        status: updatedProject.status,
+        createdAt: updatedProject.createdAt,
+        updatedAt: updatedProject.updatedAt,
+        team: updatedProject.Team
+          ? {
+              teamId: updatedProject.Team.id,
+              teamName: updatedProject.Team.name,
+              members: updatedProject.Team.Users.map((user) => ({
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber || null,
+                role: user.UserTeam.role,
+                note: user.UserTeam.note,
+              })),
+            }
+          : null,
+        tasks: updatedProject.tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
             ? {
-                teamId: updatedProject.Team.id,
-                teamName: updatedProject.Team.name,
-                members: updatedProject.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  phoneNumber: user.phoneNumber || null,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
               }
             : null,
-          tasks: updatedProject.tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? {
-                  userId: task.assignee.id,
-                  firstName: task.assignee.firstName,
-                  lastName: task.assignee.lastName,
-                  email: task.assignee.email,
-                }
-              : null,
-          })),
-          clients: updatedProject.Clients.map((client) => ({
-            id: client.id,
-            firstName: client.firstName,
-            lastName: client.lastName,
-            email: client.email,
-            image: client.image,
-          })),
-        },
-      });
-    } catch (err) {
-      console.error("Update status error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to update status", details: err.message });
-    }
-  },
-
-  // Update full project (admin or manager)
-  async updateProject(req, res) {
-    try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can update projects" });
-      }
-
-      const { projectId } = req.params;
-      const { name, description, startDate, endDate, status, teamId } = req.body;
-
-      const project = await db.Project.findByPk(projectId);
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      if (teamId) {
-        const team = await db.Team.findByPk(teamId);
-        if (!team) {
-          return res.status(404).json({ message: "Team not found" });
-        }
-      }
-
-      const updates = {};
-      if (name) updates.name = name;
-      if (description !== undefined) updates.description = description || null;
-      if (startDate) updates.startDate = startDate;
-      if (endDate !== undefined) updates.endDate = endDate || null;
-      if (status) {
-        const validStatuses = ["To Do", "In Progress", "Review", "Done"];
-        if (!validStatuses.includes(status)) {
-          return res.status(400).json({ message: "Invalid status value" });
-        }
-        updates.status = status;
-      }
-      if (teamId) updates.teamId = teamId;
-      updates.updatedAt = new Date();
-
-      if (Object.keys(updates).length > 1 || (Object.keys(updates).length === 1 && !updates.updatedAt)) {
-        await db.Project.update(updates, { where: { id: projectId } });
-      }
-
-      const updatedProject = await db.Project.findByPk(projectId, {
-        include: [
-          {
-            model: db.Team,
-            attributes: ["id", "name"],
-            include: [
-              {
-                model: db.User,
-                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-                through: { attributes: ["role", "note"] },
-              },
-            ],
-          },
-          {
-            model: db.Task,
-            as: "tasks",
-            attributes: ["id", "title", "description", "status", "dueDate"],
-            include: [
-              {
-                model: db.User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName", "email"],
-              },
-            ],
-          },
-          {
-            model: db.Client,
-            as: "Clients",
-            attributes: ["id", "firstName", "lastName", "email", "image"],
-            through: { attributes: [] },
-          },
-        ],
-      });
-
-      if (teamId) {
-        const teamMembers = await db.User.findAll({
-          include: [
-            {
-              model: db.Team,
-              where: { id: teamId },
-              attributes: [],
-              through: { attributes: [] },
-            },
-          ],
-          attributes: ["email", "firstName", "phoneNumber"],
-        });
-
-        const emailPromises = teamMembers.map((user) =>
-          sendMail({
-            to: user.email,
-            subject: `Project Updated: ${name || project.name}`,
-            html: `
-              <p>Hello ${user.firstName},</p>
-              <p>Your team has been assigned to the updated project <strong>${name || project.name}</strong>.</p>
-              <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
-              <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
-              <p><strong>Status:</strong> ${status || project.status}</p>
-              <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-              <p>Check your dashboard for details.</p>
-              <p>Best,<br>Team</p>
-            `,
-          })
-        );
-
-        await Promise.all(emailPromises);
-      }
-
-      if (status && status.toLowerCase() === "done") {
-        await notifyClientOnProjectCompletion(projectId);
-      }
-
-      return res.status(200).json({
-        message: "Project updated successfully",
-        project: {
-          id: updatedProject.id,
-          name: updatedProject.name,
-          description: updatedProject.description,
-          startDate: updatedProject.startDate,
-          endDate: updatedProject.endDate,
-          status: updatedProject.status,
-          createdAt: updatedProject.createdAt,
-          updatedAt: updatedProject.updatedAt,
-          team: updatedProject.Team
-            ? {
-                teamId: updatedProject.Team.id,
-                teamName: updatedProject.Team.name,
-                members: updatedProject.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  phoneNumber: user.phoneNumber || null,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
-              }
-            : null,
-          tasks: updatedProject.tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? {
-                  userId: task.assignee.id,
-                  firstName: task.assignee.firstName,
-                  lastName: task.assignee.lastName,
-                  email: task.assignee.email,
-                }
-              : null,
-          })),
-          clients: updatedProject.Clients.map((client) => ({
-            id: client.id,
-            firstName: client.firstName,
-            lastName: client.lastName,
-            email: client.email,
-            image: client.image,
-          })),
-        },
-      });
-    } catch (err) {
-      console.error("Update project error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to update project", details: err.message });
-    }
-  },
+        })),
+        clients: updatedProject.Clients.map((client) => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+        })),
+      },
+    });
+  } catch (err) {
+    console.error("Update project error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      projectId: req.params.projectId,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to update project", details: err.message });
+  }
+},
 
   // Delete a project (admin or manager)
   async deleteProject(req, res) {
