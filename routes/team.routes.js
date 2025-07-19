@@ -1,7 +1,116 @@
+const express = require("express");
+const teamController = require("../controllers/team.controller");
+const auth = require("../middlewares/auth.middleware");
+
 module.exports = (app) => {
-  const router = require("express").Router();
-  const teamController = require("../controllers/team.controller");
-  const auth = require("../middlewares/auth.middleware");
+  const router = express.Router();
+
+  /**
+   * @swagger
+   * tags:
+   *   - name: Teams
+   *     description: Team management endpoints
+   *
+   * components:
+   *   schemas:
+   *     Team:
+   *       type: object
+   *       properties:
+   *         teamId:
+   *           type: integer
+   *           example: 1
+   *         teamName:
+   *           type: string
+   *           example: "Dev Team"
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-19T00:00:00.000Z"
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-19T00:00:00.000Z"
+   *         users:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/UserTeam'
+   *         projects:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/Project'
+   *     UserTeam:
+   *       type: object
+   *       properties:
+   *         userId:
+   *           type: integer
+   *           example: 1
+   *         firstName:
+   *           type: string
+   *           example: "John"
+   *         lastName:
+   *           type: string
+   *           example: "Doe"
+   *         email:
+   *           type: string
+   *           example: "john.doe@example.com"
+   *         role:
+   *           type: string
+   *           example: "Member"
+   *         note:
+   *           type: string
+   *           example: null
+   *         projectId:
+   *           type: integer
+   *           example: null
+   *     Project:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         name:
+   *           type: string
+   *           example: "Website Redesign"
+   *         tasks:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/Task'
+   *     Task:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         title:
+   *           type: string
+   *           example: "Implement login page"
+   *         description:
+   *           type: string
+   *           example: "Create login page UI and backend"
+   *         status:
+   *           type: string
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *           example: "To Do"
+   *         dueDate:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-08-01T00:00:00.000Z"
+   *         assignee:
+   *           type: object
+   *           nullable: true
+   *           properties:
+   *             userId:
+   *               type: integer
+   *               example: 1
+   *             firstName:
+   *               type: string
+   *               example: "John"
+   *             lastName:
+   *               type: string
+   *               example: "Doe"
+   *             email:
+   *               type: string
+   *               example: "john.doe@example.com"
 
   /**
    * @swagger
@@ -38,25 +147,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Team created"
    *                 team:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     name:
-   *                       type: string
-   *                       example: "New Development Team"
-   *                     description:
-   *                       type: string
-   *                       example: "Team for handling web development projects"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
+   *                   $ref: '#/components/schemas/Team'
    *       400:
    *         description: Missing required field 'name'
    *         content:
@@ -102,7 +193,7 @@ module.exports = (app) => {
    * @swagger
    * /api/teams:
    *   get:
-   *     summary: Get all teams with pagination (Admin or Manager only)
+   *     summary: Get all teams with pagination (Accessible to all authenticated users)
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -140,51 +231,7 @@ module.exports = (app) => {
    *                 teams:
    *                   type: array
    *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       name:
-   *                         type: string
-   *                         example: "New Development Team"
-   *                       description:
-   *                         type: string
-   *                         example: "Team for handling web development projects"
-   *                       createdAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-18T14:37:00.000Z"
-   *                       updatedAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-18T14:37:00.000Z"
-   *                       Users:
-   *                         type: array
-   *                         items:
-   *                           type: object
-   *                           properties:
-   *                             id:
-   *                               type: integer
-   *                               example: 1
-   *                             firstName:
-   *                               type: string
-   *                               example: "John"
-   *                             lastName:
-   *                               type: string
-   *                               example: "Doe"
-   *                             email:
-   *                               type: string
-   *                               example: "john.doe@example.com"
-   *                             role:
-   *                               type: string
-   *                               example: "Member"
-   *                             note:
-   *                               type: string
-   *                               example: null
-   *                             projectId:
-   *                               type: integer
-   *                               example: null
+   *                     $ref: '#/components/schemas/Team'
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -210,16 +257,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Invalid page or limit"
-   *       403:
-   *         description: Access denied - Only admins or managers can view teams
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers are allowed"
    *       500:
    *         description: Internal server error
    *         content:
@@ -234,18 +271,13 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get(
-    "/",
-    auth.verifyToken,
-    auth.isAdminOrManager,
-    teamController.getAllTeams
-  );
+  router.get("/", auth.verifyToken, teamController.getAllTeams);
 
   /**
    * @swagger
    * /api/teams/{id}:
    *   get:
-   *     summary: Get a single team by ID
+   *     summary: Get a single team by ID (Accessible to all authenticated users)
    *     tags: [Teams]
    *     security:
    *       - bearerAuth: []
@@ -263,62 +295,7 @@ module.exports = (app) => {
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 id:
-   *                   type: integer
-   *                   example: 1
-   *                 name:
-   *                   type: string
-   *                   example: "New Development Team"
-   *                 description:
-   *                   type: string
-   *                   example: "Team for handling web development projects"
-   *                 createdAt:
-   *                   type: string
-   *                   format: date-time
-   *                   example: "2025-07-18T14:37:00.000Z"
-   *                 updatedAt:
-   *                   type: string
-   *                   format: date-time
-   *                   example: "2025-07-18T14:37:00.000Z"
-   *                 Users:
-   *                   type: array
-   *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       firstName:
-   *                         type: string
-   *                         example: "John"
-   *                       lastName:
-   *                         type: string
-   *                         example: "Doe"
-   *                       email:
-   *                         type: string
-   *                         example: "john.doe@example.com"
-   *                       role:
-   *                         type: string
-   *                         example: "Member"
-   *                       note:
-   *                         type: string
-   *                         example: null
-   *                       projectId:
-   *                         type: integer
-   *                         example: null
-   *                 Projects:
-   *                   type: array
-   *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       name:
-   *                         type: string
-   *                         example: "Website Redesign"
+   *               $ref: '#/components/schemas/Team'
    *       400:
    *         description: Missing required field 'id'
    *         content:
@@ -401,7 +378,7 @@ module.exports = (app) => {
    *                     projectId:
    *                       type: integer
    *                       example: null
-   *                       description: Optional project ID (not validated, can be updated later)
+   *                       description: Optional project ID
    *     responses:
    *       200:
    *         description: Team updated successfully
@@ -414,62 +391,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Team updated"
    *                 team:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     name:
-   *                       type: string
-   *                       example: "Updated Development Team"
-   *                     description:
-   *                       type: string
-   *                       example: "Updated description for web development team"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     Users:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           firstName:
-   *                             type: string
-   *                             example: "John"
-   *                           lastName:
-   *                             type: string
-   *                             example: "Doe"
-   *                           email:
-   *                             type: string
-   *                             example: "john.doe@example.com"
-   *                           role:
-   *                             type: string
-   *                             example: "Member"
-   *                           note:
-   *                             type: string
-   *                             example: "New member"
-   *                           projectId:
-   *                             type: integer
-   *                             example: null
-   *                     Projects:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           name:
-   *                             type: string
-   *                             example: "Website Redesign"
+   *                   $ref: '#/components/schemas/Team'
    *       400:
    *         description: Missing required field 'id'
    *         content:
@@ -641,7 +563,7 @@ module.exports = (app) => {
    *                     projectId:
    *                       type: integer
    *                       example: null
-   *                       description: Optional project ID (not validated, can be updated later)
+   *                       description: Optional project ID
    *     responses:
    *       200:
    *         description: Users assigned to team successfully
@@ -654,62 +576,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Users assigned to team"
    *                 team:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     name:
-   *                       type: string
-   *                       example: "New Development Team"
-   *                     description:
-   *                       type: string
-   *                       example: "Team for handling web development projects"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     Users:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           firstName:
-   *                             type: string
-   *                             example: "John"
-   *                           lastName:
-   *                             type: string
-   *                             example: "Doe"
-   *                           email:
-   *                             type: string
-   *                             example: "john.doe@example.com"
-   *                           role:
-   *                             type: string
-   *                             example: "Member"
-   *                           note:
-   *                             type: string
-   *                             example: "New member"
-   *                           projectId:
-   *                             type: integer
-   *                             example: null
-   *                     Projects:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           name:
-   *                             type: string
-   *                             example: "Website Redesign"
+   *                   $ref: '#/components/schemas/Team'
    *                 userCount:
    *                   type: integer
    *                   example: 2
@@ -727,49 +594,49 @@ module.exports = (app) => {
    *                       reason:
    *                         type: string
    *                         example: "Missing userId"
-   *     400:
-   *       description: Missing required fields
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               message:
-   *                 type: string
-   *                 example: "teamId and users array are required"
-   *     403:
-   *       description: Access denied - Only admins or managers can assign users
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               message:
-   *                 type: string
-   *                 example: "Only admins or managers can assign users to teams"
-   *     404:
-   *       description: Team or user not found
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               error:
-   *                 type: string
-   *                 example: "Team not found"
-   *     500:
-   *       description: Internal server error
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               error:
-   *                 type: string
-   *                 example: "Failed to assign users to team"
-   *               details:
-   *                 type: string
-   *                 example: "Database error"
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "teamId and users array are required"
+   *       403:
+   *         description: Access denied - Only admins or managers can assign users
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Only admins or managers can assign users to teams"
+   *       404:
+   *         description: Team or user not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Team not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Failed to assign users to team"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
    */
   router.post(
     "/assign",
@@ -817,62 +684,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Users unassigned from team"
    *                 team:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     name:
-   *                       type: string
-   *                       example: "New Development Team"
-   *                     description:
-   *                       type: string
-   *                       example: "Team for handling web development projects"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-18T14:37:00.000Z"
-   *                     Users:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           firstName:
-   *                             type: string
-   *                             example: "John"
-   *                           lastName:
-   *                             type: string
-   *                             example: "Doe"
-   *                           email:
-   *                             type: string
-   *                             example: "john.doe@example.com"
-   *                           role:
-   *                             type: string
-   *                             example: "Member"
-   *                           note:
-   *                             type: string
-   *                             example: null
-   *                           projectId:
-   *                             type: integer
-   *                             example: null
-   *                     Projects:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           name:
-   *                             type: string
-   *                             example: "Website Redesign"
+   *                   $ref: '#/components/schemas/Team'
    *                 userCount:
    *                   type: integer
    *                   example: 2
@@ -890,49 +702,49 @@ module.exports = (app) => {
    *                       reason:
    *                         type: string
    *                         example: "Not assigned"
-   *     400:
-   *       description: Missing required fields
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               message:
-   *                 type: string
-   *                 example: "teamId and userIds array are required"
-   *     403:
-   *       description: Access denied - Only admins or managers can unassign users
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               message:
-   *                 type: string
-   *                 example: "Only admins or managers can unassign users from teams"
-   *     404:
-   *       description: Team or user not found
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               error:
-   *                 type: string
-   *                 example: "Team not found"
-   *     500:
-   *       description: Internal server error
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               error:
-   *                 type: string
-   *                 example: "Failed to unassign users from team"
-   *               details:
-   *                 type: string
-   *                 example: "Database error"
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "teamId and userIds array are required"
+   *       403:
+   *         description: Access denied - Only admins or managers can unassign users
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Only admins or managers can unassign users from teams"
+   *       404:
+   *         description: Team or user not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Team not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Failed to unassign users from team"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
    */
   router.post(
     "/unassign",
