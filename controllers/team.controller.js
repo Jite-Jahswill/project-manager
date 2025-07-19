@@ -5,6 +5,10 @@ module.exports = {
   // Create a new team (Admin or Manager only)
   async createTeam(req, res) {
     try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can create teams" });
+      }
+
       const { name, description } = req.body;
 
       // Validate input
@@ -24,7 +28,7 @@ module.exports = {
       const formattedTeam = await db.Team.findByPk(team.id, {
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
 
@@ -44,7 +48,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: formattedTeam.projects.map((project) => ({
+        projects: formattedTeam.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
@@ -134,7 +138,7 @@ module.exports = {
         where: whereClause,
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
         limit: limitNum,
         offset: (pageNum - 1) * limitNum,
@@ -157,7 +161,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: team.projects.map((project) => ({
+        projects: team.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
@@ -217,7 +221,7 @@ module.exports = {
       const team = await db.Team.findByPk(id, {
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
 
@@ -241,7 +245,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: team.projects.map((project) => ({
+        projects: team.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
@@ -273,6 +277,10 @@ module.exports = {
   // Update a team (Admin or Manager only)
   async updateTeam(req, res) {
     try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can update teams" });
+      }
+
       const { id } = req.params;
       const { name, description, users } = req.body;
 
@@ -406,7 +414,7 @@ module.exports = {
       const updatedTeam = await db.Team.findByPk(id, {
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
 
@@ -430,7 +438,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: updatedTeam.projects.map((project) => ({
+        projects: updatedTeam.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
@@ -493,6 +501,10 @@ module.exports = {
   // Delete a team (Admin or Manager only)
   async deleteTeam(req, res) {
     try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can delete teams" });
+      }
+
       const { id } = req.params;
 
       if (!id) {
@@ -598,6 +610,10 @@ module.exports = {
   // Assign users to a team (Admin or Manager only)
   async assignUsersToTeam(req, res) {
     try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can assign users to teams" });
+      }
+
       const { teamId, users } = req.body;
 
       if (!teamId || !users || !Array.isArray(users) || users.length === 0) {
@@ -685,7 +701,7 @@ module.exports = {
       const updatedTeam = await db.Team.findByPk(teamId, {
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
 
@@ -705,7 +721,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: updatedTeam.projects.map((project) => ({
+        projects: updatedTeam.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
@@ -776,6 +792,10 @@ module.exports = {
   // Unassign users from a team (Admin or Manager only)
   async unassignUsersFromTeam(req, res) {
     try {
+      if (!["admin", "manager"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Only admins or managers can unassign users from teams" });
+      }
+
       const { teamId, userIds } = req.body;
 
       if (!teamId || !userIds || !Array.isArray(userIds) || userIds.length === 0) {
@@ -853,7 +873,7 @@ module.exports = {
       const updatedTeam = await db.Team.findByPk(teamId, {
         include: [
           { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "projects", include: [{ model: db.Task, include: [{ model: db.User, as: "assignee" }] }] },
+          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
         ],
       });
 
@@ -873,7 +893,7 @@ module.exports = {
           note: user.UserTeam.note,
           projectId: user.UserTeam.projectId,
         })),
-        projects: updatedTeam.projects.map((project) => ({
+        projects: updatedTeam.Projects.map((project) => ({
           id: project.id,
           name: project.name,
           tasks: project.Tasks.map((task) => ({
