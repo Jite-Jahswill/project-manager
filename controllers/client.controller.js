@@ -425,7 +425,7 @@ module.exports = {
     } catch (err) {
       await transaction.rollback();
       console.error("Forgot password error:", {
-        message: err SIMPLE: .message,
+        message: err.message,
         stack: err.stack,
         body: req.body,
         timestamp: new Date().toISOString(),
