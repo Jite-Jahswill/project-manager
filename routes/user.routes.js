@@ -16,7 +16,7 @@ module.exports = (app) => {
    * @swagger
    * /api/users:
    *   get:
-   *     summary: Get all users (Admin or Manager only)
+   *     summary: Get all users (Admin only)
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -82,7 +82,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Unauthorized"
    *       403:
-   *         description: Access denied - Only admins or managers can view users
+   *         description: Access denied - Only admins can view all users
    *         content:
    *           application/json:
    *             schema:
@@ -295,6 +295,131 @@ module.exports = (app) => {
     "/:userId/projects",
     auth.verifyToken,
     userController.getUserProjects
+  );
+
+  /**
+   * @swagger
+   * /api/users/{userId}/tasks:
+   *   get:
+   *     summary: Get all tasks for the user's team(s)
+   *     tags: [Users]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID
+   *         example: 1
+   *     responses:
+   *       200:
+   *         description: List of tasks for the user's team(s)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                     example: 1
+   *                   title:
+   *                     type: string
+   *                     example: "Implement login feature"
+   *                   description:
+   *                     type: string
+   *                     example: "Create a login feature for the application"
+   *                   status:
+   *                     type: string
+   *                     example: "In Progress"
+   *                   dueDate:
+   *                     type: string
+   *                     format: date
+   *                     example: "2025-07-30"
+   *                   project:
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                         example: 1
+   *                       name:
+   *                         type: string
+   *                         example: "Website Redesign"
+   *                   team:
+   *                     type: object
+   *                     properties:
+   *                       teamId:
+   *                         type: integer
+   *                         example: 1
+   *                       teamName:
+   *                         type: string
+   *                         example: "Development Team"
+   *                   assignee:
+   *                     type: object
+   *                     properties:
+   *                       userId:
+   *                         type: integer
+   *                         example: 2
+   *                       firstName:
+   *                         type: string
+   *                         example: "Jane"
+   *                       lastName:
+   *                         type: string
+   *                         example: "Doe"
+   *                       email:
+   *                         type: string
+   *                         example: "jane.doe@example.com"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - Unauthorized to view this user's tasks
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Unauthorized to view this user's tasks"
+   *       404:
+   *         description: User not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "User not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Failed to fetch user tasks"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/:userId/tasks",
+    auth.verifyToken,
+    userController.getUserTasks
   );
 
   app.use("/api/users", router);
