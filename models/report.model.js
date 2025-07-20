@@ -27,11 +27,11 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  Report.associate = (models) => {
-    Report.belongsTo(models.User, { foreignKey: "userId" });
-    Report.belongsTo(models.Project, { foreignKey: "projectId" });
-    Report.belongsTo(models.Team, { foreignKey: "teamId" });
-  };
+  // Report.associate = (models) => {
+  //   Report.belongsTo(models.User, { foreignKey: "userId" });
+  //   Report.belongsTo(models.Project, { foreignKey: "projectId" });
+  //   Report.belongsTo(models.Team, { foreignKey: "teamId" });
+  // };
 
   return Report;
 };
