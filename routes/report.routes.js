@@ -17,7 +17,7 @@ module.exports = (app) => {
    * /api/reports:
    *   post:
    *     summary: Create a new report
-   *     description: Staff can create reports for projects they are assigned to. Admins and managers can create reports for any project.
+   *     description: Any authenticated user can create a report for a project they are assigned to.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -36,6 +36,10 @@ module.exports = (app) => {
    *                 type: integer
    *                 example: 1
    *                 description: ID of the project associated with the report
+   *               teamId:
+   *                 type: integer
+   *                 example: 1
+   *                 description: ID of the team associated with the report (optional)
    *               title:
    *                 type: string
    *                 example: "Weekly Progress Report"
@@ -54,17 +58,11 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Report created successfully"
+   *                   example: "Report created"
    *                 report:
    *                   type: object
    *                   properties:
    *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     projectId:
    *                       type: integer
    *                       example: 1
    *                     title:
@@ -73,18 +71,10 @@ module.exports = (app) => {
    *                     content:
    *                       type: string
    *                       example: "Completed UI design phase, started backend integration."
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
-   *                     User:
+   *                     user:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         userId:
    *                           type: integer
    *                           example: 1
    *                         firstName:
@@ -96,17 +86,35 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "john.doe@example.com"
-   *                     Project:
+   *                     team:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         teamId:
+   *                           type: integer
+   *                           example: 1
+   *                         name:
+   *                           type: string
+   *                           example: "Development Team"
+   *                     project:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         projectId:
    *                           type: integer
    *                           example: 1
    *                         name:
    *                           type: string
    *                           example: "Website Redesign"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
    *       400:
-   *         description: Missing required fields
+   *         description: Missing required fields or invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -114,9 +122,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "projectId, title, and content are required"
+   *                   example: "Title is required"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -134,9 +142,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "User not assigned to this project"
+   *                   example: "User is not assigned to the report's project"
    *       404:
-   *         description: Project or user not found
+   *         description: User, team, or project not found
    *         content:
    *           application/json:
    *             schema:
@@ -157,7 +165,7 @@ module.exports = (app) => {
    *                   example: "Error creating report"
    *                 details:
    *                   type: string
-   *                   example: "Database error"
+   *                   example: "notNull Violation: Report.content cannot be null"
    */
   router.post("/", verifyToken, reportController.createReport);
 
@@ -210,7 +218,7 @@ module.exports = (app) => {
    *         example: 20
    *     responses:
    *       200:
-   *         description: List of reports
+   *         description: List of reports with pagination
    *         content:
    *           application/json:
    *             schema:
@@ -224,30 +232,16 @@ module.exports = (app) => {
    *                       id:
    *                         type: integer
    *                         example: 1
-   *                       userId:
-   *                         type: integer
-   *                         example: 1
-   *                       projectId:
-   *                         type: integer
-   *                         example: 1
    *                       title:
    *                         type: string
    *                         example: "Weekly Progress Report"
    *                       content:
    *                         type: string
    *                         example: "Completed UI design phase, started backend integration."
-   *                       createdAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-19T20:15:00Z"
-   *                       updatedAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-19T20:15:00Z"
-   *                       User:
+   *                       user:
    *                         type: object
    *                         properties:
-   *                           id:
+   *                           userId:
    *                             type: integer
    *                             example: 1
    *                           firstName:
@@ -259,15 +253,23 @@ module.exports = (app) => {
    *                           email:
    *                             type: string
    *                             example: "john.doe@example.com"
-   *                       Project:
+   *                       project:
    *                         type: object
    *                         properties:
-   *                           id:
+   *                           projectId:
    *                             type: integer
    *                             example: 1
    *                           name:
    *                             type: string
    *                             example: "Website Redesign"
+   *                       createdAt:
+   *                         type: string
+   *                         format: date-time
+   *                         example: "2025-07-19T20:15:00Z"
+   *                       updatedAt:
+   *                         type: string
+   *                         format: date-time
+   *                         example: "2025-07-19T20:15:00Z"
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -283,8 +285,18 @@ module.exports = (app) => {
    *                     itemsPerPage:
    *                       type: integer
    *                       example: 20
+   *       400:
+   *         description: Invalid page or limit
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid page or limit"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -340,30 +352,16 @@ module.exports = (app) => {
    *                     id:
    *                       type: integer
    *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     projectId:
-   *                       type: integer
-   *                       example: 1
    *                     title:
    *                       type: string
    *                       example: "Weekly Progress Report"
    *                     content:
    *                       type: string
    *                       example: "Completed UI design phase, started backend integration."
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
-   *                     User:
+   *                     user:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         userId:
    *                           type: integer
    *                           example: 1
    *                         firstName:
@@ -375,17 +373,25 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "john.doe@example.com"
-   *                     Project:
+   *                     project:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         projectId:
    *                           type: integer
    *                           example: 1
    *                         name:
    *                           type: string
    *                           example: "Website Redesign"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -435,7 +441,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   put:
    *     summary: Update a report
-   *     description: Staff can update their own reports. Admins and managers can update any report.
+   *     description: Staff can update their own reports. Admins and managers can update any report. At least one field (title or content) must be provided.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -457,11 +463,11 @@ module.exports = (app) => {
    *               title:
    *                 type: string
    *                 example: "Updated Weekly Progress Report"
-   *                 description: Updated title of the report
+   *                 description: Updated title of the report (optional)
    *               content:
    *                 type: string
    *                 example: "Updated: Completed UI and backend integration."
-   *                 description: Updated content of the report
+   *                 description: Updated content of the report (optional)
    *     responses:
    *       200:
    *         description: Report updated successfully
@@ -479,30 +485,16 @@ module.exports = (app) => {
    *                     id:
    *                       type: integer
    *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     projectId:
-   *                       type: integer
-   *                       example: 1
    *                     title:
    *                       type: string
    *                       example: "Updated Weekly Progress Report"
    *                     content:
    *                       type: string
    *                       example: "Updated: Completed UI and backend integration."
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:16:00Z"
-   *                     User:
+   *                     user:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         userId:
    *                           type: integer
    *                           example: 1
    *                         firstName:
@@ -514,15 +506,23 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "john.doe@example.com"
-   *                     Project:
+   *                     project:
    *                       type: object
    *                       properties:
-   *                         id:
+   *                         projectId:
    *                           type: integer
    *                           example: 1
    *                         name:
    *                           type: string
    *                           example: "Website Redesign"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:16:00Z"
    *       400:
    *         description: Missing required fields
    *         content:
@@ -534,7 +534,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "At least one field (title, content) is required"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -608,7 +608,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Report deleted successfully"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -652,6 +652,144 @@ module.exports = (app) => {
    *                   example: "Database error"
    */
   router.delete("/:id", verifyToken, reportController.deleteReport);
+
+  /**
+   * @swagger
+   * /api/reports/assign:
+   *   post:
+   *     summary: Assign a report to a user
+   *     description: Admins and managers can assign a report to a user who is assigned to the report's project.
+   *     tags: [Reports]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - reportId
+   *               - userId
+   *             properties:
+   *               reportId:
+   *                 type: integer
+   *                 example: 1
+   *                 description: ID of the report to assign
+   *               userId:
+   *                 type: integer
+   *                 example: 2
+   *                 description: ID of the user to assign the report to
+   *     responses:
+   *       200:
+   *         description: Report assigned successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Report assigned successfully"
+   *                 report:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     title:
+   *                       type: string
+   *                       example: "Weekly Progress Report"
+   *                     content:
+   *                       type: string
+   *                       example: "Completed UI design phase, started backend integration."
+   *                     user:
+   *                       type: object
+   *                       properties:
+   *                         userId:
+   *                           type: integer
+   *                           example: 2
+   *                         firstName:
+   *                           type: string
+   *                           example: "Jane"
+   *                         lastName:
+   *                           type: string
+   *                           example: "Smith"
+   *                         email:
+   *                           type: string
+   *                           example: "jane.smith@example.com"
+   *                     project:
+   *                       type: object
+   *                       properties:
+   *                         projectId:
+   *                           type: integer
+   *                           example: 1
+   *                         name:
+   *                           type: string
+   *                           example: "Website Redesign"
+   *                     createdAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:15:00Z"
+   *                     updatedAt:
+   *                       type: string
+   *                       format: date-time
+   *                       example: "2025-07-19T20:16:00Z"
+   *       400:
+   *         description: Missing required fields or user not assigned to project
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "reportId and userId are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Forbidden - Only admins or managers can assign reports
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Only admins or managers can assign reports"
+   *       404:
+   *         description: Report or user not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Report not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Error assigning report"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.post("/assign", verifyToken, reportController.assignReportToUser);
 
   app.use("/api/reports", router);
 };
