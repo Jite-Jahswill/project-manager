@@ -17,7 +17,7 @@ module.exports = (app) => {
    * /api/reports:
    *   post:
    *     summary: Create a new report
-   *     description: Any authenticated user can create a report for a project they are assigned to.
+   *     description: Any authenticated user can create a report for any project.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -108,11 +108,11 @@ module.exports = (app) => {
    *                     createdAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *                     updatedAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *       400:
    *         description: Missing required fields or invalid input
    *         content:
@@ -133,16 +133,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User is not assigned to the report's project"
    *       404:
    *         description: User, team, or project not found
    *         content:
@@ -165,7 +155,7 @@ module.exports = (app) => {
    *                   example: "Error creating report"
    *                 details:
    *                   type: string
-   *                   example: "notNull Violation: Report.content cannot be null"
+   *                   example: "Database error"
    */
   router.post("/", verifyToken, reportController.createReport);
 
@@ -174,7 +164,7 @@ module.exports = (app) => {
    * /api/reports:
    *   get:
    *     summary: Get all reports
-   *     description: Staff can view their own reports. Admins and managers can filter by projectId, userName, or projectName.
+   *     description: Any authenticated user can view all reports with optional filters for projectId, userName, or projectName.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -184,21 +174,21 @@ module.exports = (app) => {
    *         schema:
    *           type: integer
    *         required: false
-   *         description: Filter reports by project ID (admin/manager only)
+   *         description: Filter reports by project ID
    *         example: 1
    *       - in: query
    *         name: userName
    *         schema:
    *           type: string
    *         required: false
-   *         description: Filter reports by user name (partial match on firstName or lastName, admin/manager only)
+   *         description: Filter reports by user name (partial match on firstName or lastName)
    *         example: "John"
    *       - in: query
    *         name: projectName
    *         schema:
    *           type: string
    *         required: false
-   *         description: Filter reports by project name (partial match, admin/manager only)
+   *         description: Filter reports by project name (partial match)
    *         example: "Website"
    *       - in: query
    *         name: page
@@ -241,7 +231,7 @@ module.exports = (app) => {
    *                       user:
    *                         type: object
    *                         properties:
-   *                           userId:
+   *                           id:
    *                             type: integer
    *                             example: 1
    *                           firstName:
@@ -253,10 +243,20 @@ module.exports = (app) => {
    *                           email:
    *                             type: string
    *                             example: "john.doe@example.com"
+   *                       team:
+   *                         type: object
+   *                         nullable: true
+   *                         properties:
+   *                           teamId:
+   *                             type: integer
+   *                             example: 1
+   *                           name:
+   *                             type: string
+   *                             example: "Development Team"
    *                       project:
    *                         type: object
    *                         properties:
-   *                           projectId:
+   *                           id:
    *                             type: integer
    *                             example: 1
    *                           name:
@@ -265,11 +265,11 @@ module.exports = (app) => {
    *                       createdAt:
    *                         type: string
    *                         format: date-time
-   *                         example: "2025-07-19T20:15:00Z"
+   *                         example: "2025-07-20T10:31:00Z"
    *                       updatedAt:
    *                         type: string
    *                         format: date-time
-   *                         example: "2025-07-19T20:15:00Z"
+   *                         example: "2025-07-20T10:31:00Z"
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -326,7 +326,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   get:
    *     summary: Get a report by ID
-   *     description: Staff can view their own reports. Admins and managers can view any report.
+   *     description: Any authenticated user can view any report.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -361,7 +361,7 @@ module.exports = (app) => {
    *                     user:
    *                       type: object
    *                       properties:
-   *                         userId:
+   *                         id:
    *                           type: integer
    *                           example: 1
    *                         firstName:
@@ -373,10 +373,20 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "john.doe@example.com"
+   *                     team:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         teamId:
+   *                           type: integer
+   *                           example: 1
+   *                         name:
+   *                           type: string
+   *                           example: "Development Team"
    *                     project:
    *                       type: object
    *                       properties:
-   *                         projectId:
+   *                         id:
    *                           type: integer
    *                           example: 1
    *                         name:
@@ -385,11 +395,11 @@ module.exports = (app) => {
    *                     createdAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *                     updatedAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -400,16 +410,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot view others' reports
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to view this report"
    *       404:
    *         description: Report not found
    *         content:
@@ -441,7 +441,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   put:
    *     summary: Update a report
-   *     description: Staff can update their own reports. Admins and managers can update any report. At least one field (title or content) must be provided.
+   *     description: Any authenticated user can update any report. At least one field (title or content) must be provided.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -494,7 +494,7 @@ module.exports = (app) => {
    *                     user:
    *                       type: object
    *                       properties:
-   *                         userId:
+   *                         id:
    *                           type: integer
    *                           example: 1
    *                         firstName:
@@ -506,10 +506,20 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "john.doe@example.com"
+   *                     team:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         teamId:
+   *                           type: integer
+   *                           example: 1
+   *                         name:
+   *                           type: string
+   *                           example: "Development Team"
    *                     project:
    *                       type: object
    *                       properties:
-   *                         projectId:
+   *                         id:
    *                           type: integer
    *                           example: 1
    *                         name:
@@ -518,11 +528,11 @@ module.exports = (app) => {
    *                     createdAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *                     updatedAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:16:00Z"
+   *                       example: "2025-07-20T10:32:00Z"
    *       400:
    *         description: Missing required fields
    *         content:
@@ -543,16 +553,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot update others' reports
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this report"
    *       404:
    *         description: Report not found
    *         content:
@@ -584,7 +584,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   delete:
    *     summary: Delete a report
-   *     description: Staff can delete their own reports. Admins and managers can delete any report.
+   *     description: Any authenticated user can delete any report.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -617,16 +617,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot delete others' reports
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to delete this report"
    *       404:
    *         description: Report not found
    *         content:
@@ -658,7 +648,7 @@ module.exports = (app) => {
    * /api/reports/assign:
    *   post:
    *     summary: Assign a report to a user
-   *     description: Admins and managers can assign a report to a user who is assigned to the report's project.
+   *     description: Admins and managers can assign a report to any user.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -706,7 +696,7 @@ module.exports = (app) => {
    *                     user:
    *                       type: object
    *                       properties:
-   *                         userId:
+   *                         id:
    *                           type: integer
    *                           example: 2
    *                         firstName:
@@ -718,10 +708,20 @@ module.exports = (app) => {
    *                         email:
    *                           type: string
    *                           example: "jane.smith@example.com"
+   *                     team:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         teamId:
+   *                           type: integer
+   *                           example: 1
+   *                         name:
+   *                           type: string
+   *                           example: "Development Team"
    *                     project:
    *                       type: object
    *                       properties:
-   *                         projectId:
+   *                         id:
    *                           type: integer
    *                           example: 1
    *                         name:
@@ -730,13 +730,13 @@ module.exports = (app) => {
    *                     createdAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:15:00Z"
+   *                       example: "2025-07-20T10:31:00Z"
    *                     updatedAt:
    *                       type: string
    *                       format: date-time
-   *                       example: "2025-07-19T20:16:00Z"
+   *                       example: "2025-07-20T10:32:00Z"
    *       400:
-   *         description: Missing required fields or user not assigned to project
+   *         description: Missing required fields
    *         content:
    *           application/json:
    *             schema:
