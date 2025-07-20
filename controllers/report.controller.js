@@ -3,7 +3,6 @@ const sendMail = require("../utils/mailer");
 const Report = db.Report;
 const User = db.User;
 const Project = db.Project;
-const ProjectUser = db.ProjectUser; // Junction table for project assignments
 const Team = db.Team;
 
 // Helper: Notify admins and managers
@@ -36,7 +35,7 @@ async function notifyAdminsAndManagers(subject, html, transaction = null) {
 }
 
 module.exports = {
-  // Create a new report (open to any authenticated user assigned to the project)
+  // Create a new report (open to any authenticated user)
   async createReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -46,9 +45,6 @@ module.exports = {
       }
       if (!Report || typeof Report.create !== "function") {
         throw new Error("Report model is undefined or invalid");
-      }
-      if (!ProjectUser || typeof ProjectUser.findOne !== "function") {
-        throw new Error("ProjectUser model is undefined or invalid");
       }
 
       const { title, content, teamId, projectId } = req.body;
@@ -76,16 +72,6 @@ module.exports = {
       if (!user) {
         await transaction.rollback();
         return res.status(404).json({ message: "User not found" });
-      }
-
-      // Verify user is assigned to the project
-      const assignment = await ProjectUser.findOne({
-        where: { projectId, userId: req.user.id },
-        transaction,
-      });
-      if (!assignment) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "User is not assigned to the report's project" });
       }
 
       // Verify team exists (if provided)
@@ -163,7 +149,7 @@ module.exports = {
     }
   },
 
-  // Get all reports (Staff see own, Admins/Managers see all with filters)
+  // Get all reports (all authenticated users see all reports with filters)
   async getAllReports(req, res) {
     try {
       const { projectId, userName, projectName, page = 1, limit = 20 } = req.query;
@@ -174,9 +160,7 @@ module.exports = {
       }
 
       const whereClause = {};
-      if (req.user.role === "staff") {
-        whereClause.userId = req.user.id;
-      } else if (projectId) {
+      if (projectId) {
         whereClause.projectId = projectId;
       }
 
@@ -232,7 +216,7 @@ module.exports = {
     }
   },
 
-  // Get a single report by ID (Staff see own, Admins/Managers see all)
+  // Get a single report by ID (all authenticated users can view any report)
   async getReportById(req, res) {
     try {
       const { id } = req.params;
@@ -248,11 +232,6 @@ module.exports = {
         return res.status(404).json({ message: "Report not found" });
       }
 
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to view this report" });
-      }
-
       res.status(200).json({ report });
     } catch (error) {
       console.error(`Error in getReportById: ${error.message}`, {
@@ -264,7 +243,7 @@ module.exports = {
     }
   },
 
-  // Update a report (Staff can update own, Admins/Managers can update any)
+  // Update a report (all authenticated users can update any report)
   async updateReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -288,12 +267,6 @@ module.exports = {
       if (!report) {
         await transaction.rollback();
         return res.status(404).json({ message: "Report not found" });
-      }
-
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to update this report" });
       }
 
       // Build raw SQL query
@@ -360,7 +333,7 @@ module.exports = {
     }
   },
 
-  // Delete a report (Staff can delete own, Admins/Managers can delete any)
+  // Delete a report (all authenticated users can delete any report)
   async deleteReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -377,12 +350,6 @@ module.exports = {
       if (!report) {
         await transaction.rollback();
         return res.status(404).json({ message: "Report not found" });
-      }
-
-      // Restrict staff to their own reports
-      if (req.user.role === "staff" && report.userId !== req.user.id) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to delete this report" });
       }
 
       // Send deletion notification
@@ -466,19 +433,6 @@ module.exports = {
       if (!user) {
         await transaction.rollback();
         return res.status(404).json({ message: "User not found" });
-      }
-
-      // Check if user is assigned to the report's project
-      if (!ProjectUser || typeof ProjectUser.findOne !== "function") {
-        throw new Error("ProjectUser model is undefined or invalid");
-      }
-      const assignment = await ProjectUser.findOne({
-        where: { projectId: report.projectId, userId },
-        transaction,
-      });
-      if (!assignment) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "User is not assigned to the report's project" });
       }
 
       // Update report's userId using raw SQL
