@@ -1,4 +1,3 @@
-// models/report.model.js
 module.exports = (sequelize, DataTypes) => {
   const Report = sequelize.define("Report", {
     id: {
@@ -14,6 +13,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    teamId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     title: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -23,6 +26,12 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
     },
   });
+
+  Report.associate = (models) => {
+    Report.belongsTo(models.User, { foreignKey: "userId" });
+    Report.belongsTo(models.Project, { foreignKey: "projectId" });
+    Report.belongsTo(models.Team, { foreignKey: "teamId" });
+  };
 
   return Report;
 };
