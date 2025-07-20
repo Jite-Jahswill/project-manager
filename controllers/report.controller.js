@@ -5,7 +5,6 @@ const User = db.User;
 const Project = db.Project;
 const ProjectUser = db.ProjectUser; // Junction table for project assignments
 const Team = db.Team;
-const Error = db.Error; // Error model for logging
 
 // Helper: Notify admins and managers
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
@@ -29,21 +28,15 @@ async function notifyAdminsAndManagers(subject, html, transaction = null) {
 
     await Promise.all(emailPromises);
   } catch (error) {
-    await Error.create(
-      {
-        message: error.message,
-        stack: error.stack,
-        userId: null,
-        context: JSON.stringify({ endpoint: "notifyAdminsAndManagers", subject }),
-        timestamp: new Date(),
-      },
-      { transaction }
-    );
+    console.error(`Error in notifyAdminsAndManagers: ${error.message}`, {
+      stack: error.stack,
+      context: { endpoint: "notifyAdminsAndManagers", subject },
+    });
   }
 }
 
 module.exports = {
-  // Create a new report (open to any authenticated user)
+  // Create a new report (open to any authenticated user assigned to the project)
   async createReport(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
@@ -54,8 +47,8 @@ module.exports = {
       if (!Report || typeof Report.create !== "function") {
         throw new Error("Report model is undefined or invalid");
       }
-      if (!Error || typeof Error.create !== "function") {
-        throw new Error("Error model is undefined or invalid");
+      if (!ProjectUser || typeof ProjectUser.findOne !== "function") {
+        throw new Error("ProjectUser model is undefined or invalid");
       }
 
       const { title, content, teamId, projectId } = req.body;
@@ -83,6 +76,16 @@ module.exports = {
       if (!user) {
         await transaction.rollback();
         return res.status(404).json({ message: "User not found" });
+      }
+
+      // Verify user is assigned to the project
+      const assignment = await ProjectUser.findOne({
+        where: { projectId, userId: req.user.id },
+        transaction,
+      });
+      if (!assignment) {
+        await transaction.rollback();
+        return res.status(403).json({ message: "User is not assigned to the report's project" });
       }
 
       // Verify team exists (if provided)
@@ -151,16 +154,11 @@ module.exports = {
       res.status(201).json({ message: "Report created", report: reportResponse });
     } catch (err) {
       await transaction.rollback();
-      await Error.create(
-        {
-          message: err.message,
-          stack: err.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({ endpoint: "createReport", body: req.body }),
-          timestamp: new Date(),
-        },
-        { transaction }
-      );
+      console.error(`Error in createReport: ${err.message}`, {
+        stack: err.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "createReport", body: req.body },
+      });
       res.status(500).json({ message: "Error creating report", details: err.message });
     }
   },
@@ -225,20 +223,11 @@ module.exports = {
         },
       });
     } catch (error) {
-      await Error.create(
-        {
-          message: error.message,
-          stack: error.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({
-            endpoint: "getAllReports",
-            userId: req.user?.id,
-            role: req.user?.role,
-            query: req.query,
-          }),
-          timestamp: new Date(),
-        }
-      );
+      console.error(`Error in getAllReports: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "getAllReports", userId: req.user?.id, role: req.user?.role, query: req.query },
+      });
       res.status(500).json({ message: "Error fetching reports", details: error.message });
     }
   },
@@ -266,20 +255,11 @@ module.exports = {
 
       res.status(200).json({ report });
     } catch (error) {
-      await Error.create(
-        {
-          message: error.message,
-          stack: error.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({
-            endpoint: "getReportById",
-            userId: req.user?.id,
-            role: req.user?.role,
-            reportId: req.params.id,
-          }),
-          timestamp: new Date(),
-        }
-      );
+      console.error(`Error in getReportById: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "getReportById", userId: req.user?.id, role: req.user?.role, reportId: req.params.id },
+      });
       res.status(500).json({ message: "Error retrieving report", details: error.message });
     }
   },
@@ -371,22 +351,11 @@ module.exports = {
       });
     } catch (error) {
       await transaction.rollback();
-      await Error.create(
-        {
-          message: error.message,
-          stack: error.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({
-            endpoint: "updateReport",
-            userId: req.user?.id,
-            role: req.user?.role,
-            reportId: req.params.id,
-            body: req.body,
-          }),
-          timestamp: new Date(),
-        },
-        { transaction }
-      );
+      console.error(`Error in updateReport: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "updateReport", userId: req.user?.id, role: req.user?.role, reportId: req.params.id, body: req.body },
+      });
       res.status(500).json({ message: "Error updating report", details: error.message });
     }
   },
@@ -450,21 +419,11 @@ module.exports = {
       res.status(200).json({ message: "Report deleted successfully" });
     } catch (error) {
       await transaction.rollback();
-      await Error.create(
-        {
-          message: error.message,
-          stack: error.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({
-            endpoint: "deleteReport",
-            userId: req.user?.id,
-            role: req.user?.role,
-            reportId: req.params.id,
-          }),
-          timestamp: new Date(),
-        },
-        { transaction }
-      );
+      console.error(`Error in deleteReport: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "deleteReport", userId: req.user?.id, role: req.user?.role, reportId: req.params.id },
+      });
       res.status(500).json({ message: "Error deleting report", details: error.message });
     }
   },
@@ -576,22 +535,11 @@ module.exports = {
       });
     } catch (error) {
       await transaction.rollback();
-      await Error.create(
-        {
-          message: error.message,
-          stack: error.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({
-            endpoint: "assignReportToUser",
-            userId: req.user?.id,
-            role: req.user?.role,
-            reportId: req.body.reportId,
-            assignedUserId: req.body.userId,
-          }),
-          timestamp: new Date(),
-        },
-        { transaction }
-      );
+      console.error(`Error in assignReportToUser: ${error.message}`, {
+        stack: error.stack,
+        userId: req.user?.id || null,
+        context: { endpoint: "assignReportToUser", userId: req.user?.id, role: req.user?.role, reportId: req.body.reportId, assignedUserId: req.body.userId },
+      });
       res.status(500).json({ message: "Error assigning report", details: error.message });
     }
   },
