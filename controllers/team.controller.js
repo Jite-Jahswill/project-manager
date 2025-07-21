@@ -676,6 +676,7 @@ module.exports = {
             return { userId: user.id, status: "failed", reason: "User already assigned" };
           }
 
+          // Insert user into UserTeams with optional projectId
           await db.sequelize.query(
             `
             INSERT INTO UserTeams (teamId, userId, role, note, projectId, createdAt, updatedAt)
@@ -687,7 +688,7 @@ module.exports = {
                 user.id,
                 user.role || "Member",
                 user.note || null,
-                user.projectId || null,
+                user.projectId || null, // Allow projectId to be NULL if not provided
               ],
               type: db.sequelize.QueryTypes.INSERT,
             }
