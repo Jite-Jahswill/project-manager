@@ -455,6 +455,153 @@ module.exports = {
     }
   },
 
+  // Get all projects for a specific client (Admin, Manager, or Client themselves)
+  async getClientProjects(req, res) {
+    try {
+      const { clientId } = req.params;
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+
+      if (!clientId) {
+        return res.status(400).json({ message: "clientId is required" });
+      }
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+
+      // Check if client exists
+      const client = await db.Client.findByPk(clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+
+      // Restrict access: only admins, managers, or the client themselves
+      if (req.user.role === "client" && parseInt(clientId) !== req.user.id) {
+        return res.status(403).json({ message: "Unauthorized to view this client's projects" });
+      }
+      if (!["admin", "manager", "client"].includes(req.user.role)) {
+        return res.status(403).json({ message: "Unauthorized role" });
+      }
+
+      const where = {
+        id: {
+          [db.Sequelize.Op.in]: db.sequelize.literal(
+            `(SELECT projectId FROM ClientProjects WHERE clientId = ${parseInt(clientId)})`
+          ),
+        },
+      };
+      if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
+      if (status) where.status = status;
+      if (startDate) where.startDate = startDate;
+
+      const { count, rows } = await db.Project.findAndCountAll({
+        where,
+        include: [
+          {
+            model: db.Team,
+            attributes: ["id", "name"],
+            include: [
+              {
+                model: db.User,
+                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+                through: { attributes: ["role", "note"] },
+              },
+            ],
+          },
+          {
+            model: db.Task,
+            as: "Tasks",
+            attributes: ["id", "title", "description", "status", "dueDate"],
+            include: [
+              {
+                model: db.User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName", "email"],
+              },
+            ],
+          },
+          {
+            model: db.Client,
+            as: "Clients",
+            attributes: ["id", "firstName", "lastName", "email", "image"],
+            through: { attributes: [] },
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      });
+
+      const projects = rows.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        team: project.Team
+          ? {
+              teamId: project.Team.id,
+              teamName: project.Team.name,
+              members: project.Team.Users.map((user) => ({
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber || null,
+                role: user.UserTeam.role,
+                note: user.UserTeam.note,
+              })),
+            }
+          : null,
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+        clients: project.Clients.map((client) => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+        })),
+      }));
+
+      const pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalItems: count,
+        itemsPerPage: limitNum,
+      };
+
+      return res.status(200).json({ projects, pagination });
+    } catch (err) {
+      console.error("Get client projects error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        clientId: req.params.clientId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to retrieve client projects", details: err.message });
+    }
+  },
+
   // Assign an entire team to a project
   async assignTeamToProject(req, res) {
     try {
@@ -895,28 +1042,61 @@ module.exports = {
         }
       }
 
-      const updates = [];
-      if (name) updates.push(`name = '${name.replace(/'/g, "\\'")}'`);
-      if (description !== undefined) updates.push(`description = ${description ? `'${description.replace(/'/g, "\\'")}'` : 'NULL'}`);
-      if (startDate) updates.push(`startDate = '${new Date(startDate).toISOString().replace(/'/g, "\\'")}'`);
-      if (endDate !== undefined) updates.push(`endDate = ${endDate ? `'${new Date(endDate).toISOString().replace(/'/g, "\\'")}'` : 'NULL'}`);
+      // Validate status if provided
       if (status) {
         const validStatuses = ["To Do", "In Progress", "Review", "Done"];
         if (!validStatuses.includes(status)) {
           return res.status(400).json({ message: "Invalid status value" });
         }
-        updates.push(`status = '${status.replace(/'/g, "\\'")}'`);
       }
-      if (teamId) updates.push(`teamId = ${parseInt(teamId)}`);
-      updates.push(`updatedAt = NOW()`);
 
-      if (updates.length > 1 || (updates.length === 1 && !updates.includes(`updatedAt = NOW()`))) {
+      // Check if at least one field is provided (besides updatedAt)
+      const hasUpdates = name || description !== undefined || startDate || endDate !== undefined || status || teamId;
+      if (!hasUpdates) {
+        return res.status(400).json({ message: "At least one field must be provided for update" });
+      }
+
+      // Build parameterized query
+      const updates = {};
+      const queryParams = { projectId: parseInt(projectId) };
+      let setClause = [];
+      
+      if (name) {
+        setClause.push("name = :name");
+        updates.name = name;
+      }
+      if (description !== undefined) {
+        setClause.push("description = :description");
+        updates.description = description || null;
+      }
+      if (startDate) {
+        setClause.push("startDate = :startDate");
+        updates.startDate = new Date(startDate).toISOString();
+      }
+      if (endDate !== undefined) {
+        setClause.push("endDate = :endDate");
+        updates.endDate = endDate ? new Date(endDate).toISOString() : null;
+      }
+      if (status) {
+        setClause.push("status = :status");
+        updates.status = status;
+      }
+      if (teamId) {
+        setClause.push("teamId = :teamId");
+        updates.teamId = parseInt(teamId);
+      }
+      setClause.push("updatedAt = NOW()");
+
+      if (setClause.length > 1 || (setClause.length === 1 && !setClause.includes("updatedAt = NOW()"))) {
         const query = `
           UPDATE Projects
-          SET ${updates.join(", ")}
-          WHERE id = ${parseInt(projectId)}
+          SET ${setClause.join(", ")}
+          WHERE id = :projectId
         `;
-        await db.sequelize.query(query, { type: db.sequelize.QueryTypes.UPDATE });
+        await db.sequelize.query(query, {
+          replacements: { ...updates, projectId: parseInt(projectId) },
+          type: db.sequelize.QueryTypes.UPDATE,
+        });
       }
 
       const updatedProject = await db.Project.findByPk(projectId, {
