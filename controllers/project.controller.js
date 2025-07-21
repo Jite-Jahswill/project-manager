@@ -642,9 +642,14 @@ module.exports = {
           transaction,
         });
 
-        await db.Project.update(
-          { teamId, updatedAt: new Date() },
-          { where: { id: projectId }, transaction }
+        // Use raw MySQL query to update teamId and updatedAt
+        await db.sequelize.query(
+          `UPDATE Projects SET teamId = :teamId, updatedAt = NOW() WHERE id = :projectId`,
+          {
+            replacements: { teamId: parseInt(teamId), projectId: parseInt(projectId) },
+            type: db.sequelize.QueryTypes.UPDATE,
+            transaction,
+          }
         );
 
         const emailPromises = teamMembers.map((user) =>
