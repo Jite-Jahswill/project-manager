@@ -1340,113 +1340,165 @@ module.exports = {
     }
   },
 
-  // Add a client to a project (Admin or Manager only)
-  async addClientToProject(req, res) {
-    try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can add clients" });
-      }
-
-      const { projectId, clientId } = req.body;
-
-      if (!projectId || !clientId) {
-        return res.status(400).json({ message: "Project ID and Client ID are required." });
-      }
-
-      const transaction = await db.sequelize.transaction();
-
-      try {
-        const project = await db.Project.findByPk(projectId, { transaction });
-        if (!project) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Project not found." });
-        }
-
-        const client = await db.Client.findByPk(clientId, { transaction });
-        if (!client) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Client not found." });
-        }
-
-        // No association is made here (as requested)
-        await transaction.commit();
-        return res.status(200).json({ message: "Client validated for project successfully" });
-      } catch (err) {
-        await transaction.rollback();
-        throw err;
-      }
-    } catch (err) {
-      console.error("Add client to project error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to add client to project", details: err.message });
+// Add a client to a project (Admin or Manager only)
+async addClientToProject(req, res) {
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins or managers can add clients" });
     }
-  },
 
-  // Remove a client from a project (Admin or Manager only)
-  async removeClientFromProject(req, res) {
+    const { projectId, clientId } = req.body;
+
+    if (!projectId || !clientId) {
+      return res.status(400).json({ message: "Project ID and Client ID are required." });
+    }
+
+    const transaction = await db.sequelize.transaction();
+
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can remove clients" });
-      }
-
-      const { projectId, clientId } = req.params;
-
-      if (!projectId || !clientId) {
-        return res.status(400).json({ message: "Project ID and Client ID are required." });
-      }
-
-      const transaction = await db.sequelize.transaction();
-
-      try {
-        const project = await db.Project.findByPk(projectId, {
-          include: [
-            {
-              model: db.Client,
-              as: "Clients",
-              where: { id: clientId },
-              through: { attributes: [] },
-              required: false,
-            },
-          ],
+      // Check if project exists
+      const [project] = await db.sequelize.query(
+        `SELECT id FROM Projects WHERE id = ?`,
+        {
+          replacements: [projectId],
+          type: db.sequelize.QueryTypes.SELECT,
           transaction,
-        });
-
-        if (!project) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Project not found." });
         }
-
-        const clientAssociated = project.Clients?.length > 0;
-
-        if (!clientAssociated) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "No association found between this client and project." });
-        }
-
-        // No actual disassociation done here as requested
-        await transaction.commit();
-        return res.status(200).json({ message: "Client validated and would be removed from project successfully" });
-      } catch (err) {
+      );
+      if (!project) {
         await transaction.rollback();
-        throw err;
+        return res.status(404).json({ message: "Project not found." });
       }
+
+      // Check if client exists
+      const [client] = await db.sequelize.query(
+        `SELECT id FROM Clients WHERE id = ?`,
+        {
+          replacements: [clientId],
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!client) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Client not found." });
+      }
+
+      // Check if association already exists
+      const [existingAssociation] = await db.sequelize.query(
+        `SELECT clientId, projectId FROM ClientProjects WHERE clientId = ? AND projectId = ?`,
+        {
+          replacements: [clientId, projectId],
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (existingAssociation) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Client is already associated with this project." });
+      }
+
+      // Insert association into ClientProject
+      await db.sequelize.query(
+        `INSERT INTO ClientProjects (clientId, projectId, createdAt, updatedAt)
+         VALUES (?, ?, NOW(), NOW())`,
+        {
+          replacements: [clientId, projectId],
+          type: db.sequelize.QueryTypes.INSERT,
+          transaction,
+        }
+      );
+
+      await transaction.commit();
+      return res.status(200).json({ message: "Client added to project successfully" });
     } catch (err) {
-      console.error("Remove client from project error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        role: req.user?.role,
-        projectId: req.params.projectId,
-        clientId: req.params.clientId,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to remove client from project", details: err.message });
+      await transaction.rollback();
+      throw err;
     }
-  },
+  } catch (err) {
+    console.error("Add client to project error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to add client to project", details: err.message });
+  }
+},
+
+// Remove a client from a project (Admin or Manager only)
+async removeClientFromProject(req, res) {
+  try {
+    if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins or managers can remove clients" });
+    }
+
+    const { projectId, clientId } = req.params;
+
+    if (!projectId || !clientId) {
+      return res.status(400).json({ message: "Project ID and Client ID are required." });
+    }
+
+    const transaction = await db.sequelize.transaction();
+
+    try {
+      // Check if project exists
+      const [project] = await db.sequelize.query(
+        `SELECT id FROM Projects WHERE id = ?`,
+        {
+          replacements: [projectId],
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!project) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Project not found." });
+      }
+
+      // Check if association exists
+      const [association] = await db.sequelize.query(
+        `SELECT clientId, projectId FROM ClientProjects WHERE clientId = ? AND projectId = ?`,
+        {
+          replacements: [clientId, projectId],
+          type: db.sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!association) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "No association found between this client and project." });
+      }
+
+      // Delete association from ClientProject
+      await db.sequelize.query(
+        `DELETE FROM ClientProjects WHERE clientId = ? AND projectId = ?`,
+        {
+          replacements: [clientId, projectId],
+          type: db.sequelize.QueryTypes.DELETE,
+          transaction,
+        }
+      );
+
+      await transaction.commit();
+      return res.status(200).json({ message: "Client removed from project successfully" });
+    } catch (err) {
+      await transaction.rollback();
+      throw err;
+    }
+  } catch (err) {
+    console.error("Remove client from project error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      projectId: req.params.projectId,
+      clientId: req.params.clientId,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to remove client from project", details: err.message });
+  }
+},
 };
