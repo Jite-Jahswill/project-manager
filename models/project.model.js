@@ -1,3 +1,4 @@
+// models/project.model.js
 module.exports = (sequelize, DataTypes) => {
   const Project = sequelize.define("Project", {
     name: {
@@ -17,25 +18,30 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
       defaultValue: "To Do",
     },
-    // Removed teamId field as it's no longer needed
+    teamId: {
+      // Explicitly define teamId
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: "Teams",
+        key: "id",
+      },
+    },
   });
 
   Project.associate = (models) => {
-    Project.belongsToMany(models.Team, {
-      through: models.TeamProject,
+    Project.belongsTo(models.Team, {
+      foreignKey: "teamId",
+      onDelete: "SET NULL",
+    });
+    Project.belongsToMany(models.User, {
+      through: models.UserTeam,
       foreignKey: "projectId",
-      otherKey: "teamId",
     });
     Project.hasMany(models.Task, {
       foreignKey: "projectId",
       as: "tasks",
       onDelete: "CASCADE",
-    });
-    // Keep existing associations with Client
-    Project.belongsToMany(models.Client, {
-      through: models.ClientProject,
-      foreignKey: "projectId",
-      otherKey: "clientId",
     });
   };
 
