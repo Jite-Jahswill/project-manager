@@ -17,7 +17,7 @@ db.Report = require("./report.model")(sequelize, DataTypes);
 db.Team = require("./team.model")(sequelize, DataTypes);
 db.Client = require("./client.model")(sequelize, DataTypes);
 db.ClientProject = require("./clientProject.model")(sequelize, DataTypes);
-db.TeamProject = require("./teamProject.model")(sequelize, DataTypes); // Added TeamProject model
+db.TeamProject = require("./teamProject.model")(sequelize, DataTypes);
 
 // Run associations defined in model files
 Object.keys(db).forEach((modelName) => {
@@ -83,12 +83,6 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
-
-// Removed: db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE" });
-// Removed: db.Project.belongsTo(db.Team, { foreignKey: "teamId" });
-
-// Removed: db.Client.hasMany(db.Project, { foreignKey: "clientId" });
-// Removed: db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
 
 module.exports = db;
 
