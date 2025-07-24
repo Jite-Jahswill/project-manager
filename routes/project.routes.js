@@ -1208,4 +1208,4 @@ module.exports = (app) => {
   );
 
   app.use("/api/projects", router);
-};update the docs
+};
