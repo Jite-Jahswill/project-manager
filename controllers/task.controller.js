@@ -21,7 +21,7 @@ module.exports = {
 
       // Check if project exists
       const project = await db.Project.findByPk(projectId, {
-        attributes: ["id", "name", "teamId"],
+        attributes: ["id", "name"],
       });
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
@@ -36,8 +36,20 @@ module.exports = {
       }
 
       // Validate that the user is in the project's team
-      const teamMember = await db.UserTeam.findOne({
-        where: { teamId: project.teamId, userId: assignedTo },
+      const teamMember = await db.TeamProject.findOne({
+        include: [
+          {
+            model: db.Team,
+            include: [
+              {
+                model: db.User,
+                through: db.UserTeam,
+                where: { id: assignedTo },
+              },
+            ],
+          },
+        ],
+        where: { projectId },
       });
       if (!teamMember) {
         return res.status(400).json({ message: "Assigned user is not part of the project's team" });
@@ -45,8 +57,20 @@ module.exports = {
 
       // For staff, ensure they are assigned to the project and assigning to themselves
       if (req.user.role === "staff") {
-        const userInTeam = await db.UserTeam.findOne({
-          where: { teamId: project.teamId, userId: req.user.id },
+        const userInTeam = await db.TeamProject.findOne({
+          include: [
+            {
+              model: db.Team,
+              include: [
+                {
+                  model: db.User,
+                  through: db.UserTeam,
+                  where: { id: req.user.id },
+                },
+              ],
+            },
+          ],
+          where: { projectId },
         });
         if (!userInTeam) {
           return res.status(403).json({ message: "You are not assigned to this project" });
@@ -147,7 +171,7 @@ module.exports = {
 
       // Check if project exists
       const project = await db.Project.findByPk(projectId, {
-        attributes: ["id", "name", "teamId"],
+        attributes: ["id", "name"],
       });
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
@@ -155,8 +179,20 @@ module.exports = {
 
       // Check if user is in the project's team (for staff)
       if (req.user.role === "staff") {
-        const teamMember = await db.UserTeam.findOne({
-          where: { teamId: project.teamId, userId: req.user.id },
+        const teamMember = await db.TeamProject.findOne({
+          include: [
+            {
+              model: db.Team,
+              include: [
+                {
+                  model: db.User,
+                  through: db.UserTeam,
+                  where: { id: req.user.id },
+                },
+              ],
+            },
+          ],
+          where: { projectId },
         });
         if (!teamMember) {
           return res.status(403).json({ message: "You are not assigned to this project" });
@@ -467,7 +503,7 @@ module.exports = {
         SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
                t.createdAt, t.updatedAt,
                u.id AS userId, u.firstName, u.lastName, u.email,
-               p.id AS projectId, p.name AS projectName, p.teamId
+               p.id AS projectId, p.name AS projectName
         FROM Tasks t
         LEFT JOIN Users u ON t.assignedTo = u.id
         LEFT JOIN Projects p ON t.projectId = p.id
@@ -489,7 +525,7 @@ module.exports = {
       }
 
       // Staff cannot change assignedTo or projectId
-      if (req.user.role === "staff" && (assignedTo || projectId)) {
+      if (req.user.role === "staff" && (assignedTo || req.body.projectId)) {
         return res.status(403).json({ message: "Staff cannot reassign tasks or change project" });
       }
 
@@ -501,9 +537,9 @@ module.exports = {
         }
         const [user] = await db.sequelize.query(
           `
-          SELECT id, firstName, lastName, email
-          FROM Users
-          WHERE id = ?
+          SELECT u.id, u.firstName, u.lastName, u.email
+          FROM Users u
+          WHERE u.id = ?
           `,
           {
             replacements: [assignedTo],
@@ -513,14 +549,16 @@ module.exports = {
         if (!user) {
           return res.status(404).json({ message: "Assigned user not found" });
         }
+        // Validate that the new assignee is in the project's team
         const [teamMember] = await db.sequelize.query(
           `
-          SELECT userId
-          FROM UserTeams
-          WHERE teamId = ? AND userId = ?
+          SELECT ut.userId
+          FROM UserTeams ut
+          JOIN TeamProjects tp ON ut.teamId = tp.teamId
+          WHERE tp.projectId = ? AND ut.userId = ?
           `,
           {
-            replacements: [task.teamId, assignedTo],
+            replacements: [task.projectId, assignedTo],
             type: db.sequelize.QueryTypes.SELECT,
           }
         );
@@ -559,6 +597,7 @@ module.exports = {
         return res.status(400).json({ message: "No valid fields provided for update" });
       }
 
+      // Perform update with raw SQL
       await db.sequelize.query(
         `
         UPDATE Tasks
