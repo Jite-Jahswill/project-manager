@@ -1,26 +1,35 @@
-// models/teamProject.model.js
 module.exports = (sequelize, DataTypes) => {
-  const TeamProject = sequelize.define("TeamProject", {
-    teamId: {
+  const Team = sequelize.define("Team", {
+    id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      references: { model: "Teams", key: "id" },
+      autoIncrement: true,
+      primaryKey: true,
     },
-    projectId: {
-      type: DataTypes.INTEGER,
+    name: {
+      type: DataTypes.STRING,
       allowNull: false,
-      references: { model: "Projects", key: "id" },
     },
-    note: {
+    description: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
   });
 
-  TeamProject.associate = (models) => {
-    TeamProject.belongsTo(models.Team, { foreignKey: "teamId" });
-    TeamProject.belongsTo(models.Project, { foreignKey: "projectId" });
+  Team.associate = (models) => {
+    Team.belongsToMany(models.User, {
+      through: models.UserTeam,
+      foreignKey: "teamId",
+      otherKey: "userId",
+    });
+    Team.hasMany(models.Project, {
+      foreignKey: "teamId",
+      onDelete: "CASCADE",
+    });
+    Team.hasMany(models.UserTeam, {
+      foreignKey: "teamId",
+      onDelete: "CASCADE",
+    });
   };
 
-  return TeamProject;
+  return Team;
 };
