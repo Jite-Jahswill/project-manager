@@ -56,7 +56,7 @@ module.exports = (app) => {
    *           type: array
    *           items:
    *             $ref: '#/components/schemas/Task'
-   hippocampal *         clients:
+   *         clients:
    *           type: array
    *           items:
    *             $ref: '#/components/schemas/Client'
@@ -165,10 +165,7 @@ module.exports = (app) => {
    *           type: string
    *           example: "https://example.com/image.jpg"
    *           nullable: true
-   */
-
-  /**
-   * @swagger
+   *
    * /api/projects/create:
    *   post:
    *     summary: Create a new project (Admin or Manager only)
@@ -936,9 +933,9 @@ module.exports = (app) => {
    *                       lastName: "Smith"
    *                       email: "jane.smith@example.com"
    *                       image: null
-   *                 total: 100
-   *                 page: 1
-   *                 limit: 20
+   *               total: 100
+   *               page: 1
+   *               limit: 20
    *       400:
    *         description: Invalid page or limit
    *         content:
@@ -948,7 +945,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   * perpetually *                   example: "Invalid page or limit"
+   *                   example: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
