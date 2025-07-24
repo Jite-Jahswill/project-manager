@@ -17,8 +17,9 @@ db.Report = require("./report.model")(sequelize, DataTypes);
 db.Team = require("./team.model")(sequelize, DataTypes);
 db.Client = require("./client.model")(sequelize, DataTypes);
 db.ClientProject = require("./clientProject.model")(sequelize, DataTypes);
+db.TeamProject = require("./teamProject.model")(sequelize, DataTypes); // Added TeamProject model
 
-// Run associations
+// Run associations defined in model files
 Object.keys(db).forEach((modelName) => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
@@ -48,11 +49,22 @@ db.Team.belongsToMany(db.User, {
   otherKey: "userId",
 });
 
+db.Project.belongsToMany(db.Team, {
+  through: db.TeamProject,
+  foreignKey: "projectId",
+  otherKey: "teamId",
+});
+db.Team.belongsToMany(db.Project, {
+  through: db.TeamProject,
+  foreignKey: "teamId",
+  otherKey: "projectId",
+});
+
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
 db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
 db.User.hasMany(db.Task, { foreignKey: "assignedTo" });
+db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
 
 db.User.hasMany(db.WorkLog, { foreignKey: "userId" });
 db.WorkLog.belongsTo(db.User, { foreignKey: "userId" });
@@ -72,11 +84,11 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE" });
-db.Project.belongsTo(db.Team, { foreignKey: "teamId" });
+// Removed: db.Team.hasMany(db.Project, { foreignKey: "teamId", onDelete: "CASCADE" });
+// Removed: db.Project.belongsTo(db.Team, { foreignKey: "teamId" });
 
-db.Client.hasMany(db.Project, { foreignKey: "clientId" });
-db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
+// Removed: db.Client.hasMany(db.Project, { foreignKey: "clientId" });
+// Removed: db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
 
 module.exports = db;
 
