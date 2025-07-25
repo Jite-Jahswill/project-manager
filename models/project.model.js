@@ -20,22 +20,22 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  Project.associate = (models) => {
+  //Project.associate = (models) => {
     //Project.belongsToMany(models.Team, {
      // through: models.TeamProject,
       //foreignKey: "projectId",
       //otherKey: "teamId",
     //});
-    Project.belongsToMany(models.User, {
-      through: models.UserTeam,
-      foreignKey: "projectId",
-    });
-    Project.hasMany(models.Task, {
-      foreignKey: "projectId",
-      as: "tasks",
-      onDelete: "CASCADE",
-    });
-  };
+  //  Project.belongsToMany(models.User, {
+     // through: models.UserTeam,
+      //foreignKey: "projectId",
+    //});
+   // Project.hasMany(models.Task, {
+     // foreignKey: "projectId",
+     // as: "tasks",
+    //  onDelete: "CASCADE",
+    //});
+ // };
 
   return Project;
 };
