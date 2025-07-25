@@ -9,37 +9,72 @@ module.exports = {
       if (!["admin", "manager"].includes(req.user.role)) {
         return res.status(403).json({ message: "Only admins or managers can create projects" });
       }
-      const { name, description, startDate, endDate } = req.body;
+      const { name, description, startDate, endDate, teamIds } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Project name is required" });
       }
 
-      const project = await db.Project.create({
-        name,
-        description: description || null,
-        startDate: startDate || null,
-        endDate: endDate || null,
-        status: "To Do",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      const transaction = await db.sequelize.transaction();
 
-      return res.status(201).json({
-        message: "Project created successfully",
-        project: {
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          startDate: project.startDate,
-          endDate: project.endDate,
-          status: project.status,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-          team: null,
-          tasks: [],
-          clients: [],
-        },
-      });
+      try {
+        const project = await db.Project.create(
+          {
+            name,
+            description: description || null,
+            startDate: startDate || null,
+            endDate: endDate || null,
+            status: "To Do",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          { transaction }
+        );
+
+        // Assign multiple teams if teamIds is provided
+        if (teamIds && Array.isArray(teamIds) && teamIds.length > 0) {
+          const teams = await db.Team.findAll({
+            where: { id: teamIds },
+            transaction,
+          });
+
+          if (teams.length !== teamIds.length) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "One or more teams not found" });
+          }
+
+          await db.TeamProject.bulkCreate(
+            teamIds.map((teamId) => ({
+              teamId: parseInt(teamId),
+              projectId: project.id,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })),
+            { transaction }
+          );
+        }
+
+        await transaction.commit();
+
+        return res.status(201).json({
+          message: "Project created successfully",
+          project: {
+            id: project.id,
+            name: project.name,
+            description: project.description,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            status: project.status,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            teams: [], // Will be populated in get operations
+            tasks: [],
+            clients: [],
+          },
+        });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
     } catch (err) {
       console.error("Create project error:", {
         message: err.message,
@@ -82,7 +117,9 @@ module.exports = {
         include: [
           {
             model: db.Team,
+            as: "Teams", // Changed to plural to reflect many-to-many
             attributes: ["id", "name"],
+            through: { attributes: [] },
             include: [
               {
                 model: db.User,
@@ -126,21 +163,19 @@ module.exports = {
           status: project.status,
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
-          team: project.Team
-            ? {
-                teamId: project.Team.id,
-                teamName: project.Team.name,
-                members: project.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  phoneNumber: user.phoneNumber || null,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
-              }
-            : null,
+          teams: project.Teams.map((team) => ({
+            teamId: team.id,
+            teamName: team.name,
+            members: team.Users.map((user) => ({
+              userId: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              phoneNumber: user.phoneNumber || null,
+              role: user.UserTeam.role,
+              note: user.UserTeam.note,
+            })),
+          })),
           tasks: project.Tasks.map((task) => ({
             id: task.id,
             title: task.title,
@@ -212,7 +247,9 @@ module.exports = {
         include: [
           {
             model: db.Team,
+            as: "Teams", // Changed to plural
             attributes: ["id", "name"],
+            through: { attributes: [] },
             include: [
               {
                 model: db.User,
@@ -254,21 +291,19 @@ module.exports = {
         status: project.status,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        team: project.Team
-          ? {
-              teamId: project.Team.id,
-              teamName: project.Team.name,
-              members: project.Team.Users.map((user) => ({
-                userId: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                phoneNumber: user.phoneNumber || null,
-                role: user.UserTeam.role,
-                note: user.UserTeam.note,
-              })),
-            }
-          : null,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+          })),
+        })),
         tasks: project.Tasks.map((task) => ({
           id: task.id,
           title: task.title,
@@ -350,7 +385,9 @@ module.exports = {
         include: [
           {
             model: db.Team,
+            as: "Teams", // Changed to plural
             attributes: ["id", "name"],
+            through: { attributes: [] },
             include: [
               {
                 model: db.User,
@@ -392,21 +429,19 @@ module.exports = {
         status: project.status,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        team: project.Team
-          ? {
-              teamId: project.Team.id,
-              teamName: project.Team.name,
-              members: project.Team.Users.map((user) => ({
-                userId: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                phoneNumber: user.phoneNumber || null,
-                role: user.UserTeam.role,
-                note: user.UserTeam.note,
-              })),
-            }
-          : null,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+          })),
+        })),
         tasks: project.Tasks.map((task) => ({
           id: task.id,
           title: task.title,
@@ -496,7 +531,9 @@ module.exports = {
         include: [
           {
             model: db.Team,
+            as: "Teams", // Changed to plural
             attributes: ["id", "name"],
+            through: { attributes: [] },
             include: [
               {
                 model: db.User,
@@ -538,21 +575,19 @@ module.exports = {
         status: project.status,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
-        team: project.Team
-          ? {
-              teamId: project.Team.id,
-              teamName: project.Team.name,
-              members: project.Team.Users.map((user) => ({
-                userId: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                phoneNumber: user.phoneNumber || null,
-                role: user.UserTeam.role,
-                note: user.UserTeam.note,
-              })),
-            }
-          : null,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+          })),
+        })),
         tasks: project.Tasks.map((task) => ({
           id: task.id,
           title: task.title,
@@ -598,38 +633,71 @@ module.exports = {
     }
   },
 
-  // Assign an entire team to a project
+  // Assign multiple teams to a project
   async assignTeamToProject(req, res) {
     try {
       if (!["admin", "manager"].includes(req.user.role)) {
         return res.status(403).json({ message: "Only admins or managers can assign teams to projects" });
       }
 
-      const { teamId, projectId } = req.body;
-      if (!teamId || !projectId) {
-        return res.status(400).json({ message: "teamId and projectId are required" });
+      const { teamIds, projectId } = req.body;
+      if (!teamIds || !Array.isArray(teamIds) || teamIds.length === 0 || !projectId) {
+        return res.status(400).json({ message: "teamIds (array) and projectId are required" });
       }
 
       const transaction = await db.sequelize.transaction();
 
       try {
-        const team = await db.Team.findByPk(teamId, { transaction });
-        if (!team) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Team not found" });
-        }
-
         const project = await db.Project.findByPk(projectId, { transaction });
         if (!project) {
           await transaction.rollback();
           return res.status(404).json({ message: "Project not found" });
         }
 
+        const teams = await db.Team.findAll({
+          where: { id: teamIds },
+          transaction,
+        });
+        if (teams.length !== teamIds.length) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "One or more teams not found" });
+        }
+
+        // Check for existing associations
+        const existingAssociations = await db.sequelize.query(
+          `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
+          {
+            replacements: { projectId: parseInt(projectId), teamIds },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+        const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+        const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(parseInt(id)));
+
+        if (newTeamIds.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "All provided teams are already assigned to this project" });
+        }
+
+        // Insert new team assignments
+        const insertQuery = `
+          INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
+          VALUES ${newTeamIds.map(() => "(?, ?, NOW(), NOW())").join(", ")}
+        `;
+        const replacements = newTeamIds.flatMap((teamId) => [parseInt(teamId), parseInt(projectId)]);
+        await db.sequelize.query(insertQuery, {
+          replacements,
+          type: db.sequelize.QueryTypes.INSERT,
+          transaction,
+        });
+
+        // Update UserTeams.projectId for team members
         const teamMembers = await db.User.findAll({
           include: [
             {
               model: db.Team,
-              where: { id: teamId },
+              where: { id: newTeamIds },
               attributes: [],
               through: { attributes: [] },
             },
@@ -638,26 +706,18 @@ module.exports = {
           transaction,
         });
 
-        // Update Projects.teamId
-        await db.sequelize.query(
-          `UPDATE Projects SET teamId = :teamId, updatedAt = NOW() WHERE id = :projectId`,
-          {
-            replacements: { teamId: parseInt(teamId), projectId: parseInt(projectId) },
+        if (teamMembers.length > 0) {
+          const userTeamUpdateQuery = `
+            UPDATE UserTeams 
+            SET projectId = :projectId, updatedAt = NOW()
+            WHERE teamId IN (:teamIds) AND projectId IS NULL
+          `;
+          await db.sequelize.query(userTeamUpdateQuery, {
+            replacements: { projectId: parseInt(projectId), teamIds: newTeamIds },
             type: db.sequelize.QueryTypes.UPDATE,
             transaction,
-          }
-        );
-
-        // Update UserTeams.projectId for team members
-        await db.sequelize.query(
-          `UPDATE UserTeams SET projectId = :projectId, updatedAt = NOW()
-           WHERE teamId = :teamId AND projectId IS NULL`,
-          {
-            replacements: { teamId: parseInt(teamId), projectId: parseInt(projectId) },
-            type: db.sequelize.QueryTypes.UPDATE,
-            transaction,
-          }
-        );
+          });
+        }
 
         const emailPromises = teamMembers.map((user) =>
           sendMail({
@@ -665,7 +725,7 @@ module.exports = {
             subject: `Your Team Has Been Assigned to Project: ${project.name}`,
             html: `
               <p>Hello ${user.firstName},</p>
-              <p>Your team <strong>${team.name}</strong> has been assigned to the project <strong>${project.name}</strong>.</p>
+              <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
               <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
               <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
               <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
@@ -676,21 +736,22 @@ module.exports = {
         );
 
         await Promise.all(emailPromises);
-
         await transaction.commit();
 
         return res.status(200).json({
-          message: `Team "${team.name}" assigned to project successfully`,
-          team: {
+          message: `Teams assigned to project "${project.name}" successfully`,
+          teams: teams.map((team) => ({
             teamId: team.id,
             teamName: team.name,
-            members: teamMembers.map((u) => ({
-              userId: u.id,
-              email: u.email,
-              name: `${u.firstName} ${u.lastName}`,
-              phoneNumber: u.phoneNumber || null,
-            })),
-          },
+            members: teamMembers
+              .filter((user) => user.Teams.some((t) => t.id === team.id))
+              .map((u) => ({
+                userId: u.id,
+                email: u.email,
+                name: `${u.firstName} ${u.lastName}`,
+                phoneNumber: u.phoneNumber || null,
+              })),
+          })),
         });
       } catch (err) {
         await transaction.rollback();
@@ -705,46 +766,72 @@ module.exports = {
         body: req.body,
         timestamp: new Date().toISOString(),
       });
-      return res.status(500).json({ message: "Failed to assign team to project", details: err.message });
+      return res.status(500).json({ message: "Failed to assign teams to project", details: err.message });
     }
   },
 
-  // Remove a team from a project
+  // Remove teams from a project
   async removeTeamFromProject(req, res) {
     try {
       if (!["admin", "manager"].includes(req.user.role)) {
         return res.status(403).json({ message: "Only admins or managers can remove teams from projects" });
       }
 
-      const { teamId, projectId } = req.body;
-      if (!teamId || !projectId) {
-        return res.status(400).json({ message: "teamId and projectId are required" });
+      const { teamIds, projectId } = req.body;
+      if (!teamIds || !Array.isArray(teamIds) || teamIds.length === 0 || !projectId) {
+        return res.status(400).json({ message: "teamIds (array) and projectId are required" });
       }
 
       const transaction = await db.sequelize.transaction();
 
       try {
-        const team = await db.Team.findByPk(teamId, { transaction });
-        if (!team) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Team not found" });
-        }
-
         const project = await db.Project.findByPk(projectId, { transaction });
         if (!project) {
           await transaction.rollback();
           return res.status(404).json({ message: "Project not found" });
         }
-        if (project.teamId !== parseInt(teamId)) {
+
+        const teams = await db.Team.findAll({
+          where: { id: teamIds },
+          transaction,
+        });
+        if (teams.length !== teamIds.length) {
           await transaction.rollback();
-          return res.status(400).json({ message: "Team is not assigned to this project" });
+          return res.status(404).json({ message: "One or more teams not found" });
         }
 
+        // Check if teams are assigned to the project
+        const existingAssociations = await db.sequelize.query(
+          `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
+          {
+            replacements: { projectId: parseInt(projectId), teamIds },
+            type: db.sequelize.QueryTypes.SELECT,
+            transaction,
+          }
+        );
+        const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+        if (assignedTeamIds.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "None of the provided teams are assigned to this project" });
+        }
+
+        // Remove team assignments
+        const deleteQuery = `
+          DELETE FROM TeamProjects 
+          WHERE projectId = :projectId AND teamId IN (:teamIds)
+        `;
+        await db.sequelize.query(deleteQuery, {
+          replacements: { projectId: parseInt(projectId), teamIds: assignedTeamIds },
+          type: db.sequelize.QueryTypes.DELETE,
+          transaction,
+        });
+
+        // Update UserTeams.projectId for team members
         const teamMembers = await db.User.findAll({
           include: [
             {
               model: db.Team,
-              where: { id: teamId },
+              where: { id: assignedTeamIds },
               attributes: [],
               through: { attributes: [] },
             },
@@ -753,26 +840,18 @@ module.exports = {
           transaction,
         });
 
-        // Update Projects.teamId
-        await db.sequelize.query(
-          `UPDATE Projects SET teamId = NULL, updatedAt = NOW() WHERE id = :projectId`,
-          {
-            replacements: { projectId: parseInt(projectId) },
+        if (teamMembers.length > 0) {
+          const userTeamUpdateQuery = `
+            UPDATE UserTeams 
+            SET projectId = NULL, updatedAt = NOW()
+            WHERE teamId IN (:teamIds) AND projectId = :projectId
+          `;
+          await db.sequelize.query(userTeamUpdateQuery, {
+            replacements: { teamIds: assignedTeamIds, projectId: parseInt(projectId) },
             type: db.sequelize.QueryTypes.UPDATE,
             transaction,
-          }
-        );
-
-        // Update UserTeams.projectId
-        await db.sequelize.query(
-          `UPDATE UserTeams SET projectId = NULL, updatedAt = NOW()
-           WHERE teamId = :teamId AND projectId = :projectId`,
-          {
-            replacements: { teamId: parseInt(teamId), projectId: parseInt(projectId) },
-            type: db.sequelize.QueryTypes.UPDATE,
-            transaction,
-          }
-        );
+          });
+        }
 
         const emailPromises = teamMembers.map((user) =>
           sendMail({
@@ -780,7 +859,7 @@ module.exports = {
             subject: `Your Team Has Been Removed from Project: ${project.name}`,
             html: `
               <p>Hello ${user.firstName},</p>
-              <p>Your team <strong>${team.name}</strong> has been removed from the project <strong>${project.name}</strong>.</p>
+              <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
               <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
               <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
               <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
@@ -791,21 +870,24 @@ module.exports = {
         );
 
         await Promise.all(emailPromises);
-
         await transaction.commit();
 
         return res.status(200).json({
-          message: `Team "${team.name}" removed from project successfully`,
-          team: {
-            teamId: team.id,
-            teamName: team.name,
-            members: teamMembers.map((u) => ({
-              userId: u.id,
-              email: u.email,
-              name: `${u.firstName} ${u.lastName}`,
-              phoneNumber: u.phoneNumber || null,
+          message: `Teams removed from project "${project.name}" successfully`,
+          teams: teams
+            .filter((team) => assignedTeamIds.includes(team.id))
+            .map((team) => ({
+              teamId: team.id,
+              teamName: team.name,
+              members: teamMembers
+                .filter((user) => user.Teams.some((t) => t.id === team.id))
+                .map((u) => ({
+                  userId: u.id,
+                  email: u.email,
+                  name: `${u.firstName} ${u.lastName}`,
+                  phoneNumber: u.phoneNumber || null,
+                })),
             })),
-          },
         });
       } catch (err) {
         await transaction.rollback();
@@ -820,7 +902,7 @@ module.exports = {
         body: req.body,
         timestamp: new Date().toISOString(),
       });
-      return res.status(500).json({ message: "Failed to remove team from project", details: err.message });
+      return res.status(500).json({ message: "Failed to remove teams from project", details: err.message });
     }
   },
 
@@ -900,7 +982,7 @@ module.exports = {
         return res.status(403).json({ message: "You're not assigned to this project" });
       }
 
-      // Update project status
+      // Update project status using raw MySQL
       await db.sequelize.query(
         `UPDATE Projects SET status = :status, updatedAt = NOW() WHERE id = :projectId`,
         {
@@ -913,7 +995,9 @@ module.exports = {
         include: [
           {
             model: db.Team,
+            as: "Teams", // Changed to plural
             attributes: ["id", "name"],
+            through: { attributes: [] },
             include: [
               {
                 model: db.User,
@@ -999,21 +1083,19 @@ module.exports = {
           status: updatedProject.status,
           createdAt: updatedProject.createdAt,
           updatedAt: updatedProject.updatedAt,
-          team: updatedProject.Team
-            ? {
-                teamId: updatedProject.Team.id,
-                teamName: updatedProject.Team.name,
-                members: updatedProject.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  phoneNumber: user.phoneNumber || null,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
-              }
-            : null,
+          teams: updatedProject.Teams.map((team) => ({
+            teamId: team.id,
+            teamName: team.name,
+            members: team.Users.map((user) => ({
+              userId: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              phoneNumber: user.phoneNumber || null,
+              role: user.UserTeam.role,
+              note: user.UserTeam.note,
+            })),
+          })),
           tasks: updatedProject.Tasks.map((task) => ({
             id: task.id,
             title: task.title,
@@ -1052,7 +1134,7 @@ module.exports = {
     }
   },
 
-  // Update full project (admin or manager)
+  // Update project (admin or manager)
   async updateProject(req, res) {
     try {
       if (!["admin", "manager"].includes(req.user.role)) {
@@ -1060,17 +1142,17 @@ module.exports = {
       }
 
       const { projectId } = req.params;
-      const { name, description, startDate, endDate, status, teamId } = req.body;
+      const { name, description, startDate, endDate, status, teamIds } = req.body;
 
       const project = await db.Project.findByPk(projectId);
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      if (teamId) {
-        const team = await db.Team.findByPk(teamId);
-        if (!team) {
-          return res.status(404).json({ message: "Team not found" });
+      if (teamIds && Array.isArray(teamIds)) {
+        const teams = await db.Team.findAll({ where: { id: teamIds } });
+        if (teams.length !== teamIds.length) {
+          return res.status(404).json({ message: "One or more teams not found" });
         }
       }
 
@@ -1083,185 +1165,289 @@ module.exports = {
       }
 
       // Check if at least one field is provided
-      const hasUpdates = name || description !== undefined || startDate || endDate !== undefined || status || teamId;
+      const hasUpdates = name || description !== undefined || startDate || endDate !== undefined || status || teamIds;
       if (!hasUpdates) {
         return res.status(400).json({ message: "At least one field must be provided for update" });
       }
 
-      // Build parameterized query
-      const updates = {};
-      let setClause = [];
-      if (name) {
-        setClause.push("name = :name");
-        updates.name = name;
-      }
-      if (description !== undefined) {
-        setClause.push("description = :description");
-        updates.description = description || null;
-      }
-      if (startDate) {
-        setClause.push("startDate = :startDate");
-        updates.startDate = new Date(startDate).toISOString();
-      }
-      if (endDate !== undefined) {
-        setClause.push("endDate = :endDate");
-        updates.endDate = endDate ? new Date(endDate).toISOString() : null;
-      }
-      if (status) {
-        setClause.push("status = :status");
-        updates.status = status;
-      }
-      if (teamId) {
-        setClause.push("teamId = :teamId");
-        updates.teamId = parseInt(teamId);
-      }
-      setClause.push("updatedAt = NOW()");
+      const transaction = await db.sequelize.transaction();
 
-      if (setClause.length > 1 || (setClause.length === 1 && !setClause.includes("updatedAt = NOW()"))) {
-        const query = `
-          UPDATE Projects
-          SET ${setClause.join(", ")}
-          WHERE id = :projectId
-        `;
-        await db.sequelize.query(query, {
-          replacements: { ...updates, projectId: parseInt(projectId) },
-          type: db.sequelize.QueryTypes.UPDATE,
-        });
-      }
+      try {
+        // Update project details using raw MySQL
+        const updates = {};
+        let setClause = [];
+        if (name) {
+          setClause.push("name = :name");
+          updates.name = name;
+        }
+        if (description !== undefined) {
+          setClause.push("description = :description");
+          updates.description = description || null;
+        }
+        if (startDate) {
+          setClause.push("startDate = :startDate");
+          updates.startDate = new Date(startDate).toISOString();
+        }
+        if (endDate !== undefined) {
+          setClause.push("endDate = :endDate");
+          updates.endDate = endDate ? new Date(endDate).toISOString() : null;
+        }
+        if (status) {
+          setClause.push("status = :status");
+          updates.status = status;
+        }
+        setClause.push("updatedAt = NOW()");
 
-      // Update UserTeams.projectId if teamId is provided
-      if (teamId) {
-        await db.sequelize.query(
-          `UPDATE UserTeams SET projectId = :projectId, updatedAt = NOW()
-           WHERE teamId = :teamId AND projectId IS NULL`,
-          {
-            replacements: { teamId: parseInt(teamId), projectId: parseInt(projectId) },
+        if (setClause.length > 1 || (setClause.length === 1 && !setClause.includes("updatedAt = NOW()"))) {
+          const query = `
+            UPDATE Projects
+            SET ${setClause.join(", ")}
+            WHERE id = :projectId
+          `;
+          await db.sequelize.query(query, {
+            replacements: { ...updates, projectId: parseInt(projectId) },
             type: db.sequelize.QueryTypes.UPDATE,
+            transaction,
+          });
+        }
+
+        // Update team assignments if teamIds is provided
+        if (teamIds && Array.isArray(teamIds)) {
+          // Get current team assignments
+          const currentTeamIds = (
+            await db.sequelize.query(
+              `SELECT teamId FROM TeamProjects WHERE projectId = :projectId`,
+              {
+                replacements: { projectId: parseInt(projectId) },
+                type: db.sequelize.QueryTypes.SELECT,
+                transaction,
+              }
+            )
+          ).map((assoc) => assoc.teamId);
+
+          // Determine teams to add and remove
+          const teamsToAdd = teamIds.filter((id) => !currentTeamIds.includes(parseInt(id)));
+          const teamsToRemove = currentTeamIds.filter((id) => !teamIds.includes(id));
+
+          // Add new team assignments
+          if (teamsToAdd.length > 0) {
+            const insertQuery = `
+              INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
+              VALUES ${teamsToAdd.map(() => "(?, ?, NOW(), NOW())").join(", ")}
+            `;
+            const replacements = teamsToAdd.flatMap((teamId) => [parseInt(teamId), parseInt(projectId)]);
+            await db.sequelize.query(insertQuery, {
+              replacements,
+              type: db.sequelize.QueryTypes.INSERT,
+              transaction,
+            });
           }
-        );
-      }
 
-      const updatedProject = await db.Project.findByPk(projectId, {
-        include: [
-          {
-            model: db.Team,
-            attributes: ["id", "name"],
-            include: [
-              {
-                model: db.User,
-                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-                through: { attributes: ["role", "note"] },
-              },
-            ],
-          },
-          {
-            model: db.Task,
-            as: "Tasks",
-            attributes: ["id", "title", "description", "status", "dueDate"],
-            include: [
-              {
-                model: db.User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName", "email"],
-              },
-            ],
-          },
-          {
-            model: db.Client,
-            as: "Clients",
-            attributes: ["id", "firstName", "lastName", "email", "image"],
-            through: { attributes: [] },
-          },
-        ],
-      });
+          // Remove old team assignments
+          if (teamsToRemove.length > 0) {
+            const deleteQuery = `
+              DELETE FROM TeamProjects 
+              WHERE projectId = :projectId AND teamId IN (:teamIds)
+            `;
+            await db.sequelize.query(deleteQuery, {
+              replacements: { projectId: parseInt(projectId), teamIds: teamsToRemove },
+              type: db.sequelize.QueryTypes.DELETE,
+              transaction,
+            });
+          }
 
-      if (teamId) {
-        const teamMembers = await db.User.findAll({
+          // Update UserTeams.projectId for team members
+          const teamMembersToAdd = teamsToAdd.length
+            ? await db.User.findAll({
+                include: [
+                  {
+                    model: db.Team,
+                    where: { id: teamsToAdd },
+                    attributes: [],
+                    through: { attributes: [] },
+                  },
+                ],
+                attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+                transaction,
+              })
+            : [];
+
+          if (teamMembersToAdd.length > 0) {
+            const userTeamUpdateQuery = `
+              UPDATE UserTeams 
+              SET projectId = :projectId, updatedAt = NOW()
+              WHERE teamId IN (:teamIds) AND projectId IS NULL
+            `;
+            await db.sequelize.query(userTeamUpdateQuery, {
+              replacements: { projectId: parseInt(projectId), teamIds: teamsToAdd },
+              type: db.sequelize.QueryTypes.UPDATE,
+              transaction,
+            });
+          }
+
+          const teamMembersToRemove = teamsToRemove.length
+            ? await db.User.findAll({
+                include: [
+                  {
+                    model: db.Team,
+                    where: { id: teamsToRemove },
+                    attributes: [],
+                    through: { attributes: [] },
+                  },
+                ],
+                attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+                transaction,
+              })
+            : [];
+
+          if (teamMembersToRemove.length > 0) {
+            const userTeamRemoveQuery = `
+              UPDATE UserTeams 
+              SET projectId = NULL, updatedAt = NOW()
+              WHERE teamId IN (:teamIds) AND projectId = :projectId
+            `;
+            await db.sequelize.query(userTeamRemoveQuery, {
+              replacements: { projectId: parseInt(projectId), teamIds: teamsToRemove },
+              type: db.sequelize.QueryTypes.UPDATE,
+              transaction,
+            });
+          }
+
+          // Send emails to affected team members
+          const emailPromises = [];
+          teamMembersToAdd.forEach((user) =>
+            emailPromises.push(
+              sendMail({
+                to: user.email,
+                subject: `Project Updated: ${name || project.name}`,
+                html: `
+                  <p>Hello ${user.firstName},</p>
+                  <p>Your team has been assigned to the project <strong>${name || project.name}</strong>.</p>
+                  <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
+                  <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
+                  <p><strong>Status:</strong> ${status || project.status}</p>
+                  <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+                  <p>Check your dashboard for details.</p>
+                  <p>Best,<br>Team</p>
+                `,
+              })
+            )
+          );
+          teamMembersToRemove.forEach((user) =>
+            emailPromises.push(
+              sendMail({
+                to: user.email,
+                subject: `Removed from Project: ${name || project.name}`,
+                html: `
+                  <p>Hello ${user.firstName},</p>
+                  <p>Your team has been removed from the project <strong>${name || project.name}</strong>.</p>
+                  <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
+                  <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
+                  <p><strong>Status:</strong> ${status || project.status}</p>
+                  <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+                  <p>Check your dashboard for details.</p>
+                  <p>Best,<br>Team</p>
+                `,
+              })
+            )
+          );
+          await Promise.all(emailPromises);
+        }
+
+        await transaction.commit();
+
+        const updatedProject = await db.Project.findByPk(projectId, {
           include: [
             {
               model: db.Team,
-              where: { id: teamId },
-              attributes: [],
+              as: "Teams",
+              attributes: ["id", "name"],
+              through: { attributes: [] },
+              include: [
+                {
+                  model: db.User,
+                  attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+                  through: { attributes: ["role", "note"] },
+                },
+              ],
+            },
+            {
+              model: db.Task,
+              as: "Tasks",
+              attributes: ["id", "title", "description", "status", "dueDate"],
+              include: [
+                {
+                  model: db.User,
+                  as: "assignee",
+                  attributes: ["id", "firstName", "lastName", "email"],
+                },
+              ],
+            },
+            {
+              model: db.Client,
+              as: "Clients",
+              attributes: ["id", "firstName", "lastName", "email", "image"],
               through: { attributes: [] },
             },
           ],
-          attributes: ["email", "firstName", "phoneNumber"],
         });
 
-        const emailPromises = teamMembers.map((user) =>
-          sendMail({
-            to: user.email,
-            subject: `Project Updated: ${name || project.name}`,
-            html: `
-              <p>Hello ${user.firstName},</p>
-              <p>Your team has been assigned to the updated project <strong>${name || project.name}</strong>.</p>
-              <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
-              <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
-              <p><strong>Status:</strong> ${status || project.status}</p>
-              <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-              <p>Check your dashboard for details.</p>
-              <p>Best,<br>Team</p>
-            `,
-          })
-        );
+        if (status && status.toLowerCase() === "done") {
+          await notifyClientOnProjectCompletion(projectId);
+        }
 
-        await Promise.all(emailPromises);
+        return res.status(200).json({
+          message: "Project updated successfully",
+          project: {
+            id: updatedProject.id,
+            name: updatedProject.name,
+            description: updatedProject.description,
+            startDate: updatedProject.startDate,
+            endDate: updatedProject.endDate,
+            status: updatedProject.status,
+            createdAt: updatedProject.createdAt,
+            updatedAt: updatedProject.updatedAt,
+            teams: updatedProject.Teams.map((team) => ({
+              teamId: team.id,
+              teamName: team.name,
+              members: team.Users.map((user) => ({
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phoneNumber: user.phoneNumber || null,
+                role: user.UserTeam.role,
+                note: user.UserTeam.note,
+              })),
+            })),
+            tasks: updatedProject.Tasks.map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueDate: task.dueDate,
+              assignee: task.assignee
+                ? {
+                    userId: task.assignee.id,
+                    firstName: task.assignee.firstName,
+                    lastName: task.assignee.lastName,
+                    email: task.assignee.email,
+                  }
+                : null,
+            })),
+            clients: updatedProject.Clients.map((client) => ({
+              id: client.id,
+              firstName: client.firstName,
+              lastName: client.lastName,
+              email: client.email,
+              image: client.image,
+            })),
+          },
+        });
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
       }
-
-      if (status && status.toLowerCase() === "done") {
-        await notifyClientOnProjectCompletion(projectId);
-      }
-
-      return res.status(200).json({
-        message: "Project updated successfully",
-        project: {
-          id: updatedProject.id,
-          name: updatedProject.name,
-          description: updatedProject.description,
-          startDate: updatedProject.startDate,
-          endDate: updatedProject.endDate,
-          status: updatedProject.status,
-          createdAt: updatedProject.createdAt,
-          updatedAt: updatedProject.updatedAt,
-          team: updatedProject.Team
-            ? {
-                teamId: updatedProject.Team.id,
-                teamName: updatedProject.Team.name,
-                members: updatedProject.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  phoneNumber: user.phoneNumber || null,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
-              }
-            : null,
-          tasks: updatedProject.Tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? {
-                  userId: task.assignee.id,
-                  firstName: task.assignee.firstName,
-                  lastName: task.assignee.lastName,
-                  email: task.assignee.email,
-                }
-              : null,
-          })),
-          clients: updatedProject.Clients.map((client) => ({
-            id: client.id,
-            firstName: client.firstName,
-            lastName: client.lastName,
-            email: client.email,
-            image: client.image,
-          })),
-        },
-      });
     } catch (err) {
       console.error("Update project error:", {
         message: err.message,
@@ -1297,12 +1483,24 @@ module.exports = {
           return res.status(404).json({ message: "Project not found" });
         }
 
-        const teamMembers = project.teamId
+        // Get all teams associated with the project
+        const teamIds = (
+          await db.sequelize.query(
+            `SELECT teamId FROM TeamProjects WHERE projectId = :projectId`,
+            {
+              replacements: { projectId: parseInt(projectId) },
+              type: db.sequelize.QueryTypes.SELECT,
+              transaction,
+            }
+          )
+        ).map((assoc) => assoc.teamId);
+
+        const teamMembers = teamIds.length
           ? await db.User.findAll({
               include: [
                 {
                   model: db.Team,
-                  where: { id: project.teamId },
+                  where: { id: teamIds },
                   attributes: [],
                   through: { attributes: [] },
                 },
@@ -1325,6 +1523,7 @@ module.exports = {
           transaction,
         });
 
+        // Delete project (cascades to TeamProjects and UserTeams via onDelete: CASCADE)
         await db.Project.destroy({ where: { id: projectId }, transaction });
 
         const emailPromises = [
@@ -1356,7 +1555,6 @@ module.exports = {
         ];
 
         await Promise.all(emailPromises);
-
         await transaction.commit();
 
         return res.status(200).json({ message: "Project deleted successfully" });
