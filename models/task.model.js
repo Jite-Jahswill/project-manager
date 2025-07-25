@@ -1,3 +1,4 @@
+// models/task.model.js
 module.exports = (sequelize, DataTypes) => {
   const Task = sequelize.define("Task", {
     title: {
@@ -6,7 +7,6 @@ module.exports = (sequelize, DataTypes) => {
     },
     description: {
       type: DataTypes.TEXT,
-      allowNull: true,
     },
     status: {
       type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
@@ -14,7 +14,6 @@ module.exports = (sequelize, DataTypes) => {
     },
     dueDate: {
       type: DataTypes.DATE,
-      allowNull: true,
     },
     projectId: {
       type: DataTypes.INTEGER,
@@ -26,13 +25,24 @@ module.exports = (sequelize, DataTypes) => {
     },
     assignedTo: {
       type: DataTypes.INTEGER,
-      allowNull: true, // Changed to allow unassigned tasks
+      allowNull: false,
       references: {
         model: "Users",
         key: "id",
       },
     },
   });
+
+ // Task.associate = (models) => {
+  //  Task.belongsTo(models.Project, {
+    //  foreignKey: "projectId",
+    //  onDelete: "CASCADE",
+ //   });
+   // Task.belongsTo(models.User, {
+     // foreignKey: "assignedTo",
+    //  as: "assignee",
+   // });
+  };
 
   return Task;
 };
