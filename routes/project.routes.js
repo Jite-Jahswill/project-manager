@@ -40,10 +40,47 @@ module.exports = (app) => {
    *           type: string
    *           enum: ["To Do", "In Progress", "Review", "Done"]
    *           example: "To Do"
-   *         teamId:
-   *           type: integer
-   *           example: 1
-   *           nullable: true
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-25T10:04:00.000Z"
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-25T10:04:00.000Z"
+   *         teams:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/Team'
+   *           example:
+   *             - teamId: 1
+   *               teamName: "Dev Team"
+   *               members:
+   *                 - userId: 1
+   *                   firstName: "John"
+   *                   lastName: "Doe"
+   *                   email: "john.doe@example.com"
+   *                   phoneNumber: "123-456-7890"
+   *                   role: "Developer"
+   *                   note: "Lead developer"
+   *             - teamId: 2
+   *               teamName: "Design Team"
+   *               members:
+   *                 - userId: 2
+   *                   firstName: "Jane"
+   *                   lastName: "Smith"
+   *                   email: "jane.smith@example.com"
+   *                   phoneNumber: null
+   *                   role: "Designer"
+   *                   note: null
+   *         tasks:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/Task'
+   *         clients:
+   *           type: array
+   *           items:
+   *             $ref: '#/components/schemas/Client'
    *     Team:
    *       type: object
    *       properties:
@@ -61,15 +98,26 @@ module.exports = (app) => {
    *               userId:
    *                 type: integer
    *                 example: 1
+   *               firstName:
+   *                 type: string
+   *                 example: "John"
+   *               lastName:
+   *                 type: string
+   *                 example: "Doe"
    *               email:
    *                 type: string
    *                 example: "john.doe@example.com"
-   *               name:
-   *                 type: string
-   *                 example: "John Doe"
    *               phoneNumber:
    *                 type: string
    *                 example: "123-456-7890"
+   *                 nullable: true
+   *               role:
+   *                 type: string
+   *                 example: "Developer"
+   *                 nullable: true
+   *               note:
+   *                 type: string
+   *                 example: "Lead developer"
    *                 nullable: true
    *     Member:
    *       type: object
@@ -77,16 +125,27 @@ module.exports = (app) => {
    *         userId:
    *           type: integer
    *           example: 1
-   *         name:
+   *         firstName:
    *           type: string
-   *           example: "John Doe"
+   *           example: "John"
+   *         lastName:
+   *           type: string
+   *           example: "Doe"
    *         email:
    *           type: string
    *           example: "john.doe@example.com"
-   *         tasks:
-   *           type: array
-   *           items:
-   *             $ref: '#/components/schemas/Task'
+   *         phoneNumber:
+   *           type: string
+   *           example: "123-456-7890"
+   *           nullable: true
+   *         role:
+   *           type: string
+   *           example: "Developer"
+   *           nullable: true
+   *         note:
+   *           type: string
+   *           example: "Lead developer"
+   *           nullable: true
    *     Task:
    *       type: object
    *       properties:
@@ -112,15 +171,19 @@ module.exports = (app) => {
    *         assignee:
    *           type: object
    *           properties:
-   *             id:
+   *             userId:
    *               type: integer
    *               example: 1
-   *             name:
+   *             firstName:
    *               type: string
-   *               example: "John Doe"
+   *               example: "John"
+   *             lastName:
+   *               type: string
+   *               example: "Doe"
    *             email:
    *               type: string
    *               example: "john.doe@example.com"
+   *           nullable: true
    *     Client:
    *       type: object
    *       properties:
@@ -180,10 +243,12 @@ module.exports = (app) => {
    *                 example: "2025-12-31"
    *                 description: Optional end date of the project (YYYY-MM-DD)
    *                 nullable: true
-   *               teamId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: Optional team ID to assign to the project
+   *               teamIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 example: [1, 2]
+   *                 description: Optional array of team IDs to assign to the project
    *                 nullable: true
    *     responses:
    *       201:
@@ -207,7 +272,11 @@ module.exports = (app) => {
    *                 startDate: "2025-07-15"
    *                 endDate: "2025-12-31"
    *                 status: "To Do"
-   *                 teamId: 1
+   *                 createdAt: "2025-07-25T10:04:00.000Z"
+   *                 updatedAt: "2025-07-25T10:04:00.000Z"
+   *                 teams: []
+   *                 tasks: []
+   *                 clients: []
    *       400:
    *         description: Missing required fields or invalid input
    *         content:
@@ -237,9 +306,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can create projects."
+   *                   example: "Only admins or managers can create projects"
    *       404:
-   *         description: Team not found
+   *         description: One or more teams not found
    *         content:
    *           application/json:
    *             schema:
@@ -247,7 +316,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team not found"
+   *                   example: "One or more teams not found"
    *       500:
    *         description: Internal server error
    *         content:
@@ -273,7 +342,7 @@ module.exports = (app) => {
    * @swagger
    * /api/projects/assign:
    *   post:
-   *     summary: Assign a team to a project (Admin or Manager only)
+   *     summary: Assign one or more teams to a project (Admin or Manager only)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
@@ -284,20 +353,22 @@ module.exports = (app) => {
    *           schema:
    *             type: object
    *             required:
-   *               - teamId
+   *               - teamIds
    *               - projectId
    *             properties:
-   *               teamId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: ID of the team to assign
+   *               teamIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 example: [1, 2]
+   *                 description: Array of team IDs to assign
    *               projectId:
    *                 type: integer
    *                 example: 1
-   *                 description: ID of the project to assign the team to
+   *                 description: ID of the project to assign the teams to
    *     responses:
    *       200:
-   *         description: Team assigned to project successfully
+   *         description: Teams assigned to project successfully
    *         content:
    *           application/json:
    *             schema:
@@ -305,25 +376,32 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team \"Dev Team\" assigned to project successfully."
-   *                 team:
-   *                   $ref: '#/components/schemas/Team'
+   *                   example: "Teams assigned to project successfully"
+   *                 teams:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Team'
    *             example:
-   *               message: "Team \"Dev Team\" assigned to project successfully."
-   *               team:
-   *                 teamId: 1
-   *                 teamName: "Dev Team"
-   *                 members:
-   *                   - userId: 1
-   *                     email: "john.doe@example.com"
-   *                     name: "John Doe"
-   *                     phoneNumber: "123-456-7890"
-   *                   - userId: 2
-   *                     email: "jane.smith@example.com"
-   *                     name: "Jane Smith"
-   *                     phoneNumber: null
+   *               message: "Teams assigned to project successfully"
+   *               teams:
+   *                 - teamId: 1
+   *                   teamName: "Dev Team"
+   *                   members:
+   *                     - userId: 1
+   *                       firstName: "John"
+   *                       lastName: "Doe"
+   *                       email: "john.doe@example.com"
+   *                       phoneNumber: "123-456-7890"
+   *                 - teamId: 2
+   *                   teamName: "Design Team"
+   *                   members:
+   *                     - userId: 2
+   *                       firstName: "Jane"
+   *                       lastName: "Smith"
+   *                       email: "jane.smith@example.com"
+   *                       phoneNumber: null
    *       400:
-   *         description: Missing required fields or invalid input
+   *         description: Missing required fields or teams already assigned
    *         content:
    *           application/json:
    *             schema:
@@ -331,7 +409,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "teamId and projectId are required"
+   *                   example: "teamIds (array) and projectId are required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -351,9 +429,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can assign teams to projects."
+   *                   example: "Only admins or managers can assign teams to projects"
    *       404:
-   *         description: Team or project not found
+   *         description: Project or one or more teams not found
    *         content:
    *           application/json:
    *             schema:
@@ -361,7 +439,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team not found"
+   *                   example: "Project not found"
    *       500:
    *         description: Internal server error
    *         content:
@@ -371,7 +449,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Failed to assign team to project"
+   *                   example: "Failed to assign teams to project"
    *                 details:
    *                   type: string
    *                   example: "Database error"
@@ -387,7 +465,7 @@ module.exports = (app) => {
    * @swagger
    * /api/projects/remove-team:
    *   post:
-   *     summary: Remove a team from a project (Admin or Manager only)
+   *     summary: Remove one or more teams from a project (Admin or Manager only)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
@@ -398,20 +476,22 @@ module.exports = (app) => {
    *           schema:
    *             type: object
    *             required:
-   *               - teamId
+   *               - teamIds
    *               - projectId
    *             properties:
-   *               teamId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: ID of the team to remove
+   *               teamIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 example: [1, 2]
+   *                 description: Array of team IDs to remove
    *               projectId:
    *                 type: integer
    *                 example: 1
-   *                 description: ID of the project to remove the team from
+   *                 description: ID of the project to remove the teams from
    *     responses:
    *       200:
-   *         description: Team removed from project successfully
+   *         description: Teams removed from project successfully
    *         content:
    *           application/json:
    *             schema:
@@ -419,25 +499,32 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team \"Dev Team\" removed from project successfully."
-   *                 team:
-   *                   $ref: '#/components/schemas/Team'
+   *                   example: "Teams removed from project successfully"
+   *                 teams:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Team'
    *             example:
-   *               message: "Team \"Dev Team\" removed from project successfully."
-   *               team:
-   *                 teamId: 1
-   *                 teamName: "Dev Team"
-   *                 members:
-   *                   - userId: 1
-   *                     email: "john.doe@example.com"
-   *                     name: "John Doe"
-   *                     phoneNumber: "123-456-7890"
-   *                   - userId: 2
-   *                     email: "jane.smith@example.com"
-   *                     name: "Jane Smith"
-   *                     phoneNumber: null
+   *               message: "Teams removed from project successfully"
+   *               teams:
+   *                 - teamId: 1
+   *                   teamName: "Dev Team"
+   *                   members:
+   *                     - userId: 1
+   *                       firstName: "John"
+   *                       lastName: "Doe"
+   *                       email: "john.doe@example.com"
+   *                       phoneNumber: "123-456-7890"
+   *                 - teamId: 2
+   *                   teamName: "Design Team"
+   *                   members:
+   *                     - userId: 2
+   *                       firstName: "Jane"
+   *                       lastName: "Smith"
+   *                       email: "jane.smith@example.com"
+   *                       phoneNumber: null
    *       400:
-   *         description: Missing required fields or team not assigned
+   *         description: Missing required fields or teams not assigned
    *         content:
    *           application/json:
    *             schema:
@@ -445,7 +532,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "teamId and projectId are required"
+   *                   example: "teamIds (array) and projectId are required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -465,9 +552,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can remove teams from projects."
+   *                   example: "Only admins or managers can remove teams from projects"
    *       404:
-   *         description: Team or project not found
+   *         description: Project or one or more teams not found
    *         content:
    *           application/json:
    *             schema:
@@ -475,7 +562,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Team not found"
+   *                   example: "Project not found"
    *       500:
    *         description: Internal server error
    *         content:
@@ -485,7 +572,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Failed to remove team from project"
+   *                   example: "Failed to remove teams from project"
    *                 details:
    *                   type: string
    *                   example: "Database error"
@@ -499,23 +586,492 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/projects/{projectId}/members:
+   * /api/projects/{projectId}:
    *   get:
-   *     summary: Get all members of a project with their tasks
+   *     summary: Get a project by ID (All authenticated users, restricted to assigned projects for staff)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
    *     parameters:
    *       - in: path
    *         name: projectId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         required: true
+   *         description: ID of the project to retrieve
    *         example: 1
    *     responses:
    *       200:
-   *         description: List of project members with their tasks
+   *         description: Project retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 project:
+   *                   $ref: '#/components/schemas/Project'
+   *             example:
+   *               project:
+   *                 id: 1
+   *                 name: "Website Redesign"
+   *                 description: "Redesign company website for better UX"
+   *                 startDate: "2025-07-15"
+   *                 endDate: "2025-12-31"
+   *                 status: "To Do"
+   *                 createdAt: "2025-07-25T10:04:00.000Z"
+   *                 updatedAt: "2025-07-25T10:04:00.000Z"
+   *                 teams:
+   *                   - teamId: 1
+   *                     teamName: "Dev Team"
+   *                     members:
+   *                       - userId: 1
+   *                         firstName: "John"
+   *                         lastName: "Doe"
+   *                         email: "john.doe@example.com"
+   *                         phoneNumber: "123-456-7890"
+   *                         role: "Developer"
+   *                         note: "Lead developer"
+   *                   - teamId: 2
+   *                     teamName: "Design Team"
+   *                     members:
+   *                       - userId: 2
+   *                         firstName: "Jane"
+   *                         lastName: "Smith"
+   *                         email: "jane.smith@example.com"
+   *                         phoneNumber: null
+   *                         role: "Designer"
+   *                         note: null
+   *                 tasks:
+   *                   - id: 1
+   *                     title: "Implement login page"
+   *                     description: "Create login page UI and backend"
+   *                     status: "To Do"
+   *                     dueDate: "2025-08-01T00:00:00.000Z"
+   *                     assignee:
+   *                       userId: 1
+   *                       firstName: "John"
+   *                       lastName: "Doe"
+   *                       email: "john.doe@example.com"
+   *                 clients:
+   *                   - id: 1
+   *                     firstName: "Jane"
+   *                     lastName: "Smith"
+   *                     email: "jane.smith@example.com"
+   *                     image: "https://example.com/image.jpg"
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "projectId is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - User not assigned to project
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized to view this project"
+   *       404:
+   *         description: Project not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Project not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to fetch project"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/:projectId",
+    authMiddleware.verifyToken,
+    projectController.getProjectById
+  );
+
+  /**
+   * @swagger
+   * /api/projects/my:
+   *   get:
+   *     summary: Get projects for the authenticated user (All authenticated users)
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number for pagination
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *         description: Number of projects per page
+   *     responses:
+   *       200:
+   *         description: Projects retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 projects:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Project'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 5
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 100
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid pagination parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid page or limit"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to retrieve projects"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/my",
+    authMiddleware.verifyToken,
+    projectController.getMyProjects
+  );
+
+  /**
+   * @swagger
+   * /api/projects:
+   *   get:
+   *     summary: Get all projects (All authenticated users, restricted to assigned projects for staff)
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: projectName
+   *         schema:
+   *           type: string
+   *         description: Filter by project name (partial match)
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *         description: Filter by project status
+   *       - in: query
+   *         name: startDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Filter by project start date (YYYY-MM-DD)
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number for pagination
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *         description: Number of projects per page
+   *     responses:
+   *       200:
+   *         description: Projects retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 projects:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Project'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 5
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 100
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid pagination or filter parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid page or limit"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - Invalid role
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized role"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to retrieve projects"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/",
+    authMiddleware.verifyToken,
+    projectController.getAllProjects
+  );
+
+  /**
+   * @swagger
+   * /api/projects/client/{clientId}:
+   *   get:
+   *     summary: Get all projects for a specific client (Admin, Manager, or Client themselves)
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: clientId
+   *         schema:
+   *           type: integer
+   *         required: true
+   *         description: ID of the client
+   *         example: 1
+   *       - in: query
+   *         name: projectName
+   *         schema:
+   *           type: string
+   *         description: Filter by project name (partial match)
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *         description: Filter by project status
+   *       - in: query
+   *         name: startDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Filter by project start date (YYYY-MM-DD)
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number for pagination
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *         description: Number of projects per page
+   *     responses:
+   *       200:
+   *         description: Client projects retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 projects:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Project'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 5
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 100
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "clientId is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - User not authorized to view client's projects
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized to view this client's projects"
+   *       404:
+   *         description: Client not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Client not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to retrieve client projects"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/client/:clientId",
+    authMiddleware.verifyToken,
+    projectController.getClientProjects
+  );
+
+  /**
+   * @swagger
+   * /api/projects/{projectId}/members:
+   *   get:
+   *     summary: Get all members of a project (All authenticated users)
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: projectId
+   *         schema:
+   *           type: integer
+   *         required: true
+   *         description: ID of the project
+   *         example: 1
+   *     responses:
+   *       200:
+   *         description: Project members retrieved successfully
    *         content:
    *           application/json:
    *             schema:
@@ -524,27 +1080,7 @@ module.exports = (app) => {
    *                 members:
    *                   type: array
    *                   items:
-   *                     type: object
-   *                     properties:
-   *                       userId:
-   *                         type: integer
-   *                         example: 1
-   *                       firstName:
-   *                         type: string
-   *                         example: "John"
-   *                       lastName:
-   *                         type: string
-   *                         example: "Doe"
-   *                       email:
-   *                         type: string
-   *                         example: "john.doe@example.com"
-   *                       phoneNumber:
-   *                         type: string
-   *                         example: "123-456-7890"
-   *                         nullable: true
-   *                       role:
-   *                         type: string
-   *                         example: "Developer"
+   *                     $ref: '#/components/schemas/Member'
    *             example:
    *               members:
    *                 - userId: 1
@@ -553,14 +1089,16 @@ module.exports = (app) => {
    *                   email: "john.doe@example.com"
    *                   phoneNumber: "123-456-7890"
    *                   role: "Developer"
+   *                   note: "Lead developer"
    *                 - userId: 2
    *                   firstName: "Jane"
    *                   lastName: "Smith"
    *                   email: "jane.smith@example.com"
    *                   phoneNumber: null
    *                   role: "Designer"
+   *                   note: null
    *       400:
-   *         description: Invalid project ID
+   *         description: Missing required fields
    *         content:
    *           application/json:
    *             schema:
@@ -611,104 +1149,19 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/projects:
-   *   get:
-   *     summary: Get all projects with optional search filters
-   *     tags: [Projects]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: query
-   *         name: projectName
-   *         schema:
-   *           type: string
-   *         required: false
-   *         description: Filter projects by name (supports partial matches)
-   *         example: "Website"
-   *       - in: query
-   *         name: status
-   *         schema:
-   *           type: string
-   *           enum: ["To Do", "In Progress", "Review", "Done"]
-   *         required: false
-   *         description: Filter projects by status (exact match)
-   *         example: "In Progress"
-   *       - in: query
-   *         name: startDate
-   *         schema:
-   *           type: string
-   *           format: date
-   *         required: false
-   *         description: Filter projects by start date (exact match)
-   *         example: "2025-07-15"
-   *       - in: query
-   *         name: page
-   *         schema:
-   *           type: integer
-   *           default: 1
-   *         required: false
-   *         description: Page number for pagination
-   *         example: 1
-   *       - in: query
-   *         name: limit
-   *         schema:
-   *           type: integer
-   *           default: 20
-   *         required: false
-   *         description: Number of projects per page
-   *         example: 20
-   *     responses:
-   *       400:
-   *         description: Invalid page or limit
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
-   *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Failed to retrieve projects"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
-   */
-  router.get("/", authMiddleware.verifyToken, projectController.getAllProjects);
-
-  /**
-   * @swagger
    * /api/projects/{projectId}/status:
-   *   patch:
-   *     summary: Update the status of a project (Assigned team members only)
+   *   put:
+   *     summary: Update project status (Admin, Manager, or assigned Staff)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
    *     parameters:
    *       - in: path
    *         name: projectId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         required: true
+   *         description: ID of the project to update
    *         example: 1
    *     requestBody:
    *       required: true
@@ -723,10 +1176,10 @@ module.exports = (app) => {
    *                 type: string
    *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "In Progress"
-   *                 description: New status for the project
+   *                 description: New status of the project
    *     responses:
    *       200:
-   *         description: Project status updated successfully
+   *         description: Status updated successfully
    *         content:
    *           application/json:
    *             schema:
@@ -737,18 +1190,8 @@ module.exports = (app) => {
    *                   example: "Status updated successfully"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *             example:
-   *               message: "Status updated successfully"
-   *               project:
-   *                 id: 1
-   *                 name: "Website Redesign"
-   *                 description: "Redesign company website for better UX"
-   *                 startDate: "2025-07-15"
-   *                 endDate: "2025-12-31"
-   *                 status: "In Progress"
-   *                 teamId: 1
    *       400:
-   *         description: Invalid status or project ID
+   *         description: Missing required fields or invalid status
    *         content:
    *           application/json:
    *             schema:
@@ -801,7 +1244,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.patch(
+  router.put(
     "/:projectId/status",
     authMiddleware.verifyToken,
     projectController.updateProjectStatus
@@ -810,21 +1253,21 @@ module.exports = (app) => {
   /**
    * @swagger
    * /api/projects/{projectId}:
-   *   patch:
-   *     summary: Update project details (Admin or Manager only)
+   *   put:
+   *     summary: Update a project (Admin or Manager only)
    *     tags: [Projects]
    *     security:
    *       - bearerAuth: []
    *     parameters:
    *       - in: path
    *         name: projectId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         required: true
+   *         description: ID of the project to update
    *         example: 1
    *     requestBody:
-   *       required: false
+   *       required: true
    *       content:
    *         application/json:
    *           schema:
@@ -833,34 +1276,37 @@ module.exports = (app) => {
    *               name:
    *                 type: string
    *                 example: "Website Redesign Updated"
-   *                 description: Updated project name
+   *                 description: New name of the project
+   *                 nullable: true
    *               description:
    *                 type: string
    *                 example: "Updated description for better UX"
-   *                 description: Updated project description
+   *                 description: New description of the project
    *                 nullable: true
    *               startDate:
    *                 type: string
    *                 format: date
-   *                 example: "2025-07-15"
-   *                 description: Updated start date (YYYY-MM-DD)
+   *                 example: "2025-07-20"
+   *                 description: New start date of the project (YYYY-MM-DD)
    *                 nullable: true
    *               endDate:
    *                 type: string
    *                 format: date
    *                 example: "2025-12-31"
-   *                 description: Updated end date (YYYY-MM-DD)
+   *                 description: New end date of the project (YYYY-MM-DD)
    *                 nullable: true
    *               status:
    *                 type: string
    *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "In Progress"
-   *                 description: Updated project status
+   *                 description: New status of the project
    *                 nullable: true
-   *               teamId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: Optional team ID to assign or update
+   *               teamIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 example: [1, 2]
+   *                 description: Array of team IDs to assign to the project
    *                 nullable: true
    *     responses:
    *       200:
@@ -872,21 +1318,11 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Project updated"
+   *                   example: "Project updated successfully"
    *                 project:
    *                   $ref: '#/components/schemas/Project'
-   *             example:
-   *               message: "Project updated"
-   *               project:
-   *                 id: 1
-   *                 name: "Website Redesign Updated"
-   *                 description: "Updated description for better UX"
-   *                 startDate: "2025-07-15"
-   *                 endDate: "2025-12-31"
-   *                 status: "In Progress"
-   *                 teamId: 1
    *       400:
-   *         description: Invalid input or project ID
+   *         description: Missing required fields or invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -894,7 +1330,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Invalid project ID"
+   *                   example: "At least one field must be provided for update"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -914,9 +1350,9 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can update projects."
+   *                   example: "Only admins or managers can update projects"
    *       404:
-   *         description: Project or team not found
+   *         description: Project or one or more teams not found
    *         content:
    *           application/json:
    *             schema:
@@ -939,7 +1375,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.patch(
+  router.put(
     "/:projectId",
     authMiddleware.verifyToken,
     authMiddleware.isAdminOrManager,
@@ -957,10 +1393,10 @@ module.exports = (app) => {
    *     parameters:
    *       - in: path
    *         name: projectId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         required: true
+   *         description: ID of the project to delete
    *         example: 1
    *     responses:
    *       200:
@@ -973,6 +1409,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Project deleted successfully"
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "projectId is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -992,7 +1438,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Only admins or managers can delete projects."
+   *                   example: "Only admins or managers can delete projects"
    *       404:
    *         description: Project not found
    *         content:
@@ -1026,7 +1472,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/projects/clients:
+   * /api/projects/add-client:
    *   post:
    *     summary: Add a client to a project (Admin or Manager only)
    *     tags: [Projects]
@@ -1062,7 +1508,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Client added to project successfully"
    *       400:
-   *         description: Missing required fields or invalid input
+   *         description: Missing required fields or client already associated
    *         content:
    *           application/json:
    *             schema:
@@ -1070,7 +1516,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Project ID and Client ID are required."
+   *                   example: "Project ID and Client ID are required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -1100,7 +1546,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Project not found."
+   *                   example: "Project not found"
    *       500:
    *         description: Internal server error
    *         content:
@@ -1116,7 +1562,7 @@ module.exports = (app) => {
    *                   example: "Database error"
    */
   router.post(
-    "/clients",
+    "/add-client",
     authMiddleware.verifyToken,
     authMiddleware.isAdminOrManager,
     projectController.addClientToProject
@@ -1124,7 +1570,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/projects/{projectId}/clients/{clientId}:
+   * /api/projects/{projectId}/client/{clientId}:
    *   delete:
    *     summary: Remove a client from a project (Admin or Manager only)
    *     tags: [Projects]
@@ -1133,17 +1579,17 @@ module.exports = (app) => {
    *     parameters:
    *       - in: path
    *         name: projectId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         required: true
+   *         description: ID of the project
    *         example: 1
    *       - in: path
    *         name: clientId
-   *         required: true
    *         schema:
    *           type: integer
-   *         description: Client ID
+   *         required: true
+   *         description: ID of the client to remove
    *         example: 1
    *     responses:
    *       200:
@@ -1156,6 +1602,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Client removed from project successfully"
+   *       400:
+   *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Project ID and Client ID are required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -1177,7 +1633,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Only admins or managers can remove clients"
    *       404:
-   *         description: Project, client, or association not found
+   *         description: Project or client association not found
    *         content:
    *           application/json:
    *             schema:
@@ -1185,7 +1641,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "No association found between this client and project."
+   *                   example: "No association found between this client and project"
    *       500:
    *         description: Internal server error
    *         content:
@@ -1201,7 +1657,7 @@ module.exports = (app) => {
    *                   example: "Database error"
    */
   router.delete(
-    "/:projectId/clients/:clientId",
+    "/:projectId/client/:clientId",
     authMiddleware.verifyToken,
     authMiddleware.isAdminOrManager,
     projectController.removeClientFromProject
