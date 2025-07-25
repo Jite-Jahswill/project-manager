@@ -21,11 +21,11 @@ module.exports = (sequelize, DataTypes) => {
   });
 
   Project.associate = (models) => {
-    Project.belongsToMany(models.Team, {
-      through: models.TeamProject,
-      foreignKey: "projectId",
-      otherKey: "teamId",
-    });
+    //Project.belongsToMany(models.Team, {
+     // through: models.TeamProject,
+      //foreignKey: "projectId",
+      //otherKey: "teamId",
+    //});
     Project.belongsToMany(models.User, {
       through: models.UserTeam,
       foreignKey: "projectId",
