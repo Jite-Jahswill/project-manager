@@ -640,10 +640,13 @@ module.exports = {
       return res.status(403).json({ message: "Only admins or managers can assign teams to projects" });
     }
 
-    const { teamIds, projectId } = req.body;
-    if (!teamIds || !Array.isArray(teamIds) || teamIds.length === 0 || !projectId) {
-      return res.status(400).json({ message: "teamIds (array) and projectId are required" });
+    const { teamId, projectId } = req.body;
+    if (!teamId || !projectId) {
+      return res.status(400).json({ message: "teamId and projectId are required" });
     }
+
+    // Convert single teamId to array for internal processing
+    const teamIds = [parseInt(teamId)];
 
     // Validate project existence
     const project = await db.Project.findByPk(projectId);
@@ -651,12 +654,12 @@ module.exports = {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Validate teams existence
+    // Validate team existence
     const teams = await db.Team.findAll({
       where: { id: teamIds },
     });
     if (teams.length !== teamIds.length) {
-      return res.status(404).json({ message: "One or more teams not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
     // Check for existing associations
@@ -668,24 +671,23 @@ module.exports = {
       }
     );
     const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
-    const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(parseInt(id)));
+    const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(id));
 
     if (newTeamIds.length === 0) {
-      return res.status(400).json({ message: "All provided teams are already assigned to this project" });
+      return res.status(400).json({ message: "Team is already assigned to this project" });
     }
 
-    // Insert new team assignments (raw MySQL query per your pattern)
+    // Insert new team assignment (raw MySQL query)
     const insertQuery = `
       INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
-      VALUES ${newTeamIds.map(() => "(?, ?, NOW(), NOW())").join(", ")}
+      VALUES (?, ?, NOW(), NOW())
     `;
-    const replacements = newTeamIds.flatMap((teamId) => [parseInt(teamId), parseInt(projectId)]);
     await db.sequelize.query(insertQuery, {
-      replacements,
+      replacements: [newTeamIds[0], parseInt(projectId)],
       type: db.sequelize.QueryTypes.INSERT,
     });
 
-    // Fetch team members with proper association
+    // Update UserTeams.projectId for team members (raw MySQL query)
     const teamMembers = await db.User.findAll({
       include: [
         {
@@ -698,7 +700,6 @@ module.exports = {
       attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
     });
 
-    // Update UserTeams.projectId for team members (raw MySQL query)
     if (teamMembers.length > 0) {
       const userTeamUpdateQuery = `
         UPDATE UserTeams 
@@ -738,7 +739,7 @@ module.exports = {
     await Promise.all(emailPromises);
 
     return res.status(200).json({
-      message: `Teams assigned to project "${project.name}" successfully`,
+      message: `Team assigned to project "${project.name}" successfully`,
       teams: teams.map((team) => ({
         teamId: team.id,
         teamName: team.name,
@@ -761,7 +762,7 @@ module.exports = {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    return res.status(500).json({ message: "Failed to assign teams to project", details: err.message });
+    return res.status(500).json({ message: "Failed to assign team to project", details: err.message });
   }
 },
 
@@ -772,15 +773,13 @@ module.exports = {
       return res.status(403).json({ message: "Only admins or managers can remove teams from projects" });
     }
 
-    const { teamIds, projectId } = req.body;
-    if (!teamIds || !Array.isArray(teamIds) || teamIds.length === 0 || !projectId) {
-      return res.status(400).json({ message: "teamIds (array) and projectId are required" });
+    const { teamId, projectId } = req.body;
+    if (!teamId || !projectId) {
+      return res.status(400).json({ message: "teamId and projectId are required" });
     }
 
-    // Validate request body to reject teamId
-    if (req.body.teamId) {
-      return res.status(400).json({ message: "Use teamIds array instead of teamId" });
-    }
+    // Convert single teamId to array for internal processing
+    const teamIds = [parseInt(teamId)];
 
     // Validate project existence
     const project = await db.Project.findByPk(projectId);
@@ -788,15 +787,15 @@ module.exports = {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Validate teams existence
+    // Validate team existence
     const teams = await db.Team.findAll({
       where: { id: teamIds },
     });
     if (teams.length !== teamIds.length) {
-      return res.status(404).json({ message: "One or more teams not found" });
+      return res.status(404).json({ message: "Team not found" });
     }
 
-    // Check if teams are assigned to the project
+    // Check if team is assigned to the project
     const existingAssociations = await db.sequelize.query(
       `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
       {
@@ -806,16 +805,16 @@ module.exports = {
     );
     const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
     if (assignedTeamIds.length === 0) {
-      return res.status(400).json({ message: "None of the provided teams are assigned to this project" });
+      return res.status(400).json({ message: "Team is not assigned to this project" });
     }
 
-    // Remove team assignments (raw MySQL query)
+    // Remove team assignment (raw MySQL query)
     const deleteQuery = `
       DELETE FROM TeamProjects 
-      WHERE projectId = :projectId AND teamId IN (:teamIds)
+      WHERE projectId = :projectId AND teamId = :teamId
     `;
     await db.sequelize.query(deleteQuery, {
-      replacements: { projectId: parseInt(projectId), teamIds: assignedTeamIds },
+      replacements: { projectId: parseInt(projectId), teamId: assignedTeamIds[0] },
       type: db.sequelize.QueryTypes.DELETE,
     });
 
@@ -871,7 +870,7 @@ module.exports = {
     await Promise.all(emailPromises);
 
     return res.status(200).json({
-      message: `Teams removed from project "${project.name}" successfully`,
+      message: `Team removed from project "${project.name}" successfully`,
       teams: teams
         .filter((team) => assignedTeamIds.includes(team.id))
         .map((team) => ({
@@ -896,7 +895,7 @@ module.exports = {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    return res.status(500).json({ message: "Failed to remove teams from project", details: err.message });
+    return res.status(500).json({ message: "Failed to remove team from project", details: err.message });
   }
 },
 
