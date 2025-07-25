@@ -42,7 +42,7 @@ module.exports = (sequelize, DataTypes) => {
      // foreignKey: "assignedTo",
     //  as: "assignee",
    // });
-  };
+ // };
 
   return Task;
 };
