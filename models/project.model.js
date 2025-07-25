@@ -1,4 +1,3 @@
-// models/project.model.js
 module.exports = (sequelize, DataTypes) => {
   const Project = sequelize.define("Project", {
     name: {
@@ -7,35 +6,29 @@ module.exports = (sequelize, DataTypes) => {
     },
     description: {
       type: DataTypes.TEXT,
+      allowNull: true,
     },
     startDate: {
       type: DataTypes.DATE,
+      allowNull: true,
     },
     endDate: {
       type: DataTypes.DATE,
+      allowNull: true,
     },
     status: {
       type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
       defaultValue: "To Do",
     },
+    clientId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: "Clients",
+        key: "id",
+      },
+    },
   });
-
-  //Project.associate = (models) => {
-    //Project.belongsToMany(models.Team, {
-     // through: models.TeamProject,
-      //foreignKey: "projectId",
-      //otherKey: "teamId",
-    //});
-  //  Project.belongsToMany(models.User, {
-     // through: models.UserTeam,
-      //foreignKey: "projectId",
-    //});
-   // Project.hasMany(models.Task, {
-     // foreignKey: "projectId",
-     // as: "tasks",
-    //  onDelete: "CASCADE",
-    //});
- // };
 
   return Project;
 };
