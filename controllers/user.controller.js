@@ -36,72 +36,147 @@ module.exports = {
 
   // Get all users (Admin only)
   async getAllUsers(req, res) {
-    try {
-      if (!["admin"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins can view all users" });
-      }
-
-      const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
-
-      const whereClause = {};
-
-      if (role) {
-        whereClause.role = role;
-      }
-
-      if (firstName) {
-        whereClause.firstName = {
-          [db.Sequelize.Op.like]: `%${firstName}%`,
-        };
-      }
-
-      if (lastName) {
-        whereClause.lastName = {
-          [db.Sequelize.Op.like]: `%${lastName}%`,
-        };
-      }
-
-      const { count, rows } = await User.findAndCountAll({
-        where: whereClause,
-        attributes: { exclude: ["password"] },
-        order: [["createdAt", "DESC"]],
-        limit: limitNum,
-        offset: (pageNum - 1) * limitNum,
-      });
-
-      const totalPages = Math.ceil(count / limitNum);
-
-      res.status(200).json({
-        users: rows,
-        pagination: {
-          currentPage: pageNum,
-          totalPages,
-          totalItems: count,
-          itemsPerPage: limitNum,
-        },
-      });
-    } catch (err) {
-      await db.sequelize.query(
-        "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
-        {
-          replacements: {
-            message: err.message,
-            stack: err.stack,
-            userId: req.user?.id || null,
-            context: JSON.stringify({ role: req.user?.role, query: req.query }),
-            timestamp: new Date().toISOString(),
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-        }
-      );
-      res.status(500).json({ message: "Failed to fetch users", details: err.message });
+  try {
+    if (!["admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Only admins can view all users" });
     }
-  },
+
+    const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
+    }
+
+    const whereClause = {};
+
+    if (role) {
+      whereClause.role = role;
+    }
+
+    if (firstName) {
+      whereClause.firstName = {
+        [db.Sequelize.Op.like]: `%${firstName}%`,
+      };
+    }
+
+    if (lastName) {
+      whereClause.lastName = {
+        [db.Sequelize.Op.like]: `%${lastName}%`,
+      };
+    }
+
+    const { count, rows } = await User.findAndCountAll({
+      where: whereClause,
+      attributes: { exclude: ["password"] },
+      include: [
+        {
+          model: UserTeam,
+          attributes: ["teamId", "projectId", "role", "note"],
+          include: [
+            {
+              model: Team,
+              attributes: ["id", "name"],
+            },
+            {
+              model: Project,
+              attributes: ["id", "name", "description", "startDate", "endDate", "status"],
+              required: false, // Allow users without projects
+            },
+          ],
+          required: false, // Allow users without teams
+        },
+        {
+          model: Task,
+          as: "Tasks",
+          attributes: ["id", "title", "description", "status", "dueDate"],
+          include: [
+            {
+              model: Project,
+              attributes: ["id", "name"],
+            },
+          ],
+          required: false, // Allow users without tasks
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+    });
+
+    // Transform the response to a cleaner format
+    const users = rows.map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      role: user.role,
+      phoneNumber: user.phoneNumber,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      teams: user.UserTeams
+        ? user.UserTeams.map((ut) => ({
+            teamId: ut.teamId,
+            teamName: ut.Team ? ut.Team.name : null,
+            project: ut.Project
+              ? {
+                  id: ut.Project.id,
+                  name: ut.Project.name,
+                  description: ut.Project.description,
+                  startDate: ut.Project.startDate,
+                  endDate: ut.Project.endDate,
+                  status: ut.Project.status,
+                }
+              : null,
+            role: ut.role,
+            note: ut.note,
+          }))
+        : [],
+      tasks: user.Tasks
+        ? user.Tasks.map((task) => ({
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            dueDate: task.dueDate,
+            project: task.Project
+              ? {
+                  id: task.Project.id,
+                  name: task.Project.name,
+                }
+              : null,
+          }))
+        : [],
+    }));
+
+    const totalPages = Math.ceil(count / limitNum);
+
+    res.status(200).json({
+      users,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems: count,
+        itemsPerPage: limitNum,
+      },
+    });
+  } catch (err) {
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ role: req.user?.role, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
+    res.status(500).json({ message: "Failed to fetch users", details: err.message });
+  }
+},
 
   // Get one user by ID
   async getUserById(req, res) {
