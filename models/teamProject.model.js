@@ -17,10 +17,10 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  TeamProject.associate = (models) => {
-    TeamProject.belongsTo(models.Team, { foreignKey: "teamId" });
-    TeamProject.belongsTo(models.Project, { foreignKey: "projectId" });
-  };
+  //TeamProject.associate = (models) => {
+   // TeamProject.belongsTo(models.Team, { foreignKey: "teamId" });
+    //TeamProject.belongsTo(models.Project, { foreignKey: "projectId" });
+  //};
 
   return TeamProject;
 };
