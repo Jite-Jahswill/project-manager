@@ -16,22 +16,22 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  //Team.associate = (models) => {
-    //Team.belongsToMany(models.User, {
-     // through: models.UserTeam,
-      //foreignKey: "teamId",
-     // otherKey: "userId",
-   // });
-   // Team.belongsToMany(models.Project, {
-    //  through: models.TeamProject,
-     // foreignKey: "teamId",
-     // otherKey: "projectId",
-    //});
-    //Team.hasMany(models.UserTeam, {
-     // foreignKey: "teamId",
-     // onDelete: "CASCADE",
-    //});
- // };
+  Team.associate = (models) => {
+    Team.belongsToMany(models.User, {
+      through: models.UserTeam,
+      foreignKey: "teamId",
+      otherKey: "userId",
+    });
+    Team.belongsToMany(models.Project, {
+      through: models.TeamProject,
+      foreignKey: "teamId",
+      otherKey: "projectId",
+    });
+    Team.hasMany(models.UserTeam, {
+      foreignKey: "teamId",
+      onDelete: "CASCADE",
+    });
+  };
 
   return Team;
 };
