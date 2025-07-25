@@ -645,127 +645,112 @@ module.exports = {
       return res.status(400).json({ message: "teamIds (array) and projectId are required" });
     }
 
-    const transaction = await db.sequelize.transaction();
-
-    try {
-      const project = await db.Project.findByPk(projectId, { transaction });
-      if (!project) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      const teams = await db.Team.findAll({
-        where: { id: teamIds },
-        transaction,
-      });
-      if (teams.length !== teamIds.length) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "One or more teams not found" });
-      }
-
-      // Check for existing associations
-      const existingAssociations = await db.sequelize.query(
-        `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
-        {
-          replacements: { projectId: parseInt(projectId), teamIds },
-          type: db.sequelize.QueryTypes.SELECT,
-          transaction,
-        }
-      );
-      const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
-      const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(parseInt(id)));
-
-      if (newTeamIds.length === 0) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "All provided teams are already assigned to this project" });
-      }
-
-      // Insert new team assignments (using raw MySQL query per your pattern)
-      const insertQuery = `
-        INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
-        VALUES ${newTeamIds.map(() => "(?, ?, NOW(), NOW())").join(", ")}
-      `;
-      const replacements = newTeamIds.flatMap((teamId) => [parseInt(teamId), parseInt(projectId)]);
-      await db.sequelize.query(insertQuery, {
-        replacements,
-        type: db.sequelize.QueryTypes.INSERT,
-        transaction,
-      });
-
-      // Update UserTeams.projectId for team members (using raw MySQL query)
-      const teamMembers = await db.User.findAll({
-        include: [
-          {
-            model: db.Team,
-            where: { id: newTeamIds },
-            attributes: [],
-            through: { attributes: [] },
-          },
-        ],
-        attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
-        transaction,
-      });
-
-      if (teamMembers.length > 0) {
-        const userTeamUpdateQuery = `
-          UPDATE UserTeams 
-          SET projectId = :projectId, updatedAt = NOW()
-          WHERE teamId IN (:teamIds) AND projectId IS NULL
-        `;
-        await db.sequelize.query(userTeamUpdateQuery, {
-          replacements: { projectId: parseInt(projectId), teamIds: newTeamIds },
-          type: db.sequelize.QueryTypes.UPDATE,
-          transaction,
-        });
-      }
-
-      // Send emails after database operations but before commit
-      const emailPromises = teamMembers.map((user) =>
-        sendMail({
-          to: user.email,
-          subject: `Your Team Has Been Assigned to Project: ${project.name}`,
-          html: `
-            <p>Hello ${user.firstName},</p>
-            <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
-            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-            <p>Please log in to view your tasks.</p>
-            <p>Best,<br>Team</p>
-          `,
-        }).catch((emailErr) => {
-          console.error("Email sending error:", {
-            message: emailErr.message,
-            userId: user.id,
-            email: user.email,
-            timestamp: new Date().toISOString(),
-          });
-          // Do not throw to prevent transaction rollback due to email failure
-        })
-      );
-
-      await Promise.all(emailPromises);
-      await transaction.commit();
-
-      return res.status(200).json({
-        message: `Teams assigned to project "${project.name}" successfully`,
-        teams: teams.map((team) => ({
-          teamId: team.id,
-          teamName: team.name,
-          members: teamMembers
-            .filter((user) => user.Teams.some((t) => t.id === team.id))
-            .map((u) => ({
-              userId: u.id,
-              email: u.email,
-              name: `${u.firstName} ${u.lastName}`,
-              phoneNumber: u.phoneNumber || null,
-            })),
-        })),
-      });
-    } catch (err) {
-      await transaction.rollback();
-      throw err; // Rethrow to be caught by outer catch
+    // Validate project existence
+    const project = await db.Project.findByPk(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
     }
+
+    // Validate teams existence
+    const teams = await db.Team.findAll({
+      where: { id: teamIds },
+    });
+    if (teams.length !== teamIds.length) {
+      return res.status(404).json({ message: "One or more teams not found" });
+    }
+
+    // Check for existing associations
+    const existingAssociations = await db.sequelize.query(
+      `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
+      {
+        replacements: { projectId: parseInt(projectId), teamIds },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+    const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+    const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(parseInt(id)));
+
+    if (newTeamIds.length === 0) {
+      return res.status(400).json({ message: "All provided teams are already assigned to this project" });
+    }
+
+    // Insert new team assignments (raw MySQL query per your pattern)
+    const insertQuery = `
+      INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
+      VALUES ${newTeamIds.map(() => "(?, ?, NOW(), NOW())").join(", ")}
+    `;
+    const replacements = newTeamIds.flatMap((teamId) => [parseInt(teamId), parseInt(projectId)]);
+    await db.sequelize.query(insertQuery, {
+      replacements,
+      type: db.sequelize.QueryTypes.INSERT,
+    });
+
+    // Update UserTeams.projectId for team members (raw MySQL query)
+    const teamMembers = await db.User.findAll({
+      include: [
+        {
+          model: db.Team,
+          where: { id: newTeamIds },
+          attributes: [],
+          through: { attributes: [] },
+        },
+      ],
+      attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+    });
+
+    if (teamMembers.length > 0) {
+      const userTeamUpdateQuery = `
+        UPDATE UserTeams 
+        SET projectId = :projectId, updatedAt = NOW()
+        WHERE teamId IN (:teamIds) AND projectId IS NULL
+      `;
+      await db.sequelize.query(userTeamUpdateQuery, {
+        replacements: { projectId: parseInt(projectId), teamIds: newTeamIds },
+        type: db.sequelize.QueryTypes.UPDATE,
+      });
+    }
+
+    // Send emails
+    const emailPromises = teamMembers.map((user) =>
+      sendMail({
+        to: user.email,
+        subject: `Your Team Has Been Assigned to Project: ${project.name}`,
+        html: `
+          <p>Hello ${user.firstName},</p>
+          <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
+          <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+          <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+          <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+          <p>Please log in to view your tasks.</p>
+          <p>Best,<br>Team</p>
+        `,
+      }).catch((emailErr) => {
+        console.error("Email sending error:", {
+          message: emailErr.message,
+          userId: user.id,
+          email: user.email,
+          timestamp: new Date().toISOString(),
+        });
+      })
+    );
+
+    await Promise.all(emailPromises);
+
+    return res.status(200).json({
+      message: `Teams assigned to project "${project.name}" successfully`,
+      teams: teams.map((team) => ({
+        teamId: team.id,
+        teamName: team.name,
+        members: teamMembers
+          .filter((user) => user.Teams.some((t) => t.id === team.id))
+          .map((u) => ({
+            userId: u.id,
+            email: u.email,
+            name: `${u.firstName} ${u.lastName}`,
+            phoneNumber: u.phoneNumber || null,
+          })),
+      })),
+    });
   } catch (err) {
     console.error("Assign team error:", {
       message: err.message,
@@ -791,126 +776,111 @@ module.exports = {
       return res.status(400).json({ message: "teamIds (array) and projectId are required" });
     }
 
-    const transaction = await db.sequelize.transaction();
-
-    try {
-      const project = await db.Project.findByPk(projectId, { transaction });
-      if (!project) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      const teams = await db.Team.findAll({
-        where: { id: teamIds },
-        transaction,
-      });
-      if (teams.length !== teamIds.length) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "One or more teams not found" });
-      }
-
-      // Check if teams are assigned to the project
-      const existingAssociations = await db.sequelize.query(
-        `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
-        {
-          replacements: { projectId: parseInt(projectId), teamIds },
-          type: db.sequelize.QueryTypes.SELECT,
-          transaction,
-        }
-      );
-      const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
-      if (assignedTeamIds.length === 0) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "None of the provided teams are assigned to this project" });
-      }
-
-      // Remove team assignments (using raw MySQL query per your pattern)
-      const deleteQuery = `
-        DELETE FROM TeamProjects 
-        WHERE projectId = :projectId AND teamId IN (:teamIds)
-      `;
-      await db.sequelize.query(deleteQuery, {
-        replacements: { projectId: parseInt(projectId), teamIds: assignedTeamIds },
-        type: db.sequelize.QueryTypes.DELETE,
-        transaction,
-      });
-
-      // Update UserTeams.projectId for team members (using raw MySQL query)
-      const teamMembers = await db.User.findAll({
-        include: [
-          {
-            model: db.Team,
-            where: { id: assignedTeamIds },
-            attributes: [],
-            through: { attributes: [] },
-          },
-        ],
-        attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
-        transaction,
-      });
-
-      if (teamMembers.length > 0) {
-        const userTeamUpdateQuery = `
-          UPDATE UserTeams 
-          SET projectId = NULL, updatedAt = NOW()
-          WHERE teamId IN (:teamIds) AND projectId = :projectId
-        `;
-        await db.sequelize.query(userTeamUpdateQuery, {
-          replacements: { teamIds: assignedTeamIds, projectId: parseInt(projectId) },
-          type: db.sequelize.QueryTypes.UPDATE,
-          transaction,
-        });
-      }
-
-      // Send emails after database operations but before commit
-      const emailPromises = teamMembers.map((user) =>
-        sendMail({
-          to: user.email,
-          subject: `Your Team Has Been Removed from Project: ${project.name}`,
-          html: `
-            <p>Hello ${user.firstName},</p>
-            <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
-            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-            <p>Please check your dashboard for updated assignments.</p>
-            <p>Best,<br>Team</p>
-          `,
-        }).catch((emailErr) => {
-          console.error("Email sending error:", {
-            message: emailErr.message,
-            userId: user.id,
-            email: user.email,
-            timestamp: new Date().toISOString(),
-          });
-          // Do not throw to prevent transaction rollback due to email failure
-        })
-      );
-
-      await Promise.all(emailPromises);
-      await transaction.commit();
-
-      return res.status(200).json({
-        message: `Teams removed from project "${project.name}" successfully`,
-        teams: teams
-          .filter((team) => assignedTeamIds.includes(team.id))
-          .map((team) => ({
-            teamId: team.id,
-            teamName: team.name,
-            members: teamMembers
-              .filter((user) => user.Teams.some((t) => t.id === team.id))
-              .map((u) => ({
-                userId: u.id,
-                email: u.email,
-                name: `${u.firstName} ${u.lastName}`,
-                phoneNumber: u.phoneNumber || null,
-              })),
-          })),
-      });
-    } catch (err) {
-      await transaction.rollback();
-      throw err; // Rethrow to be caught by outer catch
+    // Validate project existence
+    const project = await db.Project.findByPk(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
     }
+
+    // Validate teams existence
+    const teams = await db.Team.findAll({
+      where: { id: teamIds },
+    });
+    if (teams.length !== teamIds.length) {
+      return res.status(404).json({ message: "One or more teams not found" });
+    }
+
+    // Check if teams are assigned to the project
+    const existingAssociations = await db.sequelize.query(
+      `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
+      {
+        replacements: { projectId: parseInt(projectId), teamIds },
+        type: db.sequelize.QueryTypes.SELECT,
+      }
+    );
+    const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+    if (assignedTeamIds.length === 0) {
+      return res.status(400).json({ message: "None of the provided teams are assigned to this project" });
+    }
+
+    // Remove team assignments (raw MySQL query)
+    const deleteQuery = `
+      DELETE FROM TeamProjects 
+      WHERE projectId = :projectId AND teamId IN (:teamIds)
+    `;
+    await db.sequelize.query(deleteQuery, {
+      replacements: { projectId: parseInt(projectId), teamIds: assignedTeamIds },
+      type: db.sequelize.QueryTypes.DELETE,
+    });
+
+    // Update UserTeams.projectId for team members (raw MySQL query)
+    const teamMembers = await db.User.findAll({
+      include: [
+        {
+          model: db.Team,
+          where: { id: assignedTeamIds },
+          attributes: [],
+          through: { attributes: [] },
+        },
+      ],
+      attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+    });
+
+    if (teamMembers.length > 0) {
+      const userTeamUpdateQuery = `
+        UPDATE UserTeams 
+        SET projectId = NULL, updatedAt = NOW()
+        WHERE teamId IN (:teamIds) AND projectId = :projectId
+      `;
+      await db.sequelize.query(userTeamUpdateQuery, {
+        replacements: { teamIds: assignedTeamIds, projectId: parseInt(projectId) },
+        type: db.sequelize.QueryTypes.UPDATE,
+      });
+    }
+
+    // Send emails
+    const emailPromises = teamMembers.map((user) =>
+      sendMail({
+        to: user.email,
+        subject: `Your Team Has Been Removed from Project: ${project.name}`,
+        html: `
+          <p>Hello ${user.firstName},</p>
+          <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
+          <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+          <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+          <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+          <p>Please check your dashboard for updated assignments.</p>
+          <p>Best,<br>Team</p>
+        `,
+      }).catch((emailErr) => {
+        console.error("Email sending error:", {
+          message: emailErr.message,
+          userId: user.id,
+          email: user.email,
+          timestamp: new Date().toISOString(),
+        });
+      })
+    );
+
+    await Promise.all(emailPromises);
+
+    return res.status(200).json({
+      message: `Teams removed from project "${project.name}" successfully`,
+      teams: teams
+        .filter((team) => assignedTeamIds.includes(team.id))
+        .map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: teamMembers
+            .filter((user) => user.Teams.some((t) => t.id === team.id))
+            .map((u) => ({
+              userId: u.id,
+              email: u.email,
+              name: `${u.firstName} ${u.lastName}`,
+              phoneNumber: u.phoneNumber || null,
+            })),
+        })),
+    });
   } catch (err) {
     console.error("Remove team from project error:", {
       message: err.message,
