@@ -18,21 +18,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM("To Do", "In Progress", "Review", "Done"),
       defaultValue: "To Do",
     },
-    teamId: {
-      // Explicitly define teamId
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: "Teams",
-        key: "id",
-      },
-    },
   });
 
   Project.associate = (models) => {
-    Project.belongsTo(models.Team, {
-      foreignKey: "teamId",
-      onDelete: "SET NULL",
+    Project.belongsToMany(models.Team, {
+      through: models.TeamProject,
+      foreignKey: "projectId",
+      otherKey: "teamId",
     });
     Project.belongsToMany(models.User, {
       through: models.UserTeam,
