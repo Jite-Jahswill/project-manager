@@ -1,3 +1,4 @@
+// models/team.model.js
 module.exports = (sequelize, DataTypes) => {
   const Team = sequelize.define("Team", {
     id: {
@@ -21,9 +22,10 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "teamId",
       otherKey: "userId",
     });
-    Team.hasMany(models.Project, {
+    Team.belongsToMany(models.Project, {
+      through: models.TeamProject,
       foreignKey: "teamId",
-      onDelete: "CASCADE",
+      otherKey: "projectId",
     });
     Team.hasMany(models.UserTeam, {
       foreignKey: "teamId",
