@@ -685,19 +685,20 @@ module.exports = {
       type: db.sequelize.QueryTypes.INSERT,
     });
 
-    // Update UserTeams.projectId for team members (raw MySQL query)
+    // Fetch team members with proper association
     const teamMembers = await db.User.findAll({
       include: [
         {
           model: db.Team,
           where: { id: newTeamIds },
-          attributes: [],
+          attributes: ["id", "name"],
           through: { attributes: [] },
         },
       ],
       attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
     });
 
+    // Update UserTeams.projectId for team members (raw MySQL query)
     if (teamMembers.length > 0) {
       const userTeamUpdateQuery = `
         UPDATE UserTeams 
@@ -742,7 +743,7 @@ module.exports = {
         teamId: team.id,
         teamName: team.name,
         members: teamMembers
-          .filter((user) => user.Teams.some((t) => t.id === team.id))
+          .filter((user) => user.Teams && user.Teams.some((t) => t.id === team.id))
           .map((u) => ({
             userId: u.id,
             email: u.email,
@@ -774,6 +775,11 @@ module.exports = {
     const { teamIds, projectId } = req.body;
     if (!teamIds || !Array.isArray(teamIds) || teamIds.length === 0 || !projectId) {
       return res.status(400).json({ message: "teamIds (array) and projectId are required" });
+    }
+
+    // Validate request body to reject teamId
+    if (req.body.teamId) {
+      return res.status(400).json({ message: "Use teamIds array instead of teamId" });
     }
 
     // Validate project existence
@@ -819,7 +825,7 @@ module.exports = {
         {
           model: db.Team,
           where: { id: assignedTeamIds },
-          attributes: [],
+          attributes: ["id", "name"],
           through: { attributes: [] },
         },
       ],
@@ -872,7 +878,7 @@ module.exports = {
           teamId: team.id,
           teamName: team.name,
           members: teamMembers
-            .filter((user) => user.Teams.some((t) => t.id === team.id))
+            .filter((user) => user.Teams && user.Teams.some((t) => t.id === team.id))
             .map((u) => ({
               userId: u.id,
               email: u.email,
