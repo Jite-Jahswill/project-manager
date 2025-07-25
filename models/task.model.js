@@ -33,16 +33,16 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  Task.associate = (models) => {
-    Task.belongsTo(models.Project, {
-      foreignKey: "projectId",
-      onDelete: "CASCADE",
-    });
-    Task.belongsTo(models.User, {
-      foreignKey: "assignedTo",
-      as: "assignee",
-    });
-  };
+  //Task.associate = (models) => {
+    //Task.belongsTo(models.Project, {
+      //foreignKey: "projectId",
+      //onDelete: "CASCADE",
+    //});
+    //Task.belongsTo(models.User, {
+     // foreignKey: "assignedTo",
+      //as: "assignee",
+    //});
+  //};
 
   return Task;
 };
