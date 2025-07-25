@@ -22,11 +22,11 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: "teamId",
       otherKey: "userId",
     });
-    Team.belongsToMany(models.Project, {
-      through: models.TeamProject,
-      foreignKey: "teamId",
-      otherKey: "projectId",
-    });
+   // Team.belongsToMany(models.Project, {
+    //  through: models.TeamProject,
+     // foreignKey: "teamId",
+     // otherKey: "projectId",
+    //});
     Team.hasMany(models.UserTeam, {
       foreignKey: "teamId",
       onDelete: "CASCADE",
