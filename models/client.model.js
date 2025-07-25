@@ -27,21 +27,17 @@ module.exports = (sequelize, DataTypes) => {
     },
     otp: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if required
+      allowNull: true,
     },
     otpExpiresAt: {
       type: DataTypes.DATE,
-      allowNull: true, // Change to false if required
+      allowNull: true,
     },
     phoneNumber: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if you want it to be required
+      allowNull: true,
     },
   });
-
-  Client.associate = (models) => {
-    Client.hasMany(models.Project, { foreignKey: "clientId" });
-  };
 
   return Client;
 };
