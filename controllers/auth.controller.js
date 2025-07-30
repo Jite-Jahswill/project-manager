@@ -162,8 +162,18 @@ exports.getAllUsers = async (req, res) => {
 
     const totalPages = Math.ceil(count / limit);
 
+    // Map user details to the desired format
+    const users = rows.map(user => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+    }));
+
     res.json({
-      users: rows,
+      users,
       pagination: {
         currentPage: parseInt(page),
         totalPages,
@@ -178,9 +188,7 @@ exports.getAllUsers = async (req, res) => {
       userId: req.user?.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch users", details: error.message });
+    res.status(500).json({ error: "Failed to fetch users", details: error.message });
   }
 };
 
@@ -203,7 +211,15 @@ exports.getUserById = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized to view this user" });
     }
 
-    res.json(user);
+    // Return user details in the desired format
+    res.json({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+    });
   } catch (error) {
     console.error("Get user error:", {
       message: error.message,
@@ -212,9 +228,7 @@ exports.getUserById = async (req, res) => {
       targetUserId: req.params.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to fetch user", details: error.message });
+    res.status(500).json({ error: "Failed to fetch user", details: error.message });
   }
 };
 
