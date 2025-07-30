@@ -54,18 +54,33 @@ app.get("/", (req, res) => {
                 font-size: 0.9em;
                 color: #999;
             }
+            .docs-link {
+                margin-top: 20px;
+                display: inline-block;
+                padding: 10px 20px;
+                background-color: #007bff;
+                color: white;
+                text-decoration: none;
+                border-radius: 5px;
+                transition: background-color 0.3s;
+            }
+            .docs-link:hover {
+                background-color: #0056b3;
+            }
         </style>
     </head>
     <body>
         <div class="container">
             <h1>Project Management Backend</h1>
             <p>Backend is Running Smoothly!</p>
+            <a href="https://project-manager-xapf.onrender.com/api-docs" class="docs-link" target="_blank">View API Documentation</a>
             <div class="footer">© 2025 Project Management Team</div>
         </div>
     </body>
     </html>
   `);
 });
+
 
 
 // Run every Monday at 8:00 AM
