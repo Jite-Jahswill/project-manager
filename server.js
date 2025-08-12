@@ -104,7 +104,7 @@ app.use("/uploads", express.static("uploads"));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // // (more will be added later)
 
-sequelize.sync({ alter: true }).then(() => {
+sequelize.sync({ alter: false }).then(() => {
   console.log("Database synced");
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 });
