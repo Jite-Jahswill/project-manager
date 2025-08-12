@@ -1,6 +1,7 @@
 const db = require("../models");
 const sendMail = require("../utils/mailer");
 const { notifyClientOnProjectCompletion } = require("./client.controller");
+const { User, Project, Task, UserTeam } = require("../models");
 
 module.exports = {
   // Create a new project (Admin or Manager)
