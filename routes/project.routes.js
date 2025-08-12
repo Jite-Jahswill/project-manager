@@ -923,7 +923,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/projects/client/{clientId}:
+   * /api/projects/client/:clientId:
    *   get:
    *     summary: Get all projects for a specific client (Admin, Manager, or Client themselves)
    *     tags: [Projects]
@@ -1145,6 +1145,126 @@ module.exports = (app) => {
     "/:projectId/members",
     authMiddleware.verifyToken,
     projectController.getProjectMembers
+  );
+
+  /**
+   * @swagger
+   * /api/projects/{projectId}/tasks:
+   *   get:
+   *     summary: Get all tasks for a specific project
+   *     description: Retrieves all tasks associated with a given project. Staff can only view tasks for projects they are assigned to; admins can view tasks for any project.
+   *     tags: [Projects]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: projectId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Project ID
+   *         example: 1
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         description: Page number for pagination
+   *         example: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 20
+   *         description: Number of tasks per page
+   *         example: 20
+   *     responses:
+   *       200:
+   *         description: List of tasks for the project
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 tasks:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Task'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 1
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 10
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid project ID or pagination parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid projectId or pagination parameters"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Access denied - Staff can only view tasks for projects they are assigned to
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized to view tasks for this project"
+   *       404:
+   *         description: Project not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Project not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to fetch project tasks"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+    "/:projectId/tasks",
+    authMiddleware.verifyToken,
+    projectController.getTasksByProject
   );
 
   /**
