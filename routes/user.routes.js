@@ -56,52 +56,6 @@ module.exports = (app) => {
    *         details:
    *           type: string
    *           example: "Database error"
-   *     Task:
-   *       type: object
-   *       properties:
-   *         id:
-   *           type: integer
-   *           example: 1
-   *         title:
-   *           type: string
-   *           example: "Implement login feature"
-   *         description:
-   *           type: string
-   *           example: "Create a login feature for the application"
-   *           nullable: true
-   *         status:
-   *           type: string
-   *           example: "In Progress"
-   *         dueDate:
-   *           type: string
-   *           format: date
-   *           example: "2025-07-19"
-   *           nullable: true
-   *         project:
-   *           type: object
-   *           properties:
-   *             id:
-   *               type: integer
-   *               example: 1
-   *             name:
-   *               type: string
-   *               example: "Website Redesign"
-   *         assignee:
-   *           type: object
-   *           nullable: true
-   *           properties:
-   *             userId:
-   *               type: integer
-   *               example: 2
-   *             firstName:
-   *               type: string
-   *               example: "Jane"
-   *             lastName:
-   *               type: string
-   *               example: "Doe"
-   *             email:
-   *               type: string
-   *               example: "jane.doe@example.com"
    */
 
   /**
@@ -493,6 +447,53 @@ module.exports = (app) => {
    *                           status:
    *                             type: string
    *                             example: "In Progress"
+   *                           createdAt:
+   *                             type: string
+   *                             format: date-time
+   *                             example: "2025-07-19T22:55:00.000Z"
+   *                           updatedAt:
+   *                             type: string
+   *                             format: date-time
+   *                             example: "2025-07-19T22:55:00.000Z"
+   *                           tasks:
+   *                             type: array
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 id:
+   *                                   type: integer
+   *                                   example: 1
+   *                                 title:
+   *                                   type: string
+   *                                   example: "Implement login feature"
+   *                                 description:
+   *                                   type: string
+   *                                   example: "Create login functionality"
+   *                                   nullable: true
+   *                                 status:
+   *                                   type: string
+   *                                   example: "In Progress"
+   *                                 dueDate:
+   *                                   type: string
+   *                                   format: date
+   *                                   example: "2025-07-19"
+   *                                   nullable: true
+   *                                 assignee:
+   *                                   type: object
+   *                                   nullable: true
+   *                                   properties:
+   *                                     userId:
+   *                                       type: integer
+   *                                       example: 2
+   *                                     firstName:
+   *                                       type: string
+   *                                       example: "Jane"
+   *                                     lastName:
+   *                                       type: string
+   *                                       example: "Doe"
+   *                                     email:
+   *                                       type: string
+   *                                       example: "jane.doe@example.com"
    *                       role:
    *                         type: string
    *                         example: "Developer"
@@ -592,7 +593,60 @@ module.exports = (app) => {
    *                 tasks:
    *                   type: array
    *                   items:
-   *                     $ref: '#/components/schemas/Task'
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                         example: 1
+   *                       title:
+   *                         type: string
+   *                         example: "Implement login feature"
+   *                       description:
+   *                         type: string
+   *                         example: "Create a login feature for the application"
+   *                         nullable: true
+   *                       status:
+   *                         type: string
+   *                         example: "In Progress"
+   *                       dueDate:
+   *                         type: string
+   *                         format: date
+   *                         example: "2025-07-19"
+   *                         nullable: true
+   *                       project:
+   *                         type: object
+   *                         properties:
+   *                           id:
+   *                             type: integer
+   *                             example: 1
+   *                           name:
+   *                             type: string
+   *                             example: "Website Redesign"
+   *                       team:
+   *                         type: object
+   *                         properties:
+   *                           teamId:
+   *                             type: integer
+   *                             example: 1
+   *                           teamName:
+   *                             type: string
+   *                             example: "Development Team"
+   *                       assignee:
+   *                         type: object
+   *                         nullable: true
+   *                         properties:
+   *                           userId:
+   *                             type: integer
+   *                             example: 2
+   *                           firstName:
+   *                             type: string
+   *                             example: "Jane"
+   *                           lastName:
+   *                             type: string
+   *                             example: "Doe"
+   *                           email:
+   *                             type: string
+   *                             example: "jane.doe@example.com"
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -640,99 +694,6 @@ module.exports = (app) => {
    *               $ref: '#/components/schemas/Error'
    */
   router.get("/:userId/tasks", verifyToken, userController.getUserTasks);
-
-  /**
-   * @swagger
-   * /api/users/projects/{projectId}/tasks:
-   *   get:
-   *     summary: Get all tasks for a specific project
-   *     description: Retrieves all tasks associated with a given project. Staff can only view tasks for projects they are assigned to; admins can view tasks for any project.
-   *     tags: [Users]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: projectId
-   *         required: true
-   *         schema:
-   *           type: integer
-   *         description: Project ID
-   *         example: 1
-   *       - in: query
-   *         name: page
-   *         schema:
-   *           type: integer
-   *           minimum: 1
-   *           default: 1
-   *         description: Page number for pagination
-   *         example: 1
-   *       - in: query
-   *         name: limit
-   *         schema:
-   *           type: integer
-   *           minimum: 1
-   *           default: 20
-   *         description: Number of tasks per page
-   *         example: 20
-   *     responses:
-   *       200:
-   *         description: List of tasks for the project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 tasks:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Task'
-   *                 pagination:
-   *                   type: object
-   *                   properties:
-   *                     currentPage:
-   *                       type: integer
-   *                       example: 1
-   *                     totalPages:
-   *                       type: integer
-   *                       example: 1
-   *                     totalItems:
-   *                       type: integer
-   *                       example: 10
-   *                     itemsPerPage:
-   *                       type: integer
-   *                       example: 20
-   *       400:
-   *         description: Invalid project ID or pagination parameters
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/Error'
-   *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/Error'
-   *       403:
-   *         description: Access denied - Staff can only view tasks for projects they are assigned to
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/Error'
-   *       404:
-   *         description: Project not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/Error'
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/Error'
-   */
-  router.get("/projects/:projectId/tasks", verifyToken, userController.getTasksByProject);
 
   app.use("/api/users", router);
 };
