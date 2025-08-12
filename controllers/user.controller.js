@@ -339,116 +339,74 @@ module.exports = {
     }
   },
 
-  // Get projects a user belongs to
-  async getUserProjects(req, res) {
-    try {
-      const { userId } = req.params;
-      const { page = 1, limit = 20 } = req.query;
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
-
-      if (!userId) {
-        return res.status(400).json({ message: "userId is required" });
-      }
-
-      if (req.user.role !== "admin" && req.user.id !== parseInt(userId)) {
-        return res.status(403).json({ message: "Unauthorized to view this user's projects" });
-      }
-
-      const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      const { count, rows } = await UserTeam.findAndCountAll({
-        where: {
-          userId,
-          projectId: { [db.Sequelize.Op.ne]: null },
-        },
-        include: [
-          {
-            model: Project,
-            attributes: ["id", "name", "description", "startDate", "endDate", "status"],
-            include: [
-              {
-                model: Task,
-                as: "Tasks",
-                attributes: ["id", "title", "description", "status", "dueDate"],
-                include: [
-                  {
-                    model: User,
-                    as: "assignee",
-                    attributes: ["id", "firstName", "lastName", "email"],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-        order: [[{ model: Project }, "createdAt", "DESC"]],
-        limit: limitNum,
-        offset: (pageNum - 1) * limitNum,
-      });
-
-      const projects = rows.map((ut) => ({
-        project: {
-          id: ut.Project.id,
-          name: ut.Project.name,
-          description: ut.Project.description,
-          startDate: ut.Project.startDate,
-          endDate: ut.Project.endDate,
-          status: ut.Project.status,
-          tasks: ut.Project.Tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? {
-                  userId: task.assignee.id,
-                  firstName: task.assignee.firstName,
-                  lastName: task.assignee.lastName,
-                  email: task.assignee.email,
-                }
-              : null,
-          })),
-        },
-        role: ut.role,
-        note: ut.note,
-      }));
-
-      const totalPages = Math.ceil(count / limitNum);
-
-      res.status(200).json({
-        projects,
-        pagination: {
-          currentPage: pageNum,
-          totalPages,
-          totalItems: count,
-          itemsPerPage: limitNum,
-        },
-      });
-    } catch (err) {
-      await db.sequelize.query(
-        "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
-        {
-          replacements: {
-            message: err.message,
-            stack: err.stack,
-            userId: req.user?.id || null,
-            context: JSON.stringify({ targetUserId: req.params.userId, query: req.query }),
-            timestamp: new Date().toISOString(),
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-        }
-      );
-      res.status(500).json({ message: "Failed to fetch user projects", details: err.message });
+// Get projects a user belongs to
+async getUserProjects(req, res) {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
     }
-  },
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    if (req.user.role !== "admin" && req.user.id !== parseInt(userId)) {
+      return res.status(403).json({ message: "Unauthorized to view this user's projects" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const { count, rows } = await UserTeam.findAndCountAll({
+      where: {
+        userId,
+        projectId: { [db.Sequelize.Op.ne]: null },
+      },
+      include: [
+        {
+          model: Project,
+          attributes: ["id", "name", "description", "startDate", "endDate", "status"],
+        },
+      ],
+      order: [[{ model: Project }, "createdAt", "DESC"]],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+    });
+
+    const projects = rows.map((ut) => ({
+      project: {
+        id: ut.Project.id,
+        name: ut.Project.name,
+        description: ut.Project.description,
+        startDate: ut.Project.startDate,
+        endDate: ut.Project.endDate,
+        status: ut.Project.status,
+      },
+      role: ut.role,
+      note: ut.note,
+    }));
+
+    const totalPages = Math.ceil(count / limitNum);
+
+    res.status(200).json({
+      projects,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems: count,
+        itemsPerPage: limitNum,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch user projects", details: err.message });
+  }
+},
 
 // Get tasks for the user's team(s)
 async getUserTasks(req, res) {
