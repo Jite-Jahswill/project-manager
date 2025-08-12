@@ -450,125 +450,126 @@ module.exports = {
     }
   },
 
-  // Get tasks for the user's team(s)
-  async getUserTasks(req, res) {
-    try {
-      const { userId } = req.params;
-      const { page = 1, limit = 20 } = req.query;
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
+// Get tasks for the user's team(s)
+async getUserTasks(req, res) {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
+    }
 
-      if (!userId) {
-        return res.status(400).json({ message: "userId is required" });
-      }
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
 
-      if (req.user.role !== "admin" && req.user.id !== parseInt(userId)) {
-        return res.status(403).json({ message: "Unauthorized to view this user's tasks" });
-      }
+    if (req.user.role !== "admin" && req.user.id !== parseInt(userId)) {
+      return res.status(403).json({ message: "Unauthorized to view this user's tasks" });
+    }
 
-      const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-      const userTeams = await UserTeam.findAll({
-        where: { userId },
-        attributes: ["teamId"],
-      });
+    const userTeams = await UserTeam.findAll({
+      where: { userId },
+      attributes: ["teamId"],
+    });
 
-      if (!userTeams.length) {
-        return res.status(200).json({
-          tasks: [],
-          pagination: {
-            currentPage: pageNum,
-            totalPages: 0,
-            totalItems: 0,
-            itemsPerPage: limitNum,
-          },
-        });
-      }
-
-      const teamIds = userTeams.map((ut) => ut.teamId);
-
-      const { count, rows } = await Task.findAndCountAll({
-        include: [
-          {
-            model: Project,
-            attributes: ["id", "name"],
-            include: [
-              {
-                model: Team,
-                attributes: ["id", "name"],
-                where: { id: { [db.Sequelize.Op.in]: teamIds } },
-                required: true,
-              },
-            ],
-            required: true,
-          },
-          {
-            model: User,
-            as: "assignee",
-            attributes: ["id", "firstName", "lastName", "email"],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-        limit: limitNum,
-        offset: (pageNum - 1) * limitNum,
-      });
-
-      const tasks = rows.map((task) => ({
-        id: task.id,
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        dueDate: task.dueDate,
-        project: {
-          id: task.Project.id,
-          name: task.Project.name,
-        },
-        team: {
-          teamId: task.Project.Team.id,
-          teamName: task.Project.Team.name,
-        },
-        assignee: task.assignee
-          ? {
-              userId: task.assignee.id,
-              firstName: task.assignee.firstName,
-              lastName: task.assignee.lastName,
-              email: task.assignee.email,
-            }
-          : null,
-      }));
-
-      const totalPages = Math.ceil(count / limitNum);
-
-      res.status(200).json({
-        tasks,
+    if (!userTeams.length) {
+      return res.status(200).json({
+        tasks: [],
         pagination: {
           currentPage: pageNum,
-          totalPages,
-          totalItems: count,
+          totalPages: 0,
+          totalItems: 0,
           itemsPerPage: limitNum,
         },
       });
-    } catch (err) {
-      await db.sequelize.query(
-        "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
-        {
-          replacements: {
-            message: err.message,
-            stack: err.stack,
-            userId: req.user?.id || null,
-            context: JSON.stringify({ targetUserId: req.params.userId, query: req.query }),
-            timestamp: new Date().toISOString(),
-          },
-          type: db.sequelize.QueryTypes.INSERT,
-        }
-      );
-      res.status(500).json({ message: "Failed to fetch user tasks", details: err.message });
     }
-  },
+
+    const teamIds = userTeams.map((ut) => ut.teamId);
+
+    const { count, rows } = await Task.findAndCountAll({
+      include: [
+        {
+          model: Project,
+          attributes: ["id", "name"],
+          include: [
+            {
+              model: Team,
+              as: "Teams",  // Explicitly specify the default association alias for clarity
+              attributes: ["id", "name"],
+              where: { id: { [db.Sequelize.Op.in]: teamIds } },
+              required: true,
+            },
+          ],
+          required: true,
+        },
+        {
+          model: User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+    });
+
+    const tasks = rows.map((task) => ({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      status: task.status,
+      dueDate: task.dueDate,
+      project: {
+        id: task.Project.id,
+        name: task.Project.name,
+      },
+      team: {
+        teamId: task.Project.Teams[0].id,
+        teamName: task.Project.Teams[0].name,
+      },
+      assignee: task.assignee
+        ? {
+            userId: task.assignee.id,
+            firstName: task.assignee.firstName,
+            lastName: task.assignee.lastName,
+            email: task.assignee.email,
+          }
+        : null,
+    }));
+
+    const totalPages = Math.ceil(count / limitNum);
+
+    res.status(200).json({
+      tasks,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems: count,
+        itemsPerPage: limitNum,
+      },
+    });
+  } catch (err) {
+    await db.sequelize.query(
+      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
+      {
+        replacements: {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id || null,
+          context: JSON.stringify({ targetUserId: req.params.userId, query: req.query }),
+          timestamp: new Date().toISOString(),
+        },
+        type: db.sequelize.QueryTypes.INSERT,
+      }
+    );
+    res.status(500).json({ message: "Failed to fetch user tasks", details: err.message });
+  }
+},
 };
