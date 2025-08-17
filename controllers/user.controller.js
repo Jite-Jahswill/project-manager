@@ -408,35 +408,41 @@ async getUserProjects(req, res) {
   }
 },
 
-// Get tasks for the user's team(s)
 async getUserTasks(req, res) {
   try {
     const { userId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, title, email } = req.query;
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
+
+    // Validate pagination parameters
     if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
       return res.status(400).json({ message: "Invalid page or limit" });
     }
 
+    // Validate userId
     if (!userId) {
       return res.status(400).json({ message: "userId is required" });
     }
 
+    // Authorization: Admins can view any user's tasks, others can only view their own
     if (req.user.role !== "admin" && req.user.id !== parseInt(userId)) {
       return res.status(403).json({ message: "Unauthorized to view this user's tasks" });
     }
 
+    // Check if user exists
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    // Get user's team IDs
     const userTeams = await UserTeam.findAll({
       where: { userId },
       attributes: ["teamId"],
     });
 
+    // If user is not in any teams, return empty result
     if (!userTeams.length) {
       return res.status(200).json({
         tasks: [],
@@ -451,33 +457,47 @@ async getUserTasks(req, res) {
 
     const teamIds = userTeams.map((ut) => ut.teamId);
 
+    // Build where clause for task filtering
+    const taskWhere = {};
+    if (title) {
+      taskWhere.title = { [db.Sequelize.Op.like]: `%${title}%` };
+    }
+
+    // Build include clause with assignee email filter
+    const include = [
+      {
+        model: Project,
+        attributes: ["id", "name"],
+        include: [
+          {
+            model: Team,
+            as: "Teams",
+            attributes: ["id", "name"],
+            where: { id: { [db.Sequelize.Op.in]: teamIds } },
+            required: true,
+          },
+        ],
+        required: true,
+      },
+      {
+        model: User,
+        as: "assignee",
+        attributes: ["id", "firstName", "lastName", "email"],
+        where: email ? { email: { [db.Sequelize.Op.like]: `%${email}%` } } : {},
+        required: !!email, // Only require assignee if email filter is provided
+      },
+    ];
+
+    // Fetch tasks with count
     const { count, rows } = await Task.findAndCountAll({
-      include: [
-        {
-          model: Project,
-          attributes: ["id", "name"],
-          include: [
-            {
-              model: Team,
-              as: "Teams",  // Explicitly specify the default association alias for clarity
-              attributes: ["id", "name"],
-              where: { id: { [db.Sequelize.Op.in]: teamIds } },
-              required: true,
-            },
-          ],
-          required: true,
-        },
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "firstName", "lastName", "email"],
-        },
-      ],
+      where: taskWhere,
+      include,
       order: [["createdAt", "DESC"]],
       limit: limitNum,
       offset: (pageNum - 1) * limitNum,
     });
 
+    // Format tasks for response
     const tasks = rows.map((task) => ({
       id: task.id,
       title: task.title,
@@ -530,5 +550,4 @@ async getUserTasks(req, res) {
     res.status(500).json({ message: "Failed to fetch user tasks", details: err.message });
   }
 },
-
 };
