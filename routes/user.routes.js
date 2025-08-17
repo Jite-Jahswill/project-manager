@@ -762,7 +762,7 @@ module.exports = (app) => {
    *               message: "Failed to fetch user tasks"
    *               details: "Database error"
    */
-  router.get("/:userId/tasks", authMiddleware.verifyToken, userController.getUserTasks);
+  router.get("/:userId/tasks", verifyToken, userController.getUserTasks);
 
   app.use("/api/users", router);
 };
