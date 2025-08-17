@@ -549,12 +549,88 @@ module.exports = (app) => {
    */
   router.get("/:userId/projects", verifyToken, userController.getUserProjects);
 
+/**
+   * @swagger
+   * tags:
+   *   - name: Users
+   *     description: User management endpoints
+   *
+   * components:
+   *   schemas:
+   *     Error:
+   *       type: object
+   *       properties:
+   *         message:
+   *           type: string
+   *           example: "Error message"
+   *         details:
+   *           type: string
+   *           example: "Detailed error information"
+   *           nullable: true
+   *     Task:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         title:
+   *           type: string
+   *           example: "Implement login feature"
+   *         description:
+   *           type: string
+   *           example: "Create a login feature for the application"
+   *           nullable: true
+   *         status:
+   *           type: string
+   *           enum: ["To Do", "In Progress", "Review", "Done"]
+   *           example: "In Progress"
+   *         dueDate:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-19T00:00:00.000Z"
+   *           nullable: true
+   *         project:
+   *           type: object
+   *           properties:
+   *             id:
+   *               type: integer
+   *               example: 1
+   *             name:
+   *               type: string
+   *               example: "Website Redesign"
+   *         team:
+   *           type: object
+   *           properties:
+   *             teamId:
+   *               type: integer
+   *               example: 1
+   *             teamName:
+   *               type: string
+   *               example: "Development Team"
+   *         assignee:
+   *           type: object
+   *           nullable: true
+   *           properties:
+   *             userId:
+   *               type: integer
+   *               example: 2
+   *             firstName:
+   *               type: string
+   *               example: "Jane"
+   *             lastName:
+   *               type: string
+   *               example: "Doe"
+   *             email:
+   *               type: string
+   *               example: "jane.doe@example.com"
+   */
+
   /**
    * @swagger
    * /api/users/{userId}/tasks:
    *   get:
    *     summary: Get all tasks for the user's team(s)
-   *     description: Retrieves all tasks associated with the user's team(s). Staff can only view their own tasks; admins can view any user's tasks.
+   *     description: Retrieves all tasks associated with the user's team(s). Staff can only view their own tasks; admins can view any user's tasks. Supports filtering by task title and assignee email.
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
@@ -564,7 +640,7 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         description: User ID
+   *         description: ID of the user whose tasks are being retrieved
    *         example: 1
    *       - in: query
    *         name: page
@@ -582,6 +658,18 @@ module.exports = (app) => {
    *           default: 20
    *         description: Number of tasks per page
    *         example: 20
+   *       - in: query
+   *         name: title
+   *         schema:
+   *           type: string
+   *         description: Filter tasks by title (partial, case-insensitive match)
+   *         example: login
+   *       - in: query
+   *         name: email
+   *         schema:
+   *           type: string
+   *         description: Filter tasks by assignee email (partial, case-insensitive match)
+   *         example: jane.doe
    *     responses:
    *       200:
    *         description: List of tasks for the user's team(s)
@@ -593,60 +681,7 @@ module.exports = (app) => {
    *                 tasks:
    *                   type: array
    *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       title:
-   *                         type: string
-   *                         example: "Implement login feature"
-   *                       description:
-   *                         type: string
-   *                         example: "Create a login feature for the application"
-   *                         nullable: true
-   *                       status:
-   *                         type: string
-   *                         example: "In Progress"
-   *                       dueDate:
-   *                         type: string
-   *                         format: date
-   *                         example: "2025-07-19"
-   *                         nullable: true
-   *                       project:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           name:
-   *                             type: string
-   *                             example: "Website Redesign"
-   *                       team:
-   *                         type: object
-   *                         properties:
-   *                           teamId:
-   *                             type: integer
-   *                             example: 1
-   *                           teamName:
-   *                             type: string
-   *                             example: "Development Team"
-   *                       assignee:
-   *                         type: object
-   *                         nullable: true
-   *                         properties:
-   *                           userId:
-   *                             type: integer
-   *                             example: 2
-   *                           firstName:
-   *                             type: string
-   *                             example: "Jane"
-   *                           lastName:
-   *                             type: string
-   *                             example: "Doe"
-   *                           email:
-   *                             type: string
-   *                             example: "jane.doe@example.com"
+   *                     $ref: '#/components/schemas/Task'
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -662,38 +697,72 @@ module.exports = (app) => {
    *                     itemsPerPage:
    *                       type: integer
    *                       example: 20
+   *             example:
+   *               tasks:
+   *                 - id: 1
+   *                   title: "Implement login feature"
+   *                   description: "Create a login feature for the application"
+   *                   status: "In Progress"
+   *                   dueDate: "2025-07-19T00:00:00.000Z"
+   *                   project:
+   *                     id: 1
+   *                     name: "Website Redesign"
+   *                   team:
+   *                     teamId: 1
+   *                     teamName: "Development Team"
+   *                   assignee:
+   *                     userId: 2
+   *                     firstName: "Jane"
+   *                     lastName: "Doe"
+   *                     email: "jane.doe@example.com"
+   *               pagination:
+   *                 currentPage: 1
+   *                 totalPages: 1
+   *                 totalItems: 10
+   *                 itemsPerPage: 20
    *       400:
    *         description: Invalid user ID or pagination parameters
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Error'
+   *             example:
+   *               message: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Error'
+   *             example:
+   *               message: "Unauthorized"
    *       403:
    *         description: Access denied - Staff can only view their own tasks
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Error'
+   *             example:
+   *               message: "Unauthorized to view this user's tasks"
    *       404:
    *         description: User not found
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Error'
+   *             example:
+   *               message: "User not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Error'
+   *             example:
+   *               message: "Failed to fetch user tasks"
+   *               details: "Database error"
    */
-  router.get("/:userId/tasks", verifyToken, userController.getUserTasks);
+  router.get("/:userId/tasks", authMiddleware.verifyToken, userController.getUserTasks);
 
   app.use("/api/users", router);
 };
