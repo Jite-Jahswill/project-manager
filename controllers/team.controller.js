@@ -104,99 +104,125 @@ module.exports = {
     }
   },
 
-  // Get all teams (Staff see own teams, Admins/Managers see all)
-  async getAllTeams(req, res) {
-    try {
-      const { search, page = 1, limit = 20 } = req.query;
-
-      // Validate pagination
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
-
-      // Build where clause
-      const whereClause = search ? { name: { [db.Sequelize.Op.like]: `%${search}%` } } : {};
-
-      // For staff, filter teams they are part of
-      let teamIds = [];
-      if (req.user.role === "staff") {
-        const userTeams = await db.UserTeam.findAll({
-          where: { userId: req.user.id },
-          attributes: ["teamId"],
-        });
-        teamIds = userTeams.map((ut) => ut.teamId);
-        if (teamIds.length === 0) {
-          return res.json({ teams: [], pagination: { currentPage: pageNum, totalPages: 0, totalItems: 0, itemsPerPage: limitNum } });
-        }
-        whereClause.id = teamIds;
-      }
-
-      // Fetch teams with Sequelize
-      const { count, rows } = await db.Team.findAndCountAll({
-        where: whereClause,
-        include: [
-          { model: db.User, as: "Users", through: { attributes: ["role", "note", "projectId"] } },
-          { model: db.Project, as: "Projects", include: [{ model: db.Task, as: "Tasks", include: [{ model: db.User, as: "assignee" }] }] },
-        ],
-        limit: limitNum,
-        offset: (pageNum - 1) * limitNum,
-        order: [["createdAt", "DESC"]],
-      });
-
-      // Format response
-      const teams = rows.map((team) => ({
-        teamId: team.id,
-        teamName: team.name,
-        description: team.description,
-        createdAt: team.createdAt,
-        updatedAt: team.updatedAt,
-        users: team.Users.map((user) => ({
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          role: user.UserTeam.role,
-          note: user.UserTeam.note,
-          projectId: user.UserTeam.projectId,
-        })),
-        projects: team.Projects.map((project) => ({
-          id: project.id,
-          name: project.name,
-          tasks: project.Tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? { userId: task.assignee.id, firstName: task.assignee.firstName, lastName: task.assignee.lastName, email: task.assignee.email }
-              : null,
-          })),
-        })),
-      }));
-
-      // Pagination metadata
-      const pagination = {
-        currentPage: pageNum,
-        totalPages: Math.ceil(count / limitNum),
-        totalItems: count,
-        itemsPerPage: limitNum,
-      };
-
-      res.json({ teams, pagination });
-    } catch (err) {
-      console.error("Get all teams error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        query: req.query,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ error: "Failed to fetch teams", details: err.message });
+ // Get all teams (Staff see own teams, Admins/Managers see all)
+async getAllTeams(req, res) {
+  try {
+    const { search, page = 1, limit = 20 } = req.query;
+    // Validate pagination
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
     }
-  },
+
+    // Build where clause
+    const whereClause = search ? { name: { [db.Sequelize.Op.like]: `%${search}%` } } : {};
+
+    // For staff, filter teams they are part of
+    let teamIds = [];
+    if (req.user.role === "staff") {
+      const userTeams = await db.UserTeam.findAll({
+        where: { userId: req.user.id },
+        attributes: ["teamId"],
+      });
+      teamIds = userTeams.map((ut) => ut.teamId);
+      if (teamIds.length === 0) {
+        return res.status(200).json({
+          teams: [],
+          pagination: { currentPage: pageNum, totalPages: 0, totalItems: 0, itemsPerPage: limitNum },
+        });
+      }
+      whereClause.id = { [db.Sequelize.Op.in]: teamIds };
+    }
+
+    // Get total count separately to ensure accuracy
+    const count = await db.Team.count({ where: whereClause });
+
+    // Fetch teams with pagination
+    const teams = await db.Team.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: db.User,
+          as: "Users",
+          through: { attributes: ["role", "note", "projectId"] },
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: db.Project,
+          as: "Projects",
+          include: [
+            {
+              model: db.Task,
+              as: "Tasks",
+              include: [
+                {
+                  model: db.User,
+                  as: "assignee",
+                  attributes: ["id", "firstName", "lastName", "email"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Format response
+    const formattedTeams = teams.map((team) => ({
+      teamId: team.id,
+      teamName: team.name,
+      description: team.description,
+      createdAt: team.createdAt,
+      updatedAt: team.updatedAt,
+      users: team.Users.map((user) => ({
+        userId: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.UserTeam.role,
+        note: user.UserTeam.note,
+        projectId: user.UserTeam.projectId,
+      })),
+      projects: team.Projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? { userId: task.assignee.id, firstName: task.assignee.firstName, lastName: task.assignee.lastName, email: task.assignee.email }
+            : null,
+        })),
+      })),
+    }));
+
+    // Pagination metadata
+    const pagination = {
+      currentPage: pageNum,
+      totalPages: Math.ceil(count / limitNum),
+      totalItems: count,
+      itemsPerPage: limitNum,
+    };
+
+    res.status(200).json({ teams: formattedTeams, pagination });
+  } catch (err) {
+    console.error("Get all teams error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({ message: "Failed to fetch teams", details: err.message });
+  }
+},
 
   // Get a single team by ID (Staff see own teams, Admins/Managers see all)
   async getTeamById(req, res) {
