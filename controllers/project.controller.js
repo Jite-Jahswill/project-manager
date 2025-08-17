@@ -351,141 +351,152 @@ module.exports = {
 
   // Get all projects (All authenticated users, restricted to assigned projects for staff)
   async getAllProjects(req, res) {
-    try {
-      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
+  try {
+    const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
 
-      const where = {};
-      if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
-      if (status) where.status = status;
-      if (startDate) where.startDate = startDate;
-
-      // Restrict to projects the user is assigned to
-      if (req.user.role === "client") {
-        where.id = {
-          [db.Sequelize.Op.in]: db.sequelize.literal(
-            `(SELECT projectId FROM ClientProjects WHERE clientId = ${req.user.id})`
-          ),
-        };
-      } else if (req.user.role === "staff") {
-        where.id = {
-          [db.Sequelize.Op.in]: db.sequelize.literal(
-            `(SELECT projectId FROM UserTeams WHERE userId = ${req.user.id} AND projectId IS NOT NULL)`
-          ),
-        };
-      } else if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Unauthorized role" });
-      }
-
-      const { count, rows } = await db.Project.findAndCountAll({
-        where,
-        include: [
-          {
-            model: db.Team,
-            as: "Teams", // Changed to plural
-            attributes: ["id", "name"],
-            through: { attributes: [] },
-            include: [
-              {
-                model: db.User,
-                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-                through: { attributes: ["role", "note"] },
-              },
-            ],
-          },
-          {
-            model: db.Task,
-            as: "Tasks",
-            attributes: ["id", "title", "description", "status", "dueDate"],
-            include: [
-              {
-                model: db.User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName", "email"],
-              },
-            ],
-          },
-          {
-            model: db.Client,
-            as: "Clients",
-            attributes: ["id", "firstName", "lastName", "email", "image"],
-            through: { attributes: [] },
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-        limit: limitNum,
-        offset: (pageNum - 1) * limitNum,
-      });
-
-      const projects = rows.map((project) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        startDate: project.startDate,
-        endDate: project.endDate,
-        status: project.status,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-        teams: project.Teams.map((team) => ({
-          teamId: team.id,
-          teamName: team.name,
-          members: team.Users.map((user) => ({
-            userId: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            phoneNumber: user.phoneNumber || null,
-            role: user.UserTeam.role,
-            note: user.UserTeam.note,
-          })),
-        })),
-        tasks: project.Tasks.map((task) => ({
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          dueDate: task.dueDate,
-          assignee: task.assignee
-            ? {
-                userId: task.assignee.id,
-                firstName: task.assignee.firstName,
-                lastName: task.assignee.lastName,
-                email: task.assignee.email,
-              }
-            : null,
-        })),
-        clients: project.Clients.map((client) => ({
-          id: client.id,
-          firstName: client.firstName,
-          lastName: client.lastName,
-          email: client.email,
-          image: client.image,
-        })),
-      }));
-
-      const pagination = {
-        currentPage: pageNum,
-        totalPages: Math.ceil(count / limitNum),
-        totalItems: count,
-        itemsPerPage: limitNum,
-      };
-
-      return res.status(200).json({ projects, pagination });
-    } catch (err) {
-      console.error("Get projects error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        query: req.query,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
+    // Validate pagination parameters
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
     }
-  },
+
+    const where = {};
+    if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
+    if (status) where.status = status;
+    if (startDate) where.startDate = startDate;
+
+    let projectIds = null;
+
+    // Restrict projects based on user role
+    if (req.user.role === "client") {
+      const clientProjects = await db.ClientProject.findAll({
+        where: { clientId: req.user.id },
+        attributes: ["projectId"],
+      });
+      projectIds = clientProjects.map((cp) => cp.projectId);
+      where.id = projectIds.length ? { [db.Sequelize.Op.in]: projectIds } : { [db.Sequelize.Op.in]: [0] }; // Handle empty case
+    } else if (req.user.role === "staff") {
+      const userTeams = await db.UserTeam.findAll({
+        where: { userId: req.user.id, projectId: { [db.Sequelize.Op.ne]: null } },
+        attributes: ["projectId"],
+      });
+      projectIds = userTeams.map((ut) => ut.projectId);
+      where.id = projectIds.length ? { [db.Sequelize.Op.in]: projectIds } : { [db.Sequelize.Op.in]: [0] }; // Handle empty case
+    } else if (!["admin", "manager"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Unauthorized role" });
+    }
+
+    // Get total count separately to ensure accuracy
+    const count = await db.Project.count({ where });
+
+    // Fetch projects with pagination
+    const projects = await db.Project.findAll({
+      where,
+      include: [
+        {
+          model: db.Team,
+          as: "Teams",
+          attributes: ["id", "name"],
+          through: { attributes: [] },
+          include: [
+            {
+              model: db.User,
+              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+              through: { attributes: ["role", "note"] },
+            },
+          ],
+        },
+        {
+          model: db.Task,
+          as: "Tasks",
+          attributes: ["id", "title", "description", "status", "dueDate"],
+          include: [
+            {
+              model: db.User,
+              as: "assignee",
+              attributes: ["id", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+        {
+          model: db.Client,
+          as: "Clients",
+          attributes: ["id", "firstName", "lastName", "email", "image"],
+          through: { attributes: [] },
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+    });
+
+    // Map projects to response format
+    const formattedProjects = projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      status: project.status,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      teams: project.Teams.map((team) => ({
+        teamId: team.id,
+        teamName: team.name,
+        members: team.Users.map((user) => ({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber || null,
+          role: user.UserTeam.role,
+          note: user.UserTeam.note,
+        })),
+      })),
+      tasks: project.Tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        dueDate: task.dueDate,
+        assignee: task.assignee
+          ? {
+              userId: task.assignee.id,
+              firstName: task.assignee.firstName,
+              lastName: task.assignee.lastName,
+              email: task.assignee.email,
+            }
+          : null,
+      })),
+      clients: project.Clients.map((client) => ({
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        image: client.image,
+      })),
+    }));
+
+    const pagination = {
+      currentPage: pageNum,
+      totalPages: Math.ceil(count / limitNum),
+      totalItems: count,
+      itemsPerPage: limitNum,
+    };
+
+    return res.status(200).json({ projects: formattedProjects, pagination });
+  } catch (err) {
+    console.error("Get projects error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
+  }
+},
 
   // Get all projects for a specific client (Admin, Manager, or Client themselves)
   async getClientProjects(req, res) {
