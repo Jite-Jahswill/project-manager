@@ -165,7 +165,7 @@ async getAllUsers(req, res) {
     });
     res.status(500).json({ message: "Failed to fetch users", details: err.message });
   }
-}
+},
 
   // Get one user by ID
   async getUserById(req, res) {
