@@ -712,5 +712,199 @@ module.exports = (app) => {
    */
   router.delete("/:taskId", verifyToken, taskController.deleteTask);
 
+  /**
+ * @swagger
+ * /api/tasks/{taskId}/assign:
+ *   patch:
+ *     summary: Assign a task to a user
+ *     description: Assigns a task to a user who is part of the project's team. Staff can only assign tasks to themselves; admins and managers can assign to any team member.
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the task to assign
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               assignedTo:
+ *                 type: integer
+ *                 example: 2
+ *                 description: ID of the user to assign the task to
+ *             required:
+ *               - assignedTo
+ *     responses:
+ *       200:
+ *         description: Task assigned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Task assigned successfully"
+ *                 task:
+ *                   $ref: '#/components/schemas/Task'
+ *       400:
+ *         description: Invalid taskId or assignedTo, or user not in project's team
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Assigned user is not part of the project's team"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - Staff can only assign to themselves
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Staff can only assign tasks to themselves"
+ *       404:
+ *         description: Task or user not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Task not found"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Error assigning task"
+ *                 details:
+ *                   type: string
+ *                   example: "Database error"
+ */
+router.patch("/:taskId/assign", verifyToken, taskController.assignTask);
+
+/**
+ * @swagger
+ * /api/tasks/{taskId}:
+ *   get:
+ *     summary: Get a task by ID
+ *     description: Retrieves a task by its ID, with optional filters for title and assignee email. Staff can only view their own tasks; admins and managers can view any task.
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the task to retrieve
+ *         example: 1
+ *       - in: query
+ *         name: title
+ *         schema:
+ *           type: string
+ *         description: Filter task by title (partial, case-insensitive match)
+ *         example: login
+ *       - in: query
+ *         name: assigneeEmail
+ *         schema:
+ *           type: string
+ *         description: Filter task by assignee email (partial, case-insensitive match)
+ *         example: john.doe
+ *     responses:
+ *       200:
+ *         description: Task retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 task:
+ *                   $ref: '#/components/schemas/Task'
+ *       400:
+ *         description: Invalid taskId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "taskId is required"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized"
+ *       403:
+ *         description: Forbidden - Staff can only view their own tasks
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Unauthorized to view this task"
+ *       404:
+ *         description: Task not found or does not match filters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Task not found or does not match filters"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Error fetching task"
+ *                 details:
+ *                   type: string
+ *                   example: "Database error"
+ */
+router.get("/:taskId", verifyToken, taskController.getTaskById);
+
   app.use("/api/tasks", router);
 };
