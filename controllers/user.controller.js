@@ -34,76 +34,72 @@ module.exports = {
     }
   },
 
-  // Get all users (Admin only)
-  async getAllUsers(req, res) {
+// Get all users (Admin only)
+async getAllUsers(req, res) {
   try {
     if (!["admin"].includes(req.user.role)) {
       return res.status(403).json({ message: "Only admins can view all users" });
     }
-
     const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
     if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
       return res.status(400).json({ message: "Invalid page or limit" });
     }
-
     const whereClause = {};
-
     if (role) {
       whereClause.role = role;
     }
-
     if (firstName) {
       whereClause.firstName = {
         [db.Sequelize.Op.like]: `%${firstName}%`,
       };
     }
-
     if (lastName) {
       whereClause.lastName = {
         [db.Sequelize.Op.like]: `%${lastName}%`,
       };
     }
-
-    const { count, rows } = await User.findAndCountAll({
+    // Get total count separately to ensure accuracy
+    const count = await db.User.count({ where: whereClause });
+    // Fetch users with pagination
+    const rows = await db.User.findAll({
       where: whereClause,
       attributes: { exclude: ["password"] },
       include: [
         {
-          model: UserTeam,
+          model: db.UserTeam,
           attributes: ["teamId", "projectId", "role", "note"],
           include: [
             {
-              model: Team,
+              model: db.Team,
               attributes: ["id", "name"],
             },
             {
-              model: Project,
+              model: db.Project,
               attributes: ["id", "name", "description", "startDate", "endDate", "status"],
-              required: false, // Allow users without projects
+              required: false,
             },
           ],
-          required: false, // Allow users without teams
+          required: false,
         },
         {
-          model: Task,
+          model: db.Task,
           as: "Tasks",
           attributes: ["id", "title", "description", "status", "dueDate"],
           include: [
             {
-              model: Project,
+              model: db.Project,
               attributes: ["id", "name"],
             },
           ],
-          required: false, // Allow users without tasks
+          required: false,
         },
       ],
       order: [["createdAt", "DESC"]],
       limit: limitNum,
       offset: (pageNum - 1) * limitNum,
     });
-
     // Transform the response to a cleaner format
     const users = rows.map((user) => ({
       id: user.id,
@@ -148,9 +144,7 @@ module.exports = {
           }))
         : [],
     }));
-
     const totalPages = Math.ceil(count / limitNum);
-
     res.status(200).json({
       users,
       pagination: {
@@ -161,22 +155,17 @@ module.exports = {
       },
     });
   } catch (err) {
-    await db.sequelize.query(
-      "INSERT INTO errors (message, stack, userId, context, timestamp) VALUES (:message, :stack, :userId, :context, :timestamp)",
-      {
-        replacements: {
-          message: err.message,
-          stack: err.stack,
-          userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, query: req.query }),
-          timestamp: new Date().toISOString(),
-        },
-        type: db.sequelize.QueryTypes.INSERT,
-      }
-    );
+    console.error("Get all users error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      role: req.user?.role,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+    });
     res.status(500).json({ message: "Failed to fetch users", details: err.message });
   }
-},
+}
 
   // Get one user by ID
   async getUserById(req, res) {
