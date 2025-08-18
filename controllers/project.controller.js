@@ -911,53 +911,67 @@ module.exports = {
   }
 },
 
-  // Get all members of a project with roles
-  async getProjectMembers(req, res) {
-    try {
-      const { projectId } = req.params;
-      if (!projectId) {
-        return res.status(400).json({ message: "projectId is required" });
-      }
-
-      const project = await db.Project.findByPk(projectId);
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      const members = await db.User.findAll({
-        include: [
-          {
-            model: db.Project,
-            where: { id: projectId },
-            attributes: [],
-            through: { attributes: ["role", "note"] },
-          },
-        ],
-        attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-      });
-
-      const formattedMembers = members.map((user) => ({
-        userId: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber || null,
-        role: user.UserTeam.role,
-        note: user.UserTeam.note,
-      }));
-
-      return res.status(200).json({ members: formattedMembers });
-    } catch (err) {
-      console.error("Get members error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        projectId: req.params.projectId,
-        timestamp: new Date().toISOString(),
-      });
-      return res.status(500).json({ message: "Failed to retrieve project members", details: err.message });
+// Get all members of a project with roles
+async getProjectMembers(req, res) {
+  try {
+    const { projectId } = req.params;
+    if (!projectId) {
+      return res.status(400).json({ message: "projectId is required" });
     }
-  },
+
+    const project = await db.Project.findByPk(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    const members = await db.User.findAll({
+      attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+      include: [
+        {
+          model: db.UserTeam,
+          attributes: ["role", "note"],
+          include: [
+            {
+              model: db.Team,
+              attributes: [],
+              include: [
+                {
+                  model: db.Project,
+                  where: { id: projectId },
+                  attributes: [],
+                  through: { model: db.TeamProject, attributes: [] },
+                },
+              ],
+              required: true,
+            },
+          ],
+          required: true,
+        },
+      ],
+    });
+
+    const formattedMembers = members.map((user) => ({
+      userId: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phoneNumber: user.phoneNumber || null,
+      role: user.UserTeams[0]?.role || null,
+      note: user.UserTeams[0]?.note || null,
+    }));
+
+    return res.status(200).json({ members: formattedMembers });
+  } catch (err) {
+    console.error("Get members error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      projectId: req.params.projectId,
+      timestamp: new Date().toISOString(),
+    });
+    return res.status(500).json({ message: "Failed to retrieve project members", details: err.message });
+  }
+}
 
   // Update project status
   async updateProjectStatus(req, res) {
