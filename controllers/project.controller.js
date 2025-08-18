@@ -971,7 +971,7 @@ async getProjectMembers(req, res) {
     });
     return res.status(500).json({ message: "Failed to retrieve project members", details: err.message });
   }
-}
+},
 
   // Update project status
   async updateProjectStatus(req, res) {
