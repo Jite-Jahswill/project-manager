@@ -715,7 +715,7 @@ module.exports = (app) => {
   /**
  * @swagger
  * /api/tasks/{taskId}/assign:
- *   patch:
+ *   put:
  *     summary: Assign a task to a user
  *     description: Assigns a task to a user who is part of the project's team. Staff can only assign tasks to themselves; admins and managers can assign to any team member.
  *     tags: [Tasks]
