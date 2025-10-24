@@ -651,8 +651,6 @@ module.exports = {
     }
   },
 
-const { sequelize, Client } = require("../models");
-
 // Update client
 async updateClient(req, res) {
   const transaction = await sequelize.transaction();
