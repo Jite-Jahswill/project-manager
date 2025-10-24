@@ -651,76 +651,73 @@ module.exports = {
     }
   },
 
-  // Update client
-  async updateClient(req, res) {
-    const transaction = await sequelize.transaction();
-    try {
-      const { id } = req.params;
+const { sequelize, Client } = require("../models");
 
-      if (req.user.role !== "client" && req.user.role !== "admin" && req.user.id !== parseInt(id)) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to update this client" });
-      }
+// Update client
+async updateClient(req, res) {
+  const transaction = await sequelize.transaction();
+  try {
+    const { id } = req.params;
 
-      const client = await Client.findByPk(id, { transaction });
-      if (!client) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "Client not found" });
-      }
-
-      const { firstName, lastName, email, phoneNumber } = req.body;
-      const image = req.file ? `Uploads/profiles/${req.file.filename}` : client.image;
-
-      if (req.file && client.image) {
-        const oldPath = path.join(__dirname, "../Uploads", client.image);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-
-      if (email && email !== client.email) {
-        const existingClient = await Client.findOne({ where: { email }, transaction });
-        if (existingClient) {
-          await transaction.rollback();
-          return res.status(409).json({ message: "Email already in use" });
-        }
-      }
-
-      await sequelize.query(
-        `UPDATE Clients 
-         SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, phoneNumber = :phoneNumber, updatedAt = NOW()
-         WHERE id = :id`,
-        {
-          replacements: {
-            firstName: firstName || client.firstName,
-            lastName: lastName || client.lastName,
-            email: email || client.email,
-            image,
-            phoneNumber: phoneNumber || client.phoneNumber,
-            id,
-          },
-          type: sequelize.QueryTypes.UPDATE,
-          transaction,
-        }
-      );
-
-      const updatedClient = await Client.findByPk(id, {
-        attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
-        transaction,
-      });
-      await transaction.commit();
-      res.json({ message: "Client updated", client: updatedClient });
-    } catch (err) {
+    if (req.user.role !== "client" && req.user.role !== "admin" && req.user.id !== parseInt(id)) {
       await transaction.rollback();
-      console.error("Update client error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        clientId: req.params.id,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to update client", details: err.message });
+      return res.status(403).json({ message: "Unauthorized to update this client" });
     }
-  },
+
+    const client = await Client.findByPk(id, { transaction });
+    if (!client) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    const { firstName, lastName, email, phoneNumber } = req.body;
+    const image = req.file ? req.file.firebaseUrl : client.image;
+
+    if (email && email !== client.email) {
+      const existingClient = await Client.findOne({ where: { email }, transaction });
+      if (existingClient) {
+        await transaction.rollback();
+        return res.status(409).json({ message: "Email already in use" });
+      }
+    }
+
+    await sequelize.query(
+      `UPDATE Clients 
+       SET firstName = :firstName, lastName = :lastName, email = :email, image = :image, phoneNumber = :phoneNumber, updatedAt = NOW()
+       WHERE id = :id`,
+      {
+        replacements: {
+          firstName: firstName || client.firstName,
+          lastName: lastName || client.lastName,
+          email: email || client.email,
+          image: image || null, // Allow image to be null
+          phoneNumber: phoneNumber || client.phoneNumber,
+          id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction,
+      }
+    );
+
+    const updatedClient = await Client.findByPk(id, {
+      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
+      transaction,
+    });
+    await transaction.commit();
+    res.json({ message: "Client updated", client: updatedClient });
+  } catch (err) {
+    await transaction.rollback();
+    console.error("Update client error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      clientId: req.params.id,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({ message: "Failed to update client", details: err.message });
+  }
+}
 
   // Delete client
   async deleteClient(req, res) {
