@@ -250,9 +250,9 @@ exports.updateUser = async (req, res) => {
     const { firstName, lastName, email, phoneNumber } = req.body;
     const image = req.file ? req.file.firebaseUrl : user.image;
 
-    if (!image) {
-      return res.status(400).json({ error: "Image is required" });
-    }
+    // if (!image) {
+    //   return res.status(400).json({ error: "Image is required" });
+    // }
 
     if (email && email !== user.email) {
       const existingUser = await User.findOne({ where: { email } });
