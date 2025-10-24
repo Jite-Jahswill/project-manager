@@ -1,8 +1,6 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { User, sequelize } = require("../models");
-const fs = require("fs");
-const path = require("path");
 const sendMail = require("../utils/mailer");
 const crypto = require("crypto");
 
@@ -15,10 +13,10 @@ const generateOTP = () => {
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, role, phoneNumber } = req.body;
-    const image = req.file ? `uploads/profiles/${req.file.filename}` : null;
+    const image = req.file ? req.file.firebaseUrl : null;
 
-    if (!firstName || !lastName || !email || !phoneNumber) {
-      return res.status(400).json({ message: "firstName, lastName, email, and phoneNumber are required" });
+    if (!firstName || !lastName || !email || !phoneNumber || !image) {
+      return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
     }
 
     if (role && !["admin", "manager", "staff"].includes(role)) {
@@ -250,13 +248,10 @@ exports.updateUser = async (req, res) => {
     }
 
     const { firstName, lastName, email, phoneNumber } = req.body;
-    const image = req.file ? `uploads/profiles/${req.file.filename}` : user.image;
+    const image = req.file ? req.file.firebaseUrl : user.image;
 
-    if (req.file && user.image && user.image !== image) {
-      const oldImagePath = path.join(__dirname, "../", user.image);
-      if (fs.existsSync(oldImagePath)) {
-        fs.unlinkSync(oldImagePath);
-      }
+    if (!image) {
+      return res.status(400).json({ error: "Image is required" });
     }
 
     if (email && email !== user.email) {
@@ -402,13 +397,6 @@ exports.deleteUser = async (req, res) => {
 
     if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
       return res.status(403).json({ message: "Unauthorized to delete this user" });
-    }
-
-    if (user.image) {
-      const imagePath = path.join(__dirname, "../", user.image);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
     }
 
     await user.destroy();
