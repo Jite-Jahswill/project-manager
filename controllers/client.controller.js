@@ -715,7 +715,7 @@ async updateClient(req, res) {
     });
     res.status(500).json({ message: "Failed to update client", details: err.message });
   }
-}
+},
 
   // Delete client
   async deleteClient(req, res) {
