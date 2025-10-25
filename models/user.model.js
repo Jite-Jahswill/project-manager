@@ -22,10 +22,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    role: {
-      type: DataTypes.ENUM("admin", "manager", "staff"),
-      defaultValue: "staff",
-    },
+    // role: {
+    //   type: DataTypes.ENUM("admin", "manager", "staff"),
+    //   defaultValue: "staff",
+    // },
     emailVerified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -56,6 +56,12 @@ module.exports = (sequelize, DataTypes) => {
 
   User.associate = (models) => {
     User.hasMany(models.UserTeam, { foreignKey: "userId" });
+    
+    User.belongsToMany(models.Role, {
+    through: models.UserRole,
+    foreignKey: "userId",
+    otherKey: "roleId",
+  });
   };
 
   return User;
