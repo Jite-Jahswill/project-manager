@@ -18,6 +18,10 @@ db.Team = require("./team.model")(sequelize, DataTypes);
 db.Client = require("./client.model")(sequelize, DataTypes);
 db.ClientProject = require("./clientProject.model")(sequelize, DataTypes);
 db.TeamProject = require("./teamProject.model")(sequelize, DataTypes);
+db.Role = require("./role.model")(sequelize, DataTypes);
+db.Permission = require("./permission.model")(sequelize, DataTypes);
+db.RolePermission = require("./rolePermission.model")(sequelize, DataTypes);
+db.UserRole = require("./userRole.model")(sequelize, DataTypes);
 
 // Run associations
 Object.keys(db).forEach((modelName) => {
