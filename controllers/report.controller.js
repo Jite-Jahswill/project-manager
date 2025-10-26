@@ -395,15 +395,10 @@ module.exports = {
     }
   },
 
-  // Assign a report to a user (Admins and Managers only)
+  // Assign a report to a user (open to any authenticated user)
   async assignReportToUser(req, res) {
     const transaction = await db.sequelize.transaction();
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Only admins or managers can assign reports" });
-      }
-
       const { reportId, userId } = req.body;
 
       // Validate input
@@ -492,7 +487,7 @@ module.exports = {
       console.error(`Error in assignReportToUser: ${error.message}`, {
         stack: error.stack,
         userId: req.user?.id || null,
-        context: { endpoint: "assignReportToUser", userId: req.user?.id, role: req.user?.role, reportId: req.body.reportId, assignedUserId: req.body.userId },
+        context: { endpoint: "assignReportToUser", userId: req.user?.id, reportId: req.body.reportId, assignedUserId: req.body.userId },
       });
       res.status(500).json({ message: "Error assigning report", details: error.message });
     }
