@@ -1,5 +1,5 @@
 const express = require("express");
-const userController = require("../controllers/user.controller");
+const authController = require("../controllers/auth.controller");
 const { verifyToken } = require("../middlewares/auth.middleware");
 const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
@@ -153,7 +153,12 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/register", verifyToken, uploadToFirebase, userController.register);
+  router.post(
+    "/register",
+    verifyToken,
+    uploadToFirebase,
+     authController.register
+  );
 
   /**
    * @swagger
@@ -238,7 +243,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/login", userController.login);
+  router.post("/login",  authController.login);
 
   /**
    * @swagger
@@ -351,7 +356,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users", verifyToken, userController.getAllUsers);
+  router.get("/users", verifyToken,  authController.getAllUsers);
 
   /**
    * @swagger
@@ -421,7 +426,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users/:id", verifyToken, userController.getUserById);
+  router.get("/users/:id", verifyToken,  authController.getUserById);
 
   /**
    * @swagger
@@ -530,7 +535,12 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id", verifyToken, uploadToFirebase, userController.updateUser);
+  router.put(
+    "/users/:id",
+    verifyToken,
+    uploadToFirebase,
+     authController.updateUser
+  );
 
   /**
    * @swagger
@@ -619,7 +629,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id/role", verifyToken, userController.updateUserRole);
+  router.put("/users/:id/role", verifyToken,  authController.updateUserRole);
 
   /**
    * @swagger
@@ -693,7 +703,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/users/:id", verifyToken, userController.deleteUser);
+  router.delete("/users/:id", verifyToken,  authController.deleteUser);
 
   /**
    * @swagger
@@ -778,7 +788,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/verify-email", userController.verifyEmail);
+  router.post("/verify-email",  authController.verifyEmail);
 
   /**
    * @swagger
@@ -844,7 +854,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/forgot-password", userController.forgotPassword);
+  router.post("/forgot-password",  authController.forgotPassword);
 
   /**
    * @swagger
@@ -918,7 +928,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/reset-password", userController.resetPassword);
+  router.post("/reset-password",  authController.resetPassword);
 
   /**
    * @swagger
@@ -984,7 +994,11 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/resend-verification", verifyToken, userController.resendVerification);
+  router.post(
+    "/resend-verification",
+    verifyToken,
+     authController.resendVerification
+  );
 
   app.use("/api/auth", router);
 };
