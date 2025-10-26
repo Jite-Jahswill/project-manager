@@ -28,17 +28,6 @@ exports.logWork = async (req, res) => {
       return res.status(400).json({ message: "Task does not belong to the specified project" });
     }
 
-    // Check if user is assigned to project or task (staff only)
-    if (req.user.role === "staff") {
-      const isAssignedToTask = task.assignedTo === req.user.id;
-      const isInTeam = await UserTeam.findOne({
-        where: { userId: req.user.id, teamId: project.teamId },
-      });
-      if (!isAssignedToTask && !isInTeam) {
-        return res.status(403).json({ message: "User not assigned to this project or task" });
-      }
-    }
-
     // Create work log using Sequelize
     const newLog = await WorkLog.create({
       userId: req.user.id,
@@ -87,12 +76,11 @@ exports.logWork = async (req, res) => {
       },
     };
 
-    // Notify admins and managers
-    const adminsAndManagers = await User.findAll({
-      where: { role: ["admin", "manager"] },
+    // Notify all users except the requester
+    const allUsers = await User.findAll({
       attributes: ["email"],
     });
-    const emails = adminsAndManagers.map((u) => u.email).filter((email) => email && email !== req.user.email);
+    const emails = allUsers.map((u) => u.email).filter((email) => email && email !== req.user.email);
 
     if (emails.length > 0) {
       await sendMail({
@@ -126,7 +114,7 @@ exports.logWork = async (req, res) => {
           message: err.message,
           stack: err.stack,
           userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, body: req.body }),
+          context: JSON.stringify({ endpoint: "logWork", body: req.body }),
           timestamp: new Date().toISOString(),
         },
         type: db.sequelize.QueryTypes.INSERT,
@@ -138,7 +126,7 @@ exports.logWork = async (req, res) => {
 
 exports.getUserLogs = async (req, res) => {
   try {
-    const { projectId, taskId, date, page = 1, limit = 20 } = req.query;
+    const { userId, projectId, taskId, date, page = 1, limit = 20 } = req.query;
 
     // Validate pagination
     const pageNum = parseInt(page, 10);
@@ -148,7 +136,8 @@ exports.getUserLogs = async (req, res) => {
     }
 
     // Build where clause
-    const whereClause = { userId: req.user.id };
+    const whereClause = {};
+    if (userId) whereClause.userId = userId;
     if (projectId) whereClause.projectId = projectId;
     if (taskId) whereClause.taskId = taskId;
     if (date) {
@@ -215,7 +204,7 @@ exports.getUserLogs = async (req, res) => {
           message: err.message,
           stack: err.stack,
           userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, query: req.query }),
+          context: JSON.stringify({ endpoint: "getUserLogs", query: req.query }),
           timestamp: new Date().toISOString(),
         },
         type: db.sequelize.QueryTypes.INSERT,
@@ -227,11 +216,6 @@ exports.getUserLogs = async (req, res) => {
 
 exports.getProjectLogs = async (req, res) => {
   try {
-    // Restrict to admins and managers
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Only admins or managers can view project logs" });
-    }
-
     const { projectId } = req.params;
     const { page = 1, limit = 20 } = req.query;
 
@@ -304,7 +288,7 @@ exports.getProjectLogs = async (req, res) => {
           message: err.message,
           stack: err.stack,
           userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, projectId: req.params.projectId, query: req.query }),
+          context: JSON.stringify({ endpoint: "getProjectLogs", projectId: req.params.projectId, query: req.query }),
           timestamp: new Date().toISOString(),
         },
         type: db.sequelize.QueryTypes.INSERT,
@@ -345,11 +329,6 @@ exports.updateLog = async (req, res) => {
     );
 
     if (!log) return res.status(404).json({ message: "Work log not found" });
-
-    // Check permission
-    if (req.user.role === "staff" && log.userId !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized to update this work log" });
-    }
 
     // Build update query
     const updateFields = [];
@@ -418,12 +397,11 @@ exports.updateLog = async (req, res) => {
       },
     };
 
-    // Notify admins, managers, and log owner (if not the requester)
-    const adminsAndManagers = await User.findAll({
-      where: { role: ["admin", "manager"] },
+    // Notify all users except the requester
+    const allUsers = await User.findAll({
       attributes: ["email"],
     });
-    const emails = [...adminsAndManagers.map((u) => u.email), updatedLog.User.email].filter(
+    const emails = allUsers.map((u) => u.email).filter(
       (email, index, self) => email && self.indexOf(email) === index && email !== req.user.email
     );
 
@@ -457,7 +435,7 @@ exports.updateLog = async (req, res) => {
           message: err.message,
           stack: err.stack,
           userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, logId: req.params.logId, body: req.body }),
+          context: JSON.stringify({ endpoint: "updateLog", logId: req.params.logId, body: req.body }),
           timestamp: new Date().toISOString(),
         },
         type: db.sequelize.QueryTypes.INSERT,
@@ -489,11 +467,6 @@ exports.deleteLog = async (req, res) => {
 
     if (!log) return res.status(404).json({ message: "Work log not found" });
 
-    // Check permission
-    if (req.user.role === "staff" && log.userId !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized to delete this work log" });
-    }
-
     // Fetch project and task for notification
     const project = await Project.findByPk(log.projectId, { attributes: ["name"] });
     const task = await Task.findByPk(log.taskId, { attributes: ["title"] });
@@ -511,12 +484,11 @@ exports.deleteLog = async (req, res) => {
       }
     );
 
-    // Notify admins, managers, and log owner (if not the requester)
-    const adminsAndManagers = await User.findAll({
-      where: { role: ["admin", "manager"] },
+    // Notify all users except the requester
+    const allUsers = await User.findAll({
       attributes: ["email"],
     });
-    const emails = [...adminsAndManagers.map((u) => u.email), user.email].filter(
+    const emails = allUsers.map((u) => u.email).filter(
       (email, index, self) => email && self.indexOf(email) === index && email !== req.user.email
     );
 
@@ -550,7 +522,7 @@ exports.deleteLog = async (req, res) => {
           message: err.message,
           stack: err.stack,
           userId: req.user?.id || null,
-          context: JSON.stringify({ role: req.user?.role, logId: req.params.logId }),
+          context: JSON.stringify({ endpoint: "deleteLog", logId: req.params.logId }),
           timestamp: new Date().toISOString(),
         },
         type: db.sequelize.QueryTypes.INSERT,
