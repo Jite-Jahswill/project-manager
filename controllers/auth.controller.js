@@ -13,7 +13,7 @@ const generateOTP = () => {
 exports.register = async (req, res) => {
   try {
     const { firstName, lastName, email, role, phoneNumber } = req.body;
-    const image = req.file ? req.file.firebaseUrl : null;
+    const image = req.uploadedFiles && req.uploadedFiles[0]?.firebaseUrl;
 
     if (!firstName || !lastName || !email || !phoneNumber || !image) {
       return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
@@ -87,9 +87,7 @@ exports.register = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ message: "Failed to register user", details: error.message });
+    res.status(500).json({ message: "Failed to register user", details: error.message });
   }
 };
 
@@ -160,7 +158,6 @@ exports.getAllUsers = async (req, res) => {
 
     const totalPages = Math.ceil(count / limit);
 
-    // Map user details to the desired format
     const users = rows.map(user => ({
       id: user.id,
       firstName: user.firstName,
@@ -205,11 +202,6 @@ exports.getUserById = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to view this user" });
-    }
-
-    // Return user details in the desired format
     res.json({
       id: user.id,
       firstName: user.firstName,
@@ -243,16 +235,8 @@ exports.updateUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to update this user" });
-    }
-
     const { firstName, lastName, email, phoneNumber } = req.body;
-    const image = req.file ? req.file.firebaseUrl : user.image;
-
-    // if (!image) {
-    //   return res.status(400).json({ error: "Image is required" });
-    // }
+    const image = req.uploadedFiles && req.uploadedFiles[0]?.firebaseUrl ? req.uploadedFiles[0].firebaseUrl : user.image;
 
     if (email && email !== user.email) {
       const existingUser = await User.findOne({ where: { email } });
@@ -283,7 +267,6 @@ exports.updateUser = async (req, res) => {
       }
     );
 
-    // Fetch updated user to return
     const updatedUser = await User.findByPk(id, {
       attributes: { exclude: ["password", "otp"] },
     });
@@ -309,9 +292,7 @@ exports.updateUser = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to update user", details: error.message });
+    res.status(500).json({ error: "Failed to update user", details: error.message });
   }
 };
 
@@ -352,7 +333,6 @@ exports.updateUserRole = async (req, res) => {
       `,
     });
 
-    // Fetch updated user to return
     const updatedUser = await User.findByPk(id, {
       attributes: { exclude: ["password", "otp"] },
     });
@@ -376,9 +356,7 @@ exports.updateUserRole = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to update user role", details: error.message });
+    res.status(500).json({ error: "Failed to update user role", details: error.message });
   }
 };
 
@@ -395,10 +373,6 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (req.user.id !== parseInt(id) && !["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized to delete this user" });
-    }
-
     await user.destroy();
     res.json({ message: "User deleted successfully" });
   } catch (error) {
@@ -409,9 +383,7 @@ exports.deleteUser = async (req, res) => {
       targetUserId: req.params.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to delete user", details: error.message });
+    res.status(500).json({ error: "Failed to delete user", details: error.message });
   }
 };
 
@@ -469,9 +441,7 @@ exports.verifyEmail = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to verify email", details: error.message });
+    res.status(500).json({ error: "Failed to verify email", details: error.message });
   }
 };
 
@@ -519,9 +489,7 @@ exports.forgotPassword = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to send reset OTP", details: error.message });
+    res.status(500).json({ error: "Failed to send reset OTP", details: error.message });
   }
 };
 
@@ -573,9 +541,7 @@ exports.resetPassword = async (req, res) => {
       body: req.body,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to reset password", details: error.message });
+    res.status(500).json({ error: "Failed to reset password", details: error.message });
   }
 };
 
@@ -622,8 +588,6 @@ exports.resendVerification = async (req, res) => {
       userId: req.user?.id,
       timestamp: new Date().toISOString(),
     });
-    res
-      .status(500)
-      .json({ error: "Failed to resend verification OTP", details: error.message });
+    res.status(500).json({ error: "Failed to resend verification OTP", details: error.message });
   }
 };
