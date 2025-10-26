@@ -72,7 +72,7 @@ module.exports = (app) => {
    * /api/leaves:
    *   post:
    *     summary: Create a new leave request
-   *     description: Creates a new leave request for the authenticated user. Notifies all admins and managers via email.
+   *     description: Creates a new leave request for the authenticated user. Notifies admins and managers via email.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -165,7 +165,7 @@ module.exports = (app) => {
    * /api/leaves:
    *   get:
    *     summary: Get all leave requests with optional filters
-   *     description: Retrieves a paginated list of leave requests. Any authenticated user can view their own leaves or filter by status, userId, startDate, or endDate.
+   *     description: Retrieves a paginated list of all leave requests with optional filters for status, userId, startDate, and endDate. Accessible to any authenticated user.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -274,10 +274,132 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/leaves/user/{userId}:
+   *   get:
+   *     summary: Get all leave requests for a specific user
+   *     description: Retrieves a paginated list of leave requests for a specific user ID with optional filters for status, startDate, and endDate. Accessible to any authenticated user.
+   *     tags: [Leaves]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID to fetch leaves for
+   *         example: 1
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: [pending, approved, rejected]
+   *         required: false
+   *         description: Filter leaves by status
+   *         example: "pending"
+   *       - in: query
+   *         name: startDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         required: false
+   *         description: Filter leaves starting on or after this date
+   *         example: "2025-08-01"
+   *       - in: query
+   *         name: endDate
+   *         schema:
+   *           type: string
+   *           format: date
+   *         required: false
+   *         description: Filter leaves ending on or before this date
+   *         example: "2025-08-05"
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         required: false
+   *         description: Page number for pagination
+   *         example: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 20
+   *         required: false
+   *         description: Number of items per page
+   *         example: 20
+   *     responses:
+   *       200:
+   *         description: List of leave requests for the user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 leaves:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Leave'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 5
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 100
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       404:
+   *         description: No leaves found for this user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "No leaves found for this user"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Error fetching leaves by user ID"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get("/user/:userId", verifyToken, leaveController.getLeavesByUserId);
+
+  /**
+   * @swagger
    * /api/leaves/{id}:
    *   get:
    *     summary: Get a leave request by ID
-   *     description: Retrieves a specific leave request by ID. Any authenticated user can view their own leave requests.
+   *     description: Retrieves a specific leave request by ID. Accessible to any authenticated user.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -309,16 +431,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - User cannot view this leave
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to view this leave"
    *       404:
    *         description: Leave request not found
    *         content:
@@ -350,7 +462,7 @@ module.exports = (app) => {
    * /api/leaves/{id}:
    *   put:
    *     summary: Update a leave request
-   *     description: Updates a pending leave request. Only the leave owner can update their own pending requests.
+   *     description: Updates a pending leave request. Accessible to any authenticated user, but only pending leaves can be updated. Notifies admins and managers via email.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -416,16 +528,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - User cannot update this leave
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this leave"
    *       404:
    *         description: Leave request not found
    *         content:
@@ -457,7 +559,7 @@ module.exports = (app) => {
    * /api/leaves/{id}/status:
    *   put:
    *     summary: Update leave request status
-   *     description: Updates the status of a leave request to approved or rejected. Any authenticated user can perform this action.
+   *     description: Updates the status of a leave request to approved or rejected. Accessible to any authenticated user. Notifies the leave owner via email.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -547,7 +649,7 @@ module.exports = (app) => {
    * /api/leaves/{id}:
    *   delete:
    *     summary: Delete a leave request
-   *     description: Deletes a leave request. Any authenticated user can perform this action.
+   *     description: Deletes a leave request. Accessible to any authenticated user. Notifies the leave owner via email.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
