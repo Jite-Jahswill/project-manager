@@ -4,12 +4,9 @@ const { notifyClientOnProjectCompletion } = require("./client.controller");
 const { User, Project, Task, UserTeam } = require("../models");
 
 module.exports = {
-  // Create a new project (Admin or Manager)
+  // Create a new project (No role restrictions)
   async createProject(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can create projects" });
-      }
       const { name, description, startDate, endDate, teamIds } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Project name is required" });
@@ -67,7 +64,7 @@ module.exports = {
             status: project.status,
             createdAt: project.createdAt,
             updatedAt: project.updatedAt,
-            teams: [], // Will be populated in get operations
+            teams: [],
             tasks: [],
             clients: [],
           },
@@ -81,7 +78,6 @@ module.exports = {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         body: req.body,
         timestamp: new Date().toISOString(),
       });
@@ -89,7 +85,7 @@ module.exports = {
     }
   },
 
-  // Get project by ID (All authenticated users, restricted to assigned projects for staff)
+  // Get project by ID (No role restrictions)
   async getProjectById(req, res) {
     try {
       const { projectId } = req.params;
@@ -97,28 +93,11 @@ module.exports = {
         return res.status(400).json({ message: "projectId is required" });
       }
 
-      // Check if user is assigned to the project
-      let isAssigned = false;
-      if (req.user.role === "staff") {
-        const userAssignment = await db.UserTeam.findOne({
-          where: { userId: req.user.id, projectId: parseInt(projectId) },
-        });
-        isAssigned = !!userAssignment;
-      } else if (["admin", "manager"].includes(req.user.role)) {
-        isAssigned = true; // Admins and managers have unrestricted access
-      } else {
-        return res.status(403).json({ message: "Unauthorized role" });
-      }
-
-      if (!isAssigned) {
-        return res.status(403).json({ message: "Unauthorized to view this project" });
-      }
-
       const project = await db.Project.findByPk(projectId, {
         include: [
           {
             model: db.Team,
-            as: "Teams", // Changed to plural to reflect many-to-many
+            as: "Teams",
             attributes: ["id", "name"],
             through: { attributes: [] },
             include: [
@@ -213,9 +192,10 @@ module.exports = {
     }
   },
 
-  // Get projects for the authenticated user (All authenticated users)
-  async getMyProjects(req, res) {
+  // Get projects by user ID (No role restrictions)
+  async getProjectsByUserId(req, res) {
     try {
+      const { userId } = req.params;
       const { page = 1, limit = 20 } = req.query;
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
@@ -224,31 +204,287 @@ module.exports = {
         return res.status(400).json({ message: "Invalid page or limit" });
       }
 
-      let whereClause = {};
-      if (req.user.role === "client") {
-        whereClause = {
-          id: {
-            [db.Sequelize.Op.in]: db.sequelize.literal(
-              `(SELECT projectId FROM ClientProjects WHERE clientId = ${req.user.id})`
-            ),
-          },
-        };
-      } else {
-        whereClause = {
-          id: {
-            [db.Sequelize.Op.in]: db.sequelize.literal(
-              `(SELECT projectId FROM UserTeams WHERE userId = ${req.user.id} AND projectId IS NOT NULL)`
-            ),
-          },
-        };
-      }
+      const whereClause = {
+        id: {
+          [db.Sequelize.Op.in]: db.sequelize.literal(
+            `(SELECT projectId FROM UserTeams WHERE userId = ${parseInt(userId)} AND projectId IS NOT NULL)`
+          ),
+        },
+      };
 
       const { count, rows } = await db.Project.findAndCountAll({
         where: whereClause,
         include: [
           {
             model: db.Team,
-            as: "Teams", // Changed to plural
+            as: "Teams",
+            attributes: ["id", "name"],
+            through: { attributes: [] },
+            include: [
+              {
+                model: db.User,
+                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+                through: { attributes: ["role", "note"] },
+              },
+            ],
+          },
+          {
+            model: db.Task,
+            as: "Tasks",
+            attributes: ["id", "title", "description", "status", "dueDate"],
+            include: [
+              {
+                model: db.User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName", "email"],
+              },
+            ],
+          },
+          {
+            model: db.Client,
+            as: "Clients",
+            attributes: ["id", "firstName", "lastName", "email", "image"],
+            through: { attributes: [] },
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      });
+
+      if (count === 0) {
+        return res.status(404).json({ message: "No projects found for this user" });
+      }
+
+      const projects = rows.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+          })),
+        })),
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+        clients: project.Clients.map((client) => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+        })),
+      }));
+
+      const pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalItems: count,
+        itemsPerPage: limitNum,
+      };
+
+      return res.status(200).json({ projects, pagination });
+    } catch (err) {
+      console.error("Get projects by user ID error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        queryUserId: req.params.userId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
+    }
+  },
+
+  // Get all projects (No role restrictions)
+  async getAllProjects(req, res) {
+    try {
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+
+      const where = {};
+      if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
+      if (status) where.status = status;
+      if (startDate) where.startDate = startDate;
+
+      const count = await db.Project.count({ where });
+
+      const projects = await db.Project.findAll({
+        where,
+        include: [
+          {
+            model: db.Team,
+            as: "Teams",
+            attributes: ["id", "name"],
+            through: { attributes: [] },
+            include: [
+              {
+                model: db.User,
+                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+                through: { attributes: ["role", "note"] },
+              },
+            ],
+          },
+          {
+            model: db.Task,
+            as: "Tasks",
+            attributes: ["id", "title", "description", "status", "dueDate"],
+            include: [
+              {
+                model: db.User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName", "email"],
+              },
+            ],
+          },
+          {
+            model: db.Client,
+            as: "Clients",
+            attributes: ["id", "firstName", "lastName", "email", "image"],
+            through: { attributes: [] },
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
+      });
+
+      const formattedProjects = projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
+        teams: project.Teams.map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: team.Users.map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam.role,
+            note: user.UserTeam.note,
+          })),
+        })),
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+        clients: project.Clients.map((client) => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+        })),
+      }));
+
+      const pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalItems: count,
+        itemsPerPage: limitNum,
+      };
+
+      return res.status(200).json({ projects: formattedProjects, pagination });
+    } catch (err) {
+      console.error("Get all projects error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
+    }
+  },
+
+  // Get all projects for a specific client (No role restrictions)
+  async getClientProjects(req, res) {
+    try {
+      const { clientId } = req.params;
+      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (!clientId) {
+        return res.status(400).json({ message: "clientId is required" });
+      }
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+
+      const client = await db.Client.findByPk(clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+
+      const where = {
+        id: {
+          [db.Sequelize.Op.in]: db.sequelize.literal(
+            `(SELECT projectId FROM ClientProjects WHERE clientId = ${parseInt(clientId)})`
+          ),
+        },
+      };
+      if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
+      if (status) where.status = status;
+      if (startDate) where.startDate = startDate;
+
+      const count = await db.Project.count({ where });
+
+      const rows = await db.Project.findAll({
+        where,
+        include: [
+          {
+            model: db.Team,
+            as: "Teams",
             attributes: ["id", "name"],
             through: { attributes: [] },
             include: [
@@ -338,549 +574,115 @@ module.exports = {
 
       return res.status(200).json({ projects, pagination });
     } catch (err) {
-      console.error("Get my projects error:", {
+      console.error("Get client projects error:", {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
+        clientId: req.params.clientId,
         query: req.query,
         timestamp: new Date().toISOString(),
       });
-      return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
+      return res.status(500).json({ message: "Failed to retrieve client projects", details: err.message });
     }
   },
 
-  // Get all projects (All authenticated users, restricted to assigned projects for staff)
-  async getAllProjects(req, res) {
-  try {
-    const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-
-    // Validate pagination parameters
-    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-      return res.status(400).json({ message: "Invalid page or limit" });
-    }
-
-    const where = {};
-    if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
-    if (status) where.status = status;
-    if (startDate) where.startDate = startDate;
-
-    let projectIds = null;
-
-    // Restrict projects based on user role
-    if (req.user.role === "client") {
-      const clientProjects = await db.ClientProject.findAll({
-        where: { clientId: req.user.id },
-        attributes: ["projectId"],
-      });
-      projectIds = clientProjects.map((cp) => cp.projectId);
-      where.id = projectIds.length ? { [db.Sequelize.Op.in]: projectIds } : { [db.Sequelize.Op.in]: [0] }; // Handle empty case
-    } else if (req.user.role === "staff") {
-      const userTeams = await db.UserTeam.findAll({
-        where: { userId: req.user.id, projectId: { [db.Sequelize.Op.ne]: null } },
-        attributes: ["projectId"],
-      });
-      projectIds = userTeams.map((ut) => ut.projectId);
-      where.id = projectIds.length ? { [db.Sequelize.Op.in]: projectIds } : { [db.Sequelize.Op.in]: [0] }; // Handle empty case
-    } else if (!["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized role" });
-    }
-
-    // Get total count separately to ensure accuracy
-    const count = await db.Project.count({ where });
-
-    // Fetch projects with pagination
-    const projects = await db.Project.findAll({
-      where,
-      include: [
-        {
-          model: db.Team,
-          as: "Teams",
-          attributes: ["id", "name"],
-          through: { attributes: [] },
-          include: [
-            {
-              model: db.User,
-              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-              through: { attributes: ["role", "note"] },
-            },
-          ],
-        },
-        {
-          model: db.Task,
-          as: "Tasks",
-          attributes: ["id", "title", "description", "status", "dueDate"],
-          include: [
-            {
-              model: db.User,
-              as: "assignee",
-              attributes: ["id", "firstName", "lastName", "email"],
-            },
-          ],
-        },
-        {
-          model: db.Client,
-          as: "Clients",
-          attributes: ["id", "firstName", "lastName", "email", "image"],
-          through: { attributes: [] },
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-      limit: limitNum,
-      offset: (pageNum - 1) * limitNum,
-    });
-
-    // Map projects to response format
-    const formattedProjects = projects.map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      status: project.status,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      teams: project.Teams.map((team) => ({
-        teamId: team.id,
-        teamName: team.name,
-        members: team.Users.map((user) => ({
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phoneNumber: user.phoneNumber || null,
-          role: user.UserTeam.role,
-          note: user.UserTeam.note,
-        })),
-      })),
-      tasks: project.Tasks.map((task) => ({
-        id: task.id,
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        dueDate: task.dueDate,
-        assignee: task.assignee
-          ? {
-              userId: task.assignee.id,
-              firstName: task.assignee.firstName,
-              lastName: task.assignee.lastName,
-              email: task.assignee.email,
-            }
-          : null,
-      })),
-      clients: project.Clients.map((client) => ({
-        id: client.id,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        email: client.email,
-        image: client.image,
-      })),
-    }));
-
-    const pagination = {
-      currentPage: pageNum,
-      totalPages: Math.ceil(count / limitNum),
-      totalItems: count,
-      itemsPerPage: limitNum,
-    };
-
-    return res.status(200).json({ projects: formattedProjects, pagination });
-  } catch (err) {
-    console.error("Get projects error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      query: req.query,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({ message: "Failed to retrieve projects", details: err.message });
-  }
-},
-
-// Get all projects for a specific client (Admin, Manager, or Client themselves)
-async getClientProjects(req, res) {
-  try {
-    const { clientId } = req.params;
-    const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    if (!clientId) {
-      return res.status(400).json({ message: "clientId is required" });
-    }
-    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-      return res.status(400).json({ message: "Invalid page or limit" });
-    }
-    // Check if client exists
-    const client = await db.Client.findByPk(clientId);
-    if (!client) {
-      return res.status(404).json({ message: "Client not found" });
-    }
-    // Restrict access: only admins, managers, or the client themselves
-    if (req.user.role === "client" && parseInt(clientId) !== req.user.id) {
-      return res.status(403).json({ message: "Unauthorized to view this client's projects" });
-    }
-    if (!["admin", "manager", "client"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Unauthorized role" });
-    }
-    const where = {
-      id: {
-        [db.Sequelize.Op.in]: db.sequelize.literal(
-          `(SELECT projectId FROM ClientProjects WHERE clientId = ${parseInt(clientId)})`
-        ),
-      },
-    };
-    if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
-    if (status) where.status = status;
-    if (startDate) where.startDate = startDate;
-    // Get total count separately to ensure accuracy
-    const count = await db.Project.count({ where });
-    // Fetch projects with pagination
-    const rows = await db.Project.findAll({
-      where,
-      include: [
-        {
-          model: db.Team,
-          as: "Teams",
-          attributes: ["id", "name"],
-          through: { attributes: [] },
-          include: [
-            {
-              model: db.User,
-              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-              through: { attributes: ["role", "note"] },
-            },
-          ],
-        },
-        {
-          model: db.Task,
-          as: "Tasks",
-          attributes: ["id", "title", "description", "status", "dueDate"],
-          include: [
-            {
-              model: db.User,
-              as: "assignee",
-              attributes: ["id", "firstName", "lastName", "email"],
-            },
-          ],
-        },
-        {
-          model: db.Client,
-          as: "Clients",
-          attributes: ["id", "firstName", "lastName", "email", "image"],
-          through: { attributes: [] },
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-      limit: limitNum,
-      offset: (pageNum - 1) * limitNum,
-    });
-    const projects = rows.map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      status: project.status,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      teams: project.Teams.map((team) => ({
-        teamId: team.id,
-        teamName: team.name,
-        members: team.Users.map((user) => ({
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phoneNumber: user.phoneNumber || null,
-          role: user.UserTeam.role,
-          note: user.UserTeam.note,
-        })),
-      })),
-      tasks: project.Tasks.map((task) => ({
-        id: task.id,
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        dueDate: task.dueDate,
-        assignee: task.assignee
-          ? {
-              userId: task.assignee.id,
-              firstName: task.assignee.firstName,
-              lastName: task.assignee.lastName,
-              email: task.assignee.email,
-            }
-          : null,
-      })),
-      clients: project.Clients.map((client) => ({
-        id: client.id,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        email: client.email,
-        image: client.image,
-      })),
-    }));
-    const pagination = {
-      currentPage: pageNum,
-      totalPages: Math.ceil(count / limitNum),
-      totalItems: count,
-      itemsPerPage: limitNum,
-    };
-    return res.status(200).json({ projects, pagination });
-  } catch (err) {
-    console.error("Get client projects error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      clientId: req.params.clientId,
-      query: req.query,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({ message: "Failed to retrieve client projects", details: err.message });
-  }
-},
-
-  // Assign multiple teams to a project
+  // Assign team to a project (No role restrictions)
   async assignTeamToProject(req, res) {
-  try {
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Only admins or managers can assign teams to projects" });
-    }
-
-    const { teamId, projectId } = req.body;
-    if (!teamId || !projectId) {
-      return res.status(400).json({ message: "teamId and projectId are required" });
-    }
-
-    // Convert single teamId to array for internal processing
-    const teamIds = [parseInt(teamId)];
-
-    // Validate project existence
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    // Validate team existence
-    const teams = await db.Team.findAll({
-      where: { id: teamIds },
-    });
-    if (teams.length !== teamIds.length) {
-      return res.status(404).json({ message: "Team not found" });
-    }
-
-    // Check for existing associations
-    const existingAssociations = await db.sequelize.query(
-      `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
-      {
-        replacements: { projectId: parseInt(projectId), teamIds },
-        type: db.sequelize.QueryTypes.SELECT,
+    try {
+      const { teamId, projectId } = req.body;
+      if (!teamId || !projectId) {
+        return res.status(400).json({ message: "teamId and projectId are required" });
       }
-    );
-    const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
-    const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(id));
 
-    if (newTeamIds.length === 0) {
-      return res.status(400).json({ message: "Team is already assigned to this project" });
-    }
+      const teamIds = [parseInt(teamId)];
 
-    // Insert new team assignment (raw MySQL query)
-    const insertQuery = `
-      INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
-      VALUES (?, ?, NOW(), NOW())
-    `;
-    await db.sequelize.query(insertQuery, {
-      replacements: [newTeamIds[0], parseInt(projectId)],
-      type: db.sequelize.QueryTypes.INSERT,
-    });
-
-    // Update UserTeams.projectId for team members (raw MySQL query)
-    const teamMembers = await db.User.findAll({
-      include: [
-        {
-          model: db.Team,
-          where: { id: newTeamIds },
-          attributes: ["id", "name"],
-          through: { attributes: [] },
-        },
-      ],
-      attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
-    });
-
-    if (teamMembers.length > 0) {
-      const userTeamUpdateQuery = `
-        UPDATE UserTeams 
-        SET projectId = :projectId, updatedAt = NOW()
-        WHERE teamId IN (:teamIds) AND projectId IS NULL
-      `;
-      await db.sequelize.query(userTeamUpdateQuery, {
-        replacements: { projectId: parseInt(projectId), teamIds: newTeamIds },
-        type: db.sequelize.QueryTypes.UPDATE,
-      });
-    }
-
-    // Send emails
-    const emailPromises = teamMembers.map((user) =>
-      sendMail({
-        to: user.email,
-        subject: `Your Team Has Been Assigned to Project: ${project.name}`,
-        html: `
-          <p>Hello ${user.firstName},</p>
-          <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
-          <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-          <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-          <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-          <p>Please log in to view your tasks.</p>
-          <p>Best,<br>Team</p>
-        `,
-      }).catch((emailErr) => {
-        console.error("Email sending error:", {
-          message: emailErr.message,
-          userId: user.id,
-          email: user.email,
-          timestamp: new Date().toISOString(),
-        });
-      })
-    );
-
-    await Promise.all(emailPromises);
-
-    return res.status(200).json({
-      message: `Team assigned to project "${project.name}" successfully`,
-      teams: teams.map((team) => ({
-        teamId: team.id,
-        teamName: team.name,
-        members: teamMembers
-          .filter((user) => user.Teams && user.Teams.some((t) => t.id === team.id))
-          .map((u) => ({
-            userId: u.id,
-            email: u.email,
-            name: `${u.firstName} ${u.lastName}`,
-            phoneNumber: u.phoneNumber || null,
-          })),
-      })),
-    });
-  } catch (err) {
-    console.error("Assign team error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({ message: "Failed to assign team to project", details: err.message });
-  }
-},
-
-  // Remove teams from a project
-  async removeTeamFromProject(req, res) {
-  try {
-    if (!["admin", "manager"].includes(req.user.role)) {
-      return res.status(403).json({ message: "Only admins or managers can remove teams from projects" });
-    }
-
-    const { teamId, projectId } = req.body;
-    if (!teamId || !projectId) {
-      return res.status(400).json({ message: "teamId and projectId are required" });
-    }
-
-    // Convert single teamId to array for internal processing
-    const teamIds = [parseInt(teamId)];
-
-    // Validate project existence
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    // Validate team existence
-    const teams = await db.Team.findAll({
-      where: { id: teamIds },
-    });
-    if (teams.length !== teamIds.length) {
-      return res.status(404).json({ message: "Team not found" });
-    }
-
-    // Check if team is assigned to the project
-    const existingAssociations = await db.sequelize.query(
-      `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
-      {
-        replacements: { projectId: parseInt(projectId), teamIds },
-        type: db.sequelize.QueryTypes.SELECT,
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
       }
-    );
-    const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
-    if (assignedTeamIds.length === 0) {
-      return res.status(400).json({ message: "Team is not assigned to this project" });
-    }
 
-    // Remove team assignment (raw MySQL query)
-    const deleteQuery = `
-      DELETE FROM TeamProjects 
-      WHERE projectId = :projectId AND teamId = :teamId
-    `;
-    await db.sequelize.query(deleteQuery, {
-      replacements: { projectId: parseInt(projectId), teamId: assignedTeamIds[0] },
-      type: db.sequelize.QueryTypes.DELETE,
-    });
-
-    // Update UserTeams.projectId for team members (raw MySQL query)
-    const teamMembers = await db.User.findAll({
-      include: [
-        {
-          model: db.Team,
-          where: { id: assignedTeamIds },
-          attributes: ["id", "name"],
-          through: { attributes: [] },
-        },
-      ],
-      attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
-    });
-
-    if (teamMembers.length > 0) {
-      const userTeamUpdateQuery = `
-        UPDATE UserTeams 
-        SET projectId = NULL, updatedAt = NOW()
-        WHERE teamId IN (:teamIds) AND projectId = :projectId
-      `;
-      await db.sequelize.query(userTeamUpdateQuery, {
-        replacements: { teamIds: assignedTeamIds, projectId: parseInt(projectId) },
-        type: db.sequelize.QueryTypes.UPDATE,
+      const teams = await db.Team.findAll({
+        where: { id: teamIds },
       });
-    }
+      if (teams.length !== teamIds.length) {
+        return res.status(404).json({ message: "Team not found" });
+      }
 
-    // Send emails
-    const emailPromises = teamMembers.map((user) =>
-      sendMail({
-        to: user.email,
-        subject: `Your Team Has Been Removed from Project: ${project.name}`,
-        html: `
-          <p>Hello ${user.firstName},</p>
-          <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
-          <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-          <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-          <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-          <p>Please check your dashboard for updated assignments.</p>
-          <p>Best,<br>Team</p>
-        `,
-      }).catch((emailErr) => {
-        console.error("Email sending error:", {
-          message: emailErr.message,
-          userId: user.id,
-          email: user.email,
-          timestamp: new Date().toISOString(),
+      const existingAssociations = await db.sequelize.query(
+        `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
+        {
+          replacements: { projectId: parseInt(projectId), teamIds },
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+      const existingTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+      const newTeamIds = teamIds.filter((id) => !existingTeamIds.includes(id));
+
+      if (newTeamIds.length === 0) {
+        return res.status(400).json({ message: "Team is already assigned to this project" });
+      }
+
+      const insertQuery = `
+        INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
+        VALUES (?, ?, NOW(), NOW())
+      `;
+      await db.sequelize.query(insertQuery, {
+        replacements: [newTeamIds[0], parseInt(projectId)],
+        type: db.sequelize.QueryTypes.INSERT,
+      });
+
+      const teamMembers = await db.User.findAll({
+        include: [
+          {
+            model: db.Team,
+            where: { id: newTeamIds },
+            attributes: ["id", "name"],
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+      });
+
+      if (teamMembers.length > 0) {
+        const userTeamUpdateQuery = `
+          UPDATE UserTeams 
+          SET projectId = :projectId, updatedAt = NOW()
+          WHERE teamId IN (:teamIds) AND projectId IS NULL
+        `;
+        await db.sequelize.query(userTeamUpdateQuery, {
+          replacements: { projectId: parseInt(projectId), teamIds: newTeamIds },
+          type: db.sequelize.QueryTypes.UPDATE,
         });
-      })
-    );
+      }
 
-    await Promise.all(emailPromises);
+      const emailPromises = teamMembers.map((user) =>
+        sendMail({
+          to: user.email,
+          subject: `Your Team Has Been Assigned to Project: ${project.name}`,
+          html: `
+            <p>Hello ${user.firstName},</p>
+            <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
+            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+            <p>Please log in to view your tasks.</p>
+            <p>Best,<br>Team</p>
+          `,
+        }).catch((emailErr) => {
+          console.error("Email sending error:", {
+            message: emailErr.message,
+            userId: user.id,
+            email: user.email,
+            timestamp: new Date().toISOString(),
+          });
+        })
+      );
 
-    return res.status(200).json({
-      message: `Team removed from project "${project.name}" successfully`,
-      teams: teams
-        .filter((team) => assignedTeamIds.includes(team.id))
-        .map((team) => ({
+      await Promise.all(emailPromises);
+
+      return res.status(200).json({
+        message: `Team assigned to project "${project.name}" successfully`,
+        teams: teams.map((team) => ({
           teamId: team.id,
           teamName: team.name,
           members: teamMembers
@@ -892,83 +694,203 @@ async getClientProjects(req, res) {
               phoneNumber: u.phoneNumber || null,
             })),
         })),
-    });
-  } catch (err) {
-    console.error("Remove team from project error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({ message: "Failed to remove team from project", details: err.message });
-  }
-},
-
-// Get all members of a project with roles
-async getProjectMembers(req, res) {
-  try {
-    const { projectId } = req.params;
-    if (!projectId) {
-      return res.status(400).json({ message: "projectId is required" });
+      });
+    } catch (err) {
+      console.error("Assign team error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to assign team to project", details: err.message });
     }
+  },
 
-    const project = await db.Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
+  // Remove team from a project (No role restrictions)
+  async removeTeamFromProject(req, res) {
+    try {
+      const { teamId, projectId } = req.body;
+      if (!teamId || !projectId) {
+        return res.status(400).json({ message: "teamId and projectId are required" });
+      }
 
-    const members = await db.User.findAll({
-      attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-      include: [
+      const teamIds = [parseInt(teamId)];
+
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const teams = await db.Team.findAll({
+        where: { id: teamIds },
+      });
+      if (teams.length !== teamIds.length) {
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      const existingAssociations = await db.sequelize.query(
+        `SELECT teamId FROM TeamProjects WHERE projectId = :projectId AND teamId IN (:teamIds)`,
         {
-          model: db.UserTeam,
-          attributes: ["role", "note"],
-          include: [
-            {
-              model: db.Team,
-              attributes: [],
-              include: [
-                {
-                  model: db.Project,
-                  where: { id: projectId },
-                  attributes: [],
-                  through: { model: db.TeamProject, attributes: [] },
-                },
-              ],
-              required: true,
-            },
-          ],
-          required: true,
-        },
-      ],
-    });
+          replacements: { projectId: parseInt(projectId), teamIds },
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+      const assignedTeamIds = existingAssociations.map((assoc) => assoc.teamId);
+      if (assignedTeamIds.length === 0) {
+        return res.status(400).json({ message: "Team is not assigned to this project" });
+      }
 
-    const formattedMembers = members.map((user) => ({
-      userId: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phoneNumber: user.phoneNumber || null,
-      role: user.UserTeams[0]?.role || null,
-      note: user.UserTeams[0]?.note || null,
-    }));
+      const deleteQuery = `
+        DELETE FROM TeamProjects 
+        WHERE projectId = :projectId AND teamId = :teamId
+      `;
+      await db.sequelize.query(deleteQuery, {
+        replacements: { projectId: parseInt(projectId), teamId: assignedTeamIds[0] },
+        type: db.sequelize.QueryTypes.DELETE,
+      });
 
-    return res.status(200).json({ members: formattedMembers });
-  } catch (err) {
-    console.error("Get members error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      projectId: req.params.projectId,
-      timestamp: new Date().toISOString(),
-    });
-    return res.status(500).json({ message: "Failed to retrieve project members", details: err.message });
-  }
-},
+      const teamMembers = await db.User.findAll({
+        include: [
+          {
+            model: db.Team,
+            where: { id: assignedTeamIds },
+            attributes: ["id", "name"],
+            through: { attributes: [] },
+          },
+        ],
+        attributes: ["id", "email", "firstName", "lastName", "phoneNumber"],
+      });
 
-  // Update project status
+      if (teamMembers.length > 0) {
+        const userTeamUpdateQuery = `
+          UPDATE UserTeams 
+          SET projectId = NULL, updatedAt = NOW()
+          WHERE teamId IN (:teamIds) AND projectId = :projectId
+        `;
+        await db.sequelize.query(userTeamUpdateQuery, {
+          replacements: { teamIds: assignedTeamIds, projectId: parseInt(projectId) },
+          type: db.sequelize.QueryTypes.UPDATE,
+        });
+      }
+
+      const emailPromises = teamMembers.map((user) =>
+        sendMail({
+          to: user.email,
+          subject: `Your Team Has Been Removed from Project: ${project.name}`,
+          html: `
+            <p>Hello ${user.firstName},</p>
+            <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
+            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+            <p>Please check your dashboard for updated assignments.</p>
+            <p>Best,<br>Team</p>
+          `,
+        }).catch((emailErr) => {
+          console.error("Email sending error:", {
+            message: emailErr.message,
+            userId: user.id,
+            email: user.email,
+            timestamp: new Date().toISOString(),
+          });
+        })
+      );
+
+      await Promise.all(emailPromises);
+
+      return res.status(200).json({
+        message: `Team removed from project "${project.name}" successfully`,
+        teams: teams
+          .filter((team) => assignedTeamIds.includes(team.id))
+          .map((team) => ({
+            teamId: team.id,
+            teamName: team.name,
+            members: teamMembers
+              .filter((user) => user.Teams && user.Teams.some((t) => t.id === team.id))
+              .map((u) => ({
+                userId: u.id,
+                email: u.email,
+                name: `${u.firstName} ${u.lastName}`,
+                phoneNumber: u.phoneNumber || null,
+              })),
+          })),
+      });
+    } catch (err) {
+      console.error("Remove team from project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to remove team from project", details: err.message });
+    }
+  },
+
+  // Get all members of a project with roles (No role restrictions)
+  async getProjectMembers(req, res) {
+    try {
+      const { projectId } = req.params;
+      if (!projectId) {
+        return res.status(400).json({ message: "projectId is required" });
+      }
+
+      const project = await db.Project.findByPk(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const members = await db.User.findAll({
+        attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+        include: [
+          {
+            model: db.UserTeam,
+            attributes: ["role", "note"],
+            include: [
+              {
+                model: db.Team,
+                attributes: [],
+                include: [
+                  {
+                    model: db.Project,
+                    where: { id: projectId },
+                    attributes: [],
+                    through: { model: db.TeamProject, attributes: [] },
+                  },
+                ],
+                required: true,
+              },
+            ],
+            required: true,
+          },
+        ],
+      });
+
+      const formattedMembers = members.map((user) => ({
+        userId: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber || null,
+        role: user.UserTeams[0]?.role || null,
+        note: user.UserTeams[0]?.note || null,
+      }));
+
+      return res.status(200).json({ members: formattedMembers });
+    } catch (err) {
+      console.error("Get members error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        projectId: req.params.projectId,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(500).json({ message: "Failed to retrieve project members", details: err.message });
+    }
+  },
+
+  // Update project status (No role restrictions)
   async updateProjectStatus(req, res) {
     try {
       const { projectId } = req.params;
@@ -988,15 +910,6 @@ async getProjectMembers(req, res) {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      const assigned = await db.UserTeam.findOne({
-        where: { userId: req.user.id, projectId },
-      });
-
-      if (!assigned && req.user.role !== "client" && req.user.role !== "admin") {
-        return res.status(403).json({ message: "You're not assigned to this project" });
-      }
-
-      // Update project status using raw MySQL
       await db.sequelize.query(
         `UPDATE Projects SET status = :status, updatedAt = NOW() WHERE id = :projectId`,
         {
@@ -1009,7 +922,7 @@ async getProjectMembers(req, res) {
         include: [
           {
             model: db.Team,
-            as: "Teams", // Changed to plural
+            as: "Teams",
             attributes: ["id", "name"],
             through: { attributes: [] },
             include: [
@@ -1139,7 +1052,6 @@ async getProjectMembers(req, res) {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         projectId: req.params.projectId,
         body: req.body,
         timestamp: new Date().toISOString(),
@@ -1148,13 +1060,9 @@ async getProjectMembers(req, res) {
     }
   },
 
-  // Update project (admin or manager)
+  // Update project (No role restrictions)
   async updateProject(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can update projects" });
-      }
-
       const { projectId } = req.params;
       const { name, description, startDate, endDate, status, teamIds } = req.body;
 
@@ -1170,7 +1078,6 @@ async getProjectMembers(req, res) {
         }
       }
 
-      // Validate status if provided
       if (status) {
         const validStatuses = ["To Do", "In Progress", "Review", "Done"];
         if (!validStatuses.includes(status)) {
@@ -1178,7 +1085,6 @@ async getProjectMembers(req, res) {
         }
       }
 
-      // Check if at least one field is provided
       const hasUpdates = name || description !== undefined || startDate || endDate !== undefined || status || teamIds;
       if (!hasUpdates) {
         return res.status(400).json({ message: "At least one field must be provided for update" });
@@ -1187,7 +1093,6 @@ async getProjectMembers(req, res) {
       const transaction = await db.sequelize.transaction();
 
       try {
-        // Update project details using raw MySQL
         const updates = {};
         let setClause = [];
         if (name) {
@@ -1225,9 +1130,7 @@ async getProjectMembers(req, res) {
           });
         }
 
-        // Update team assignments if teamIds is provided
         if (teamIds && Array.isArray(teamIds)) {
-          // Get current team assignments
           const currentTeamIds = (
             await db.sequelize.query(
               `SELECT teamId FROM TeamProjects WHERE projectId = :projectId`,
@@ -1239,11 +1142,9 @@ async getProjectMembers(req, res) {
             )
           ).map((assoc) => assoc.teamId);
 
-          // Determine teams to add and remove
           const teamsToAdd = teamIds.filter((id) => !currentTeamIds.includes(parseInt(id)));
           const teamsToRemove = currentTeamIds.filter((id) => !teamIds.includes(id));
 
-          // Add new team assignments
           if (teamsToAdd.length > 0) {
             const insertQuery = `
               INSERT INTO TeamProjects (teamId, projectId, createdAt, updatedAt)
@@ -1257,7 +1158,6 @@ async getProjectMembers(req, res) {
             });
           }
 
-          // Remove old team assignments
           if (teamsToRemove.length > 0) {
             const deleteQuery = `
               DELETE FROM TeamProjects 
@@ -1270,7 +1170,6 @@ async getProjectMembers(req, res) {
             });
           }
 
-          // Update UserTeams.projectId for team members
           const teamMembersToAdd = teamsToAdd.length
             ? await db.User.findAll({
                 include: [
@@ -1327,7 +1226,6 @@ async getProjectMembers(req, res) {
             });
           }
 
-          // Send emails to affected team members
           const emailPromises = [];
           teamMembersToAdd.forEach((user) =>
             emailPromises.push(
@@ -1467,7 +1365,6 @@ async getProjectMembers(req, res) {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         projectId: req.params.projectId,
         body: req.body,
         timestamp: new Date().toISOString(),
@@ -1476,13 +1373,9 @@ async getProjectMembers(req, res) {
     }
   },
 
-  // Delete a project (admin or manager)
+  // Delete a project (No role restrictions)
   async deleteProject(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can delete projects" });
-      }
-
       const { projectId } = req.params;
       if (!projectId) {
         return res.status(400).json({ message: "projectId is required" });
@@ -1497,7 +1390,6 @@ async getProjectMembers(req, res) {
           return res.status(404).json({ message: "Project not found" });
         }
 
-        // Get all teams associated with the project
         const teamIds = (
           await db.sequelize.query(
             `SELECT teamId FROM TeamProjects WHERE projectId = :projectId`,
@@ -1537,7 +1429,6 @@ async getProjectMembers(req, res) {
           transaction,
         });
 
-        // Delete project (cascades to TeamProjects and UserTeams via onDelete: CASCADE)
         await db.Project.destroy({ where: { id: projectId }, transaction });
 
         const emailPromises = [
@@ -1581,7 +1472,6 @@ async getProjectMembers(req, res) {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         projectId: req.params.projectId,
         timestamp: new Date().toISOString(),
       });
@@ -1589,13 +1479,9 @@ async getProjectMembers(req, res) {
     }
   },
 
-  // Add a client to a project (Admin or Manager only)
+  // Add a client to a project (No role restrictions)
   async addClientToProject(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can add clients" });
-      }
-
       const { projectId, clientId } = req.body;
 
       if (!projectId || !clientId) {
@@ -1647,7 +1533,6 @@ async getProjectMembers(req, res) {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         body: req.body,
         timestamp: new Date().toISOString(),
       });
@@ -1655,13 +1540,9 @@ async getProjectMembers(req, res) {
     }
   },
 
-  // Remove a client from a project (Admin or Manager only)
+  // Remove a client from a project (No role restrictions)
   async removeClientFromProject(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can remove clients" });
-      }
-
       const { projectId, clientId } = req.params;
 
       if (!projectId || !clientId) {
@@ -1706,7 +1587,6 @@ async getProjectMembers(req, res) {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         projectId: req.params.projectId,
         clientId: req.params.clientId,
         timestamp: new Date().toISOString(),
@@ -1715,92 +1595,85 @@ async getProjectMembers(req, res) {
     }
   },
 
-  // Get tasks for a specific project
-async getTasksByProject(req, res) {
-  try {
-    const { projectId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
-    const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-      return res.status(400).json({ message: "Invalid page or limit" });
-    }
+  // Get tasks for a specific project (No role restrictions)
+  async getTasksByProject(req, res) {
+    try {
+      const { projectId } = req.params;
+      const { page = 1, limit = 20 } = req.query;
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
 
-    if (!projectId) {
-      return res.status(400).json({ message: "projectId is required" });
-    }
+      if (!projectId) {
+        return res.status(400).json({ message: "projectId is required" });
+      }
 
-    // Check if project exists
-    const project = await Project.findByPk(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
+      const project = await Project.findByPk(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
 
-    // Authorization: Admins can view all tasks, non-admins must be part of a team assigned to the project
-    if (req.user.role !== "admin") {
-      const userTeam = await UserTeam.findOne({
-        where: {
-          userId: req.user.id,
-          projectId,
-        },
+      const { count, rows } = await Task.findAndCountAll({
+        where: { projectId },
+        include: [
+          {
+            model: Project,
+            attributes: ["id", "name"],
+          },
+          {
+            model: User,
+            as: "assignee",
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
       });
 
-      if (!userTeam) {
-        return res.status(403).json({ message: "Unauthorized to view tasks for this project" });
-      }
+      const tasks = rows.map((task) => ({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        dueDate: task.dueDate,
+        project: {
+          id: task.Project.id,
+          name: task.Project.name,
+        },
+        assignee: task.assignee
+          ? {
+              userId: task.assignee.id,
+              firstName: task.assignee.firstName,
+              lastName: task.assignee.lastName,
+              email: task.assignee.email,
+            }
+          : null,
+      }));
+
+      const totalPages = Math.ceil(count / limitNum);
+
+      res.status(200).json({
+        tasks,
+        pagination: {
+          currentPage: pageNum,
+          totalPages,
+          totalItems: count,
+          itemsPerPage: limitNum,
+        },
+      });
+    } catch (err) {
+      console.error("Get tasks by project error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        projectId: req.params.projectId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Failed to fetch project tasks", details: err.message });
     }
-
-    const { count, rows } = await Task.findAndCountAll({
-      where: { projectId },
-      include: [
-        {
-          model: Project,
-          attributes: ["id", "name"],
-        },
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "firstName", "lastName", "email"],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-      limit: limitNum,
-      offset: (pageNum - 1) * limitNum,
-    });
-
-    const tasks = rows.map((task) => ({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      status: task.status,
-      dueDate: task.dueDate,
-      project: {
-        id: task.Project.id,
-        name: task.Project.name,
-      },
-      assignee: task.assignee
-        ? {
-            userId: task.assignee.id,
-            firstName: task.assignee.firstName,
-            lastName: task.assignee.lastName,
-            email: task.assignee.email,
-          }
-        : null,
-    }));
-
-    const totalPages = Math.ceil(count / limitNum);
-
-    res.status(200).json({
-      tasks,
-      pagination: {
-        currentPage: pageNum,
-        totalPages,
-        totalItems: count,
-        itemsPerPage: limitNum,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Failed to fetch project tasks", details: err.message });
-  }
-},
+  },
 };
