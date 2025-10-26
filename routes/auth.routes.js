@@ -1,7 +1,7 @@
 const express = require("express");
-const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
-const authController = require("../controllers/auth.controller");
-const verifyToken = require("../middlewares/auth.middleware");
+const userController = require("../controllers/userController");
+const { verifyToken } = require("../middlewares/auth.middleware");
+const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -9,10 +9,15 @@ module.exports = (app) => {
   /**
    * @swagger
    * tags:
-   *   - name: Authentication
-   *     description: User authentication and management endpoints
+   *   - name: Auth
+   *     description: Authentication and user management endpoints
    *
    * components:
+   *   securitySchemes:
+   *     bearerAuth:
+   *       type: http
+   *       scheme: bearer
+   *       bearerFormat: JWT
    *   schemas:
    *     User:
    *       type: object
@@ -32,13 +37,21 @@ module.exports = (app) => {
    *         phoneNumber:
    *           type: string
    *           example: "+1234567890"
+   *         image:
+   *           type: string
+   *           example: "https://firebasestorage.googleapis.com/v0/b/your-bucket/o/images%2Fuser.jpg"
    *         role:
    *           type: string
    *           enum: [admin, manager, staff]
    *           example: "staff"
-   *         image:
+   *         createdAt:
    *           type: string
-   *           example: "https://storage.googleapis.com/my-flxi-shop.appspot.com/Uploads/files-1234567890.jpg"
+   *           format: date-time
+   *           example: "2025-10-26T18:35:00.000Z"
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-10-26T18:35:00.000Z"
    */
 
   /**
@@ -46,8 +59,10 @@ module.exports = (app) => {
    * /api/auth/register:
    *   post:
    *     summary: Register a new user
-   *     description: Creates a new user with an auto-generated password and sends an OTP for email verification. Requires an image upload.
-   *     tags: [Authentication]
+   *     description: Creates a new user with an auto-generated password and sends an OTP for email verification. Requires image upload. Accessible to any authenticated user.
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
    *     requestBody:
    *       required: true
    *       content:
@@ -59,7 +74,7 @@ module.exports = (app) => {
    *               - lastName
    *               - email
    *               - phoneNumber
-   *               - files
+   *               - image
    *             properties:
    *               firstName:
    *                 type: string
@@ -77,12 +92,10 @@ module.exports = (app) => {
    *                 type: string
    *                 enum: [admin, manager, staff]
    *                 example: "staff"
-   *               files:
-   *                 type: array
-   *                 items:
-   *                   type: string
-   *                   format: binary
-   *                 description: User profile image (JPEG, PNG, WebP, max 10MB)
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: User profile image
    *     responses:
    *       201:
    *         description: User registered successfully
@@ -97,7 +110,7 @@ module.exports = (app) => {
    *                 user:
    *                   $ref: '#/components/schemas/User'
    *       400:
-   *         description: Missing or invalid input
+   *         description: Invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -106,6 +119,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "firstName, lastName, email, phoneNumber, and image are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
    *       409:
    *         description: Email or phone number already in use
    *         content:
@@ -130,15 +153,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/register", upload, uploadToFirebase, authController.register);
+  router.post("/register", verifyToken, uploadToFirebase, userController.register);
 
   /**
    * @swagger
    * /api/auth/login:
    *   post:
    *     summary: Login a user
-   *     description: Authenticates a user and returns a JWT token.
-   *     tags: [Authentication]
+   *     description: Authenticates a user and returns a JWT token. Public endpoint.
+   *     tags: [Auth]
    *     requestBody:
    *       required: true
    *       content:
@@ -154,7 +177,7 @@ module.exports = (app) => {
    *                 example: "john.doe@example.com"
    *               password:
    *                 type: string
-   *                 example: "password123"
+   *                 example: "securepassword123"
    *     responses:
    *       200:
    *         description: Login successful
@@ -172,7 +195,7 @@ module.exports = (app) => {
    *                 user:
    *                   $ref: '#/components/schemas/User'
    *       400:
-   *         description: Missing email or password
+   *         description: Invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -215,15 +238,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/login", authController.login);
+  router.post("/login", userController.login);
 
   /**
    * @swagger
    * /api/auth/users:
    *   get:
    *     summary: Get all users
-   *     description: Retrieves a paginated list of users with optional filtering by role, firstName, or lastName.
-   *     tags: [Authentication]
+   *     description: Retrieves a paginated list of users with optional filters by role, firstName, and lastName. Accessible to authenticated users.
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -232,19 +255,22 @@ module.exports = (app) => {
    *         schema:
    *           type: string
    *           enum: [admin, manager, staff]
-   *         description: Filter by user role
-   *         example: "staff"
+   *         required: false
+   *         description: Filter users by role
+   *         example: "admin"
    *       - in: query
    *         name: firstName
    *         schema:
    *           type: string
-   *         description: Filter by first name (partial match)
+   *         required: false
+   *         description: Filter users by first name (partial match)
    *         example: "John"
    *       - in: query
    *         name: lastName
    *         schema:
    *           type: string
-   *         description: Filter by last name (partial match)
+   *         required: false
+   *         description: Filter users by last name (partial match)
    *         example: "Doe"
    *       - in: query
    *         name: page
@@ -252,6 +278,7 @@ module.exports = (app) => {
    *           type: integer
    *           minimum: 1
    *           default: 1
+   *         required: false
    *         description: Page number for pagination
    *         example: 1
    *       - in: query
@@ -260,11 +287,12 @@ module.exports = (app) => {
    *           type: integer
    *           minimum: 1
    *           default: 20
-   *         description: Number of users per page
+   *         required: false
+   *         description: Number of items per page
    *         example: 20
    *     responses:
    *       200:
-   *         description: Users retrieved successfully
+   *         description: List of users
    *         content:
    *           application/json:
    *             schema:
@@ -282,13 +310,23 @@ module.exports = (app) => {
    *                       example: 1
    *                     totalPages:
    *                       type: integer
-   *                       example: 1
+   *                       example: 5
    *                     totalItems:
    *                       type: integer
-   *                       example: 10
+   *                       example: 100
    *                     itemsPerPage:
    *                       type: integer
    *                       example: 20
+   *       400:
+   *         description: Invalid pagination or query parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -296,7 +334,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       500:
@@ -313,15 +351,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users", verifyToken, authController.getAllUsers);
+  router.get("/users", verifyToken, userController.getAllUsers);
 
   /**
    * @swagger
    * /api/auth/users/{id}:
    *   get:
    *     summary: Get a user by ID
-   *     description: Retrieves details of a user by their ID.
-   *     tags: [Authentication]
+   *     description: Retrieves a single user by ID. Accessible to authenticated users.
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -334,7 +372,7 @@ module.exports = (app) => {
    *         example: 1
    *     responses:
    *       200:
-   *         description: User retrieved successfully
+   *         description: User details
    *         content:
    *           application/json:
    *             schema:
@@ -356,7 +394,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       404:
@@ -383,15 +421,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users/:id", verifyToken, authController.getUserById);
+  router.get("/users/:id", verifyToken, userController.getUserById);
 
   /**
    * @swagger
    * /api/auth/users/{id}:
    *   put:
    *     summary: Update a user
-   *     description: Updates user details (firstName, lastName, email, phoneNumber, image).
-   *     tags: [Authentication]
+   *     description: Updates user details by ID. Accessible to authenticated users.
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -403,6 +441,7 @@ module.exports = (app) => {
    *         description: User ID
    *         example: 1
    *     requestBody:
+   *       required: true
    *       content:
    *         multipart/form-data:
    *           schema:
@@ -420,12 +459,10 @@ module.exports = (app) => {
    *               phoneNumber:
    *                 type: string
    *                 example: "+1234567890"
-   *               files:
-   *                 type: array
-   *                 items:
-   *                   type: string
-   *                   format: binary
-   *                 description: New profile image (JPEG, PNG, WebP, max 10MB)
+   *               image:
+   *                 type: string
+   *                 format: binary
+   *                 description: Updated user profile image
    *     responses:
    *       200:
    *         description: User updated successfully
@@ -440,7 +477,7 @@ module.exports = (app) => {
    *                 user:
    *                   $ref: '#/components/schemas/User'
    *       400:
-   *         description: Invalid user ID
+   *         description: Invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -456,7 +493,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       404:
@@ -493,15 +530,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id", verifyToken, upload, uploadToFirebase, authController.updateUser);
+  router.put("/users/:id", verifyToken, uploadToFirebase, userController.updateUser);
 
   /**
    * @swagger
    * /api/auth/users/{id}/role:
    *   put:
-   *     summary: Update a user's role
-   *     description: Updates the role of a user (admin, manager, staff) and sends an email notification.
-   *     tags: [Authentication]
+   *     summary: Update user role
+   *     description: Updates the role of a user by ID. Accessible to authenticated users.
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -537,25 +574,9 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "User role updated successfully"
    *                 user:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     firstName:
-   *                       type: string
-   *                       example: "John"
-   *                     lastName:
-   *                       type: string
-   *                       example: "Doe"
-   *                     email:
-   *                       type: string
-   *                       example: "john.doe@example.com"
-   *                     role:
-   *                       type: string
-   *                       example: "manager"
+   *                   $ref: '#/components/schemas/User'
    *       400:
-   *         description: Invalid user ID or role
+   *         description: Invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -571,7 +592,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       404:
@@ -598,15 +619,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id/role", verifyToken, authController.updateUserRole);
+  router.put("/users/:id/role", verifyToken, userController.updateUserRole);
 
   /**
    * @swagger
    * /api/auth/users/{id}:
    *   delete:
    *     summary: Delete a user
-   *     description: Deletes a user by their ID.
-   *     tags: [Authentication]
+   *     description: Deletes a user by ID. Accessible to authenticated users.
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -645,7 +666,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       404:
@@ -672,15 +693,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/users/:id", verifyToken, authController.deleteUser);
+  router.delete("/users/:id", verifyToken, userController.deleteUser);
 
   /**
    * @swagger
    * /api/auth/verify-email:
    *   post:
    *     summary: Verify user email
-   *     description: Verifies a user's email using an OTP.
-   *     tags: [Authentication]
+   *     description: Verifies a user's email using an OTP. Public endpoint.
+   *     tags: [Auth]
    *     requestBody:
    *       required: true
    *       content:
@@ -724,7 +745,7 @@ module.exports = (app) => {
    *                       type: string
    *                       example: "Doe"
    *       400:
-   *         description: Missing or invalid input, email already verified, or OTP issues
+   *         description: Invalid input or OTP
    *         content:
    *           application/json:
    *             schema:
@@ -732,7 +753,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Email and OTP are required"
+   *                   example: "Invalid OTP"
    *       404:
    *         description: User not found
    *         content:
@@ -757,15 +778,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/verify-email", authController.verifyEmail);
+  router.post("/verify-email", userController.verifyEmail);
 
   /**
    * @swagger
    * /api/auth/forgot-password:
    *   post:
    *     summary: Request password reset
-   *     description: Sends an OTP to the user's email for password reset.
-   *     tags: [Authentication]
+   *     description: Sends an OTP to the user's email for password reset. Public endpoint.
+   *     tags: [Auth]
    *     requestBody:
    *       required: true
    *       content:
@@ -790,7 +811,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Password reset OTP sent to email"
    *       400:
-   *         description: Missing email
+   *         description: Invalid input
    *         content:
    *           application/json:
    *             schema:
@@ -821,17 +842,17 @@ module.exports = (app) => {
    *                   example: "Failed to send reset OTP"
    *                 details:
    *                   type: string
-   *                   example: "Email service error"
+   *                   example: "Database error"
    */
-  router.post("/forgot-password", authController.forgotPassword);
+  router.post("/forgot-password", userController.forgotPassword);
 
   /**
    * @swagger
    * /api/auth/reset-password:
    *   post:
    *     summary: Reset user password
-   *     description: Resets the user's password using an OTP.
-   *     tags: [Authentication]
+   *     description: Resets the user's password using an OTP. Public endpoint.
+   *     tags: [Auth]
    *     requestBody:
    *       required: true
    *       content:
@@ -864,7 +885,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Password reset successful"
    *       400:
-   *         description: Missing or invalid input, or OTP issues
+   *         description: Invalid input or OTP
    *         content:
    *           application/json:
    *             schema:
@@ -872,7 +893,7 @@ module.exports = (app) => {
    *               properties:
    *                 error:
    *                   type: string
-   *                   example: "Email, OTP, and password are required"
+   *                   example: "Invalid OTP"
    *       404:
    *         description: User not found
    *         content:
@@ -897,15 +918,15 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/reset-password", authController.resetPassword);
+  router.post("/reset-password", userController.resetPassword);
 
   /**
    * @swagger
    * /api/auth/resend-verification:
    *   post:
-   *     summary: Resend verification OTP
+   *     summary: Resend email verification OTP
    *     description: Resends an OTP for email verification to the authenticated user.
-   *     tags: [Authentication]
+   *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
    *     responses:
@@ -936,7 +957,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Unauthorized"
    *       404:
@@ -961,9 +982,9 @@ module.exports = (app) => {
    *                   example: "Failed to resend verification OTP"
    *                 details:
    *                   type: string
-   *                   example: "Email service error"
+   *                   example: "Database error"
    */
-  router.post("/resend-verification", verifyToken, authController.resendVerification);
+  router.post("/resend-verification", verifyToken, userController.resendVerification);
 
   app.use("/api/auth", router);
 };
