@@ -2,7 +2,7 @@ const db = require("../models");
 const sendMail = require("../utils/mailer");
 
 module.exports = {
-  // Create a new task (Staff, Admin, Manager)
+  // Create a new task (open to any authenticated user)
   async createTask(req, res) {
     try {
       const { title, description, dueDate, projectId, assignedTo, status } = req.body;
@@ -53,31 +53,6 @@ module.exports = {
       });
       if (!teamMember) {
         return res.status(400).json({ message: "Assigned user is not part of the project's team" });
-      }
-
-      // For staff, ensure they are assigned to the project and assigning to themselves
-      if (req.user.role === "staff") {
-        const userInTeam = await db.TeamProject.findOne({
-          include: [
-            {
-              model: db.Team,
-              include: [
-                {
-                  model: db.User,
-                  through: db.UserTeam,
-                  where: { id: req.user.id },
-                },
-              ],
-            },
-          ],
-          where: { projectId },
-        });
-        if (!userInTeam) {
-          return res.status(403).json({ message: "You are not assigned to this project" });
-        }
-        if (assignedTo !== req.user.id) {
-          return res.status(403).json({ message: "Staff can only assign tasks to themselves" });
-        }
       }
 
       // Create task using Sequelize
@@ -144,7 +119,6 @@ module.exports = {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         body: req.body,
         timestamp: new Date().toISOString(),
       });
@@ -152,7 +126,7 @@ module.exports = {
     }
   },
 
-  // Get all tasks for a specific project (Staff see own, Admins/Managers see all)
+  // Get all tasks for a specific project (open to any authenticated user)
   async getProjectTasks(req, res) {
     try {
       const { projectId } = req.params;
@@ -177,33 +151,8 @@ module.exports = {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Check if user is in the project's team (for staff)
-      if (req.user.role === "staff") {
-        const teamMember = await db.TeamProject.findOne({
-          include: [
-            {
-              model: db.Team,
-              include: [
-                {
-                  model: db.User,
-                  through: db.UserTeam,
-                  where: { id: req.user.id },
-                },
-              ],
-            },
-          ],
-          where: { projectId },
-        });
-        if (!teamMember) {
-          return res.status(403).json({ message: "You are not assigned to this project" });
-        }
-      }
-
       // Build query with Sequelize
       const whereClause = { projectId };
-      if (req.user.role === "staff") {
-        whereClause.assignedTo = req.user.id;
-      }
 
       const { count, rows } = await db.Task.findAndCountAll({
         where: whereClause,
@@ -257,7 +206,7 @@ module.exports = {
     }
   },
 
-  // Get all tasks with optional filters (Staff see own, Admins/Managers see all)
+  // Get all tasks with optional filters (open to any authenticated user)
   async getAllTasks(req, res) {
     try {
       const { title, status, dueDate, page = 1, limit = 20 } = req.query;
@@ -279,9 +228,6 @@ module.exports = {
       }
       if (dueDate) {
         whereClause.dueDate = { [db.Sequelize.Op.eq]: dueDate };
-      }
-      if (req.user.role === "staff") {
-        whereClause.assignedTo = req.user.id;
       }
 
       const { count, rows } = await db.Task.findAndCountAll({
@@ -335,7 +281,7 @@ module.exports = {
     }
   },
 
-  // Update task status (Staff for own tasks, Admins/Managers for any)
+  // Update task status (open to any authenticated user)
   async updateTaskStatus(req, res) {
     try {
       const { status } = req.body;
@@ -372,11 +318,6 @@ module.exports = {
 
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
-      }
-
-      // Check authorization
-      if (req.user.role === "staff" && req.user.id !== task.assignedTo) {
-        return res.status(403).json({ message: "Unauthorized to update this task's status" });
       }
 
       // Update task status with raw SQL
@@ -453,6 +394,7 @@ module.exports = {
             <p><strong>Project:</strong> ${updatedTask.projectName}</p>
             <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
             <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
+            <p><strong>Status:</strong> ${updatedTask.status}</p>
             <p>Best,<br>Team</p>
           `,
         });
@@ -470,7 +412,6 @@ module.exports = {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         taskId: req.params.taskId,
         body: req.body,
         timestamp: new Date().toISOString(),
@@ -479,7 +420,7 @@ module.exports = {
     }
   },
 
-  // Update task details (Staff for own tasks, Admins/Managers for any)
+  // Update task details (open to any authenticated user)
   async updateTask(req, res) {
     try {
       const { taskId } = req.params;
@@ -519,22 +460,9 @@ module.exports = {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      // Check authorization
-      if (req.user.role === "staff" && req.user.id !== task.assignedTo) {
-        return res.status(403).json({ message: "Unauthorized to update this task" });
-      }
-
-      // Staff cannot change assignedTo or projectId
-      if (req.user.role === "staff" && (assignedTo || req.body.projectId)) {
-        return res.status(403).json({ message: "Staff cannot reassign tasks or change project" });
-      }
-
-      // Validate assignedTo for admins/managers
+      // Validate assignedTo if provided
       let newAssignee = { userId: task.userId, firstName: task.firstName, lastName: task.lastName, email: task.email };
       if (assignedTo && assignedTo !== task.assignedTo) {
-        if (req.user.role === "staff") {
-          return res.status(403).json({ message: "Staff cannot reassign tasks" });
-        }
         const [user] = await db.sequelize.query(
           `
           SELECT u.id, u.firstName, u.lastName, u.email
@@ -583,7 +511,7 @@ module.exports = {
         updateFields.push("dueDate = ?");
         updateReplacements.push(dueDate || null);
       }
-      if (assignedTo && req.user.role !== "staff") {
+      if (assignedTo) {
         updateFields.push("assignedTo = ?");
         updateReplacements.push(assignedTo);
       }
@@ -689,7 +617,6 @@ module.exports = {
         message: err.message,
         stack: err.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         taskId: req.params.taskId,
         body: req.body,
         timestamp: new Date().toISOString(),
@@ -698,7 +625,7 @@ module.exports = {
     }
   },
 
-  // Delete a task (Staff for own tasks, Admins/Managers for any)
+  // Delete a task (open to any authenticated user)
   async deleteTask(req, res) {
     try {
       const { taskId } = req.params;
@@ -723,11 +650,6 @@ module.exports = {
 
       if (!task) {
         return res.status(404).json({ message: "Task not found" });
-      }
-
-      // Check authorization
-      if (req.user.role === "staff" && req.user.id !== task.assignedTo) {
-        return res.status(403).json({ message: "Unauthorized to delete this task" });
       }
 
       // Delete task with raw SQL
@@ -787,267 +709,249 @@ module.exports = {
     }
   },
 
-  // Assign task to a user in the project's team
-async assignTask(req, res) {
-  try {
-    const { taskId } = req.params;
-    const { assignedTo } = req.body;
+  // Assign task to a user in the project's team (open to any authenticated user)
+  async assignTask(req, res) {
+    try {
+      const { taskId } = req.params;
+      const { assignedTo } = req.body;
 
-    // Validate input
-    if (!taskId || !assignedTo) {
-      return res.status(400).json({ message: "taskId and assignedTo are required" });
-    }
-
-    // Fetch task with project and assignee details
-    const [task] = await db.sequelize.query(
-      `
-      SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
-             t.createdAt, t.updatedAt,
-             u.id AS userId, u.firstName, u.lastName, u.email,
-             p.id AS projectId, p.name AS projectName
-      FROM Tasks t
-      LEFT JOIN Users u ON t.assignedTo = u.id
-      LEFT JOIN Projects p ON t.projectId = p.id
-      WHERE t.id = ?
-      `,
-      {
-        replacements: [taskId],
-        type: db.sequelize.QueryTypes.SELECT,
+      // Validate input
+      if (!taskId || !assignedTo) {
+        return res.status(400).json({ message: "taskId and assignedTo are required" });
       }
-    );
 
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
-    // Check authorization
-    if (req.user.role === "staff") {
-      if (req.user.id !== task.assignedTo) {
-        return res.status(403).json({ message: "Unauthorized to reassign this task" });
-      }
-      if (assignedTo !== req.user.id) {
-        return res.status(403).json({ message: "Staff can only assign tasks to themselves" });
-      }
-    }
-
-    // Validate new assignee exists
-    const [newUser] = await db.sequelize.query(
-      `
-      SELECT u.id, u.firstName, u.lastName, u.email
-      FROM Users u
-      WHERE u.id = ?
-      `,
-      {
-        replacements: [assignedTo],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
-    if (!newUser) {
-      return res.status(404).json({ message: "Assigned user not found" });
-    }
-
-    // Validate new assignee is in the project's team
-    const [teamMember] = await db.sequelize.query(
-      `
-      SELECT ut.userId
-      FROM UserTeams ut
-      JOIN TeamProjects tp ON ut.teamId = tp.teamId
-      WHERE tp.projectId = ? AND ut.userId = ?
-      `,
-      {
-        replacements: [task.projectId, assignedTo],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
-    if (!teamMember) {
-      return res.status(400).json({ message: "Assigned user is not part of the project's team" });
-    }
-
-    // Update task assignee with raw MySQL
-    await db.sequelize.query(
-      `
-      UPDATE Tasks
-      SET assignedTo = ?, updatedAt = NOW()
-      WHERE id = ?
-      `,
-      {
-        replacements: [assignedTo, taskId],
-        type: db.sequelize.QueryTypes.UPDATE,
-      }
-    );
-
-    // Fetch updated task
-    const [updatedTask] = await db.sequelize.query(
-      `
-      SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
-             t.createdAt, t.updatedAt,
-             u.id AS userId, u.firstName, u.lastName, u.email,
-             p.id AS projectId, p.name AS projectName
-      FROM Tasks t
-      LEFT JOIN Users u ON t.assignedTo = u.id
-      LEFT JOIN Projects p ON t.projectId = p.id
-      WHERE t.id = ?
-      `,
-      {
-        replacements: [taskId],
-        type: db.sequelize.QueryTypes.SELECT,
-      }
-    );
-
-    if (!updatedTask) {
-      return res.status(500).json({ message: "Error assigning task" });
-    }
-
-    // Format response
-    const formattedTask = {
-      id: updatedTask.id,
-      title: updatedTask.title,
-      description: updatedTask.description,
-      dueDate: updatedTask.dueDate,
-      projectId: updatedTask.projectId,
-      assignedTo: updatedTask.assignedTo,
-      status: updatedTask.status,
-      createdAt: updatedTask.createdAt,
-      updatedAt: updatedTask.updatedAt,
-      project: { id: updatedTask.projectId, name: updatedTask.projectName },
-      assignee: {
-        id: updatedTask.userId,
-        name: `${updatedTask.firstName} ${updatedTask.lastName}`,
-        email: updatedTask.email,
-      },
-    };
-
-    // Notify admins, managers, and new assignee
-    const adminsAndManagers = await db.User.findAll({
-      where: { role: ["admin", "manager"] },
-      attributes: ["email"],
-    });
-    const emails = [...adminsAndManagers.map((u) => u.email), newUser.email].filter(
-      (email, index, self) => email && self.indexOf(email) === index
-    );
-
-    if (emails.length > 0) {
-      await sendMail({
-        to: emails,
-        subject: "🔄 Task Reassigned",
-        html: `
-          <p>Hello,</p>
-          <p>The task <strong>${updatedTask.title}</strong> has been reassigned to <strong>${newUser.firstName} ${newUser.lastName}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-          <p><strong>Project:</strong> ${updatedTask.projectName}</p>
-          <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
-          <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
-          <p><strong>Status:</strong> ${updatedTask.status}</p>
-          <p>Best,<br>Team</p>
+      // Fetch task with project and assignee details
+      const [task] = await db.sequelize.query(
+        `
+        SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
+               t.createdAt, t.updatedAt,
+               u.id AS userId, u.firstName, u.lastName, u.email,
+               p.id AS projectId, p.name AS projectName
+        FROM Tasks t
+        LEFT JOIN Users u ON t.assignedTo = u.id
+        LEFT JOIN Projects p ON t.projectId = p.id
+        WHERE t.id = ?
         `,
+        {
+          replacements: [taskId],
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Validate new assignee exists
+      const [newUser] = await db.sequelize.query(
+        `
+        SELECT u.id, u.firstName, u.lastName, u.email
+        FROM Users u
+        WHERE u.id = ?
+        `,
+        {
+          replacements: [assignedTo],
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (!newUser) {
+        return res.status(404).json({ message: "Assigned user not found" });
+      }
+
+      // Validate new assignee is in the project's team
+      const [teamMember] = await db.sequelize.query(
+        `
+        SELECT ut.userId
+        FROM UserTeams ut
+        JOIN TeamProjects tp ON ut.teamId = tp.teamId
+        WHERE tp.projectId = ? AND ut.userId = ?
+        `,
+        {
+          replacements: [task.projectId, assignedTo],
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (!teamMember) {
+        return res.status(400).json({ message: "Assigned user is not part of the project's team" });
+      }
+
+      // Update task assignee with raw SQL
+      await db.sequelize.query(
+        `
+        UPDATE Tasks
+        SET assignedTo = ?, updatedAt = NOW()
+        WHERE id = ?
+        `,
+        {
+          replacements: [assignedTo, taskId],
+          type: db.sequelize.QueryTypes.UPDATE,
+        }
+      );
+
+      // Fetch updated task
+      const [updatedTask] = await db.sequelize.query(
+        `
+        SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
+               t.createdAt, t.updatedAt,
+               u.id AS userId, u.firstName, u.lastName, u.email,
+               p.id AS projectId, p.name AS projectName
+        FROM Tasks t
+        LEFT JOIN Users u ON t.assignedTo = u.id
+        LEFT JOIN Projects p ON t.projectId = p.id
+        WHERE t.id = ?
+        `,
+        {
+          replacements: [taskId],
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (!updatedTask) {
+        return res.status(500).json({ message: "Error assigning task" });
+      }
+
+      // Format response
+      const formattedTask = {
+        id: updatedTask.id,
+        title: updatedTask.title,
+        description: updatedTask.description,
+        dueDate: updatedTask.dueDate,
+        projectId: updatedTask.projectId,
+        assignedTo: updatedTask.assignedTo,
+        status: updatedTask.status,
+        createdAt: updatedTask.createdAt,
+        updatedAt: updatedTask.updatedAt,
+        project: { id: updatedTask.projectId, name: updatedTask.projectName },
+        assignee: {
+          id: updatedTask.userId,
+          name: `${updatedTask.firstName} ${updatedTask.lastName}`,
+          email: updatedTask.email,
+        },
+      };
+
+      // Notify admins, managers, and new assignee
+      const adminsAndManagers = await db.User.findAll({
+        where: { role: ["admin", "manager"] },
+        attributes: ["email"],
       });
-    } else {
-      console.warn("No emails found for notification", {
-        userId: req.user.id,
-        taskId,
+      const emails = [...adminsAndManagers.map((u) => u.email), newUser.email].filter(
+        (email, index, self) => email && self.indexOf(email) === index
+      );
+
+      if (emails.length > 0) {
+        await sendMail({
+          to: emails,
+          subject: "🔄 Task Reassigned",
+          html: `
+            <p>Hello,</p>
+            <p>The task <strong>${updatedTask.title}</strong> has been reassigned to <strong>${newUser.firstName} ${newUser.lastName}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+            <p><strong>Project:</strong> ${updatedTask.projectName}</p>
+            <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+            <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
+            <p><strong>Status:</strong> ${updatedTask.status}</p>
+            <p>Best,<br>Team</p>
+          `,
+        });
+      } else {
+        console.warn("No emails found for notification", {
+          userId: req.user.id,
+          taskId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      res.status(200).json({ message: "Task assigned successfully", task: formattedTask });
+    } catch (err) {
+      console.error("Assign task error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        taskId: req.params.taskId,
+        body: req.body,
         timestamp: new Date().toISOString(),
       });
+      res.status(500).json({ message: "Error assigning task", details: err.message });
     }
+  },
 
-    res.status(200).json({ message: "Task assigned successfully", task: formattedTask });
-  } catch (err) {
-    console.error("Assign task error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      taskId: req.params.taskId,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ message: "Error assigning task", details: err.message });
-  }
-},
+  // Get task by ID with optional search filters (open to any authenticated user)
+  async getTaskById(req, res) {
+    try {
+      const { taskId } = req.params;
+      const { title, assigneeEmail } = req.query;
 
-// Get task by ID with optional search filters
-async getTaskById(req, res) {
-  try {
-    const { taskId } = req.params;
-    const { title, assigneeEmail } = req.query;
-
-    if (!taskId) {
-      return res.status(400).json({ message: "taskId is required" });
-    }
-
-    // Build WHERE clause for filtering
-    let whereClause = `t.id = ?`;
-    const replacements = [taskId];
-
-    if (title) {
-      whereClause += ` AND t.title LIKE ?`;
-      replacements.push(`%${title}%`);
-    }
-
-    if (assigneeEmail) {
-      whereClause += ` AND u.email LIKE ?`;
-      replacements.push(`%${assigneeEmail}%`);
-    }
-
-    // For staff, restrict to tasks assigned to them
-    if (req.user.role === "staff") {
-      whereClause += ` AND t.assignedTo = ?`;
-      replacements.push(req.user.id);
-    }
-
-    // Fetch task with raw MySQL
-    const [task] = await db.sequelize.query(
-      `
-      SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
-             t.createdAt, t.updatedAt,
-             u.id AS userId, u.firstName, u.lastName, u.email,
-             p.id AS projectId, p.name AS projectName
-      FROM Tasks t
-      LEFT JOIN Users u ON t.assignedTo = u.id
-      LEFT JOIN Projects p ON t.projectId = p.id
-      WHERE ${whereClause}
-      `,
-      {
-        replacements,
-        type: db.sequelize.QueryTypes.SELECT,
+      if (!taskId) {
+        return res.status(400).json({ message: "taskId is required" });
       }
-    );
 
-    if (!task) {
-      return res.status(404).json({ message: "Task not found or does not match filters" });
+      // Build WHERE clause for filtering
+      let whereClause = `t.id = ?`;
+      const replacements = [taskId];
+
+      if (title) {
+        whereClause += ` AND t.title LIKE ?`;
+        replacements.push(`%${title}%`);
+      }
+
+      if (assigneeEmail) {
+        whereClause += ` AND u.email LIKE ?`;
+        replacements.push(`%${assigneeEmail}%`);
+      }
+
+      // Fetch task with raw SQL
+      const [task] = await db.sequelize.query(
+        `
+        SELECT t.id, t.title, t.description, t.status, t.dueDate, t.projectId, t.assignedTo,
+               t.createdAt, t.updatedAt,
+               u.id AS userId, u.firstName, u.lastName, u.email,
+               p.id AS projectId, p.name AS projectName
+        FROM Tasks t
+        LEFT JOIN Users u ON t.assignedTo = u.id
+        LEFT JOIN Projects p ON t.projectId = p.id
+        WHERE ${whereClause}
+        `,
+        {
+          replacements,
+          type: db.sequelize.QueryTypes.SELECT,
+        }
+      );
+
+      if (!task) {
+        return res.status(404).json({ message: "Task not found or does not match filters" });
+      }
+
+      // Format response
+      const formattedTask = {
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        dueDate: task.dueDate,
+        projectId: task.projectId,
+        assignedTo: task.assignedTo,
+        status: task.status,
+        createdAt: task.createdAt,
+        updatedAt: task.updatedAt,
+        project: { id: task.projectId, name: task.projectName },
+        assignee: {
+          id: task.userId,
+          name: `${task.firstName} ${task.lastName}`,
+          email: task.email,
+        },
+      };
+
+      res.status(200).json({ task: formattedTask });
+    } catch (err) {
+      console.error("Get task by ID error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        taskId: req.params.taskId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Error fetching task", details: err.message });
     }
-
-    // Format response
-    const formattedTask = {
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      dueDate: task.dueDate,
-      projectId: task.projectId,
-      assignedTo: task.assignedTo,
-      status: task.status,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
-      project: { id: task.projectId, name: task.projectName },
-      assignee: {
-        id: task.userId,
-        name: `${task.firstName} ${task.lastName}`,
-        email: task.email,
-      },
-    };
-
-    res.status(200).json({ task: formattedTask });
-  } catch (err) {
-    console.error("Get task by ID error:", {
-      message: err.message,
-      stack: err.stack,
-      userId: req.user?.id,
-      role: req.user?.role,
-      taskId: req.params.taskId,
-      query: req.query,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ message: "Error fetching task", details: err.message });
-  }
-},
+  },
 };
