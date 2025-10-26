@@ -9,9 +9,14 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Tasks
-   *     description: Task management endpoints
+   *     description: Task management endpoints for creating, retrieving, updating, and deleting tasks.
    *
    * components:
+   *   securitySchemes:
+   *     bearerAuth:
+   *       type: http
+   *       scheme: bearer
+   *       bearerFormat: JWT
    *   schemas:
    *     Task:
    *       type: object
@@ -21,15 +26,15 @@ module.exports = (app) => {
    *           example: 1
    *         title:
    *           type: string
-   *           example: "Design Homepage"
+   *           example: "Implement Login Page"
    *         description:
    *           type: string
-   *           example: "Create wireframes and mockups for the homepage"
+   *           example: "Develop and test the login page UI"
    *           nullable: true
    *         dueDate:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-20T00:00:00Z"
+   *           example: "2025-11-01T23:59:59.000Z"
    *           nullable: true
    *         projectId:
    *           type: integer
@@ -44,11 +49,11 @@ module.exports = (app) => {
    *         createdAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T20:23:00Z"
+   *           example: "2025-10-26T16:50:00.000Z"
    *         updatedAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T20:23:00Z"
+   *           example: "2025-10-26T16:50:00.000Z"
    *         project:
    *           type: object
    *           properties:
@@ -77,7 +82,7 @@ module.exports = (app) => {
    * /api/tasks:
    *   post:
    *     summary: Create a new task
-   *     description: Staff can create tasks assigned to themselves for projects they are part of. Admins and managers can create tasks for any user in the project's team.
+   *     description: Creates a new task associated with a project and assigned to a user. Accessible to any authenticated user. The assigned user must be part of the project's team. Sends email notifications to admins, managers, and the assigned user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -94,18 +99,18 @@ module.exports = (app) => {
    *             properties:
    *               title:
    *                 type: string
-   *                 example: "Design Homepage"
+   *                 example: "Implement Login Page"
    *                 description: Title of the task
    *               description:
    *                 type: string
-   *                 example: "Create wireframes and mockups for the homepage"
-   *                 description: Optional description of the task
+   *                 example: "Develop and test the login page UI"
+   *                 description: Description of the task
    *                 nullable: true
    *               dueDate:
    *                 type: string
    *                 format: date-time
-   *                 example: "2025-07-20T00:00:00Z"
-   *                 description: Optional due date for the task (ISO 8601 format)
+   *                 example: "2025-11-01T23:59:59.000Z"
+   *                 description: Due date for the task
    *                 nullable: true
    *               projectId:
    *                 type: integer
@@ -114,13 +119,12 @@ module.exports = (app) => {
    *               assignedTo:
    *                 type: integer
    *                 example: 1
-   *                 description: ID of the user assigned to the task (must be part of the project's team; staff can only assign to themselves)
+   *                 description: ID of the user assigned to the task
    *               status:
    *                 type: string
    *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "To Do"
-   *                 description: Optional initial status of the task
-   *                 nullable: true
+   *                 description: Status of the task
    *     responses:
    *       201:
    *         description: Task created successfully
@@ -135,7 +139,7 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Missing required fields or invalid input
+   *         description: Missing or invalid fields
    *         content:
    *           application/json:
    *             schema:
@@ -154,18 +158,8 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - User not in project or staff attempting to assign to others
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Staff can only assign tasks to themselves"
    *       404:
-   *         description: Project or user not found
+   *         description: Project or assigned user not found
    *         content:
    *           application/json:
    *             schema:
@@ -174,6 +168,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Project not found"
+   *       400:
+   *         description: Assigned user not in project team
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Assigned user is not part of the project's team"
    *       500:
    *         description: Internal server error
    *         content:
@@ -195,7 +199,7 @@ module.exports = (app) => {
    * /api/tasks/project/{projectId}:
    *   get:
    *     summary: Get all tasks for a specific project
-   *     description: Staff can view their assigned tasks for a project they are part of. Admins and managers can view all tasks for the project.
+   *     description: Retrieves a paginated list of tasks for a given project. Accessible to any authenticated user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -205,12 +209,13 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         description: Project ID
+   *         description: ID of the project
    *         example: 1
    *       - in: query
    *         name: page
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 1
    *         required: false
    *         description: Page number for pagination
@@ -219,13 +224,14 @@ module.exports = (app) => {
    *         name: limit
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 20
    *         required: false
-   *         description: Number of tasks per page
+   *         description: Number of items per page
    *         example: 20
    *     responses:
    *       200:
-   *         description: List of tasks for the project
+   *         description: List of tasks
    *         content:
    *           application/json:
    *             schema:
@@ -243,15 +249,15 @@ module.exports = (app) => {
    *                       example: 1
    *                     totalPages:
    *                       type: integer
-   *                       example: 1
+   *                       example: 5
    *                     totalItems:
    *                       type: integer
-   *                       example: 1
+   *                       example: 100
    *                     itemsPerPage:
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid project ID or pagination parameters
+   *         description: Invalid projectId, page, or limit
    *         content:
    *           application/json:
    *             schema:
@@ -270,16 +276,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "You are not assigned to this project"
    *       404:
    *         description: Project not found
    *         content:
@@ -311,7 +307,7 @@ module.exports = (app) => {
    * /api/tasks:
    *   get:
    *     summary: Get all tasks with optional filters
-   *     description: Staff can view their assigned tasks. Admins and managers can view all tasks with optional filters.
+   *     description: Retrieves a paginated list of all tasks with optional filters for title, status, and dueDate. Accessible to any authenticated user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -322,27 +318,28 @@ module.exports = (app) => {
    *           type: string
    *         required: false
    *         description: Filter tasks by title (partial match)
-   *         example: "Design"
+   *         example: "Login"
    *       - in: query
    *         name: status
    *         schema:
    *           type: string
    *           enum: ["To Do", "In Progress", "Review", "Done"]
    *         required: false
-   *         description: Filter tasks by status (exact match)
+   *         description: Filter tasks by status
    *         example: "In Progress"
    *       - in: query
    *         name: dueDate
    *         schema:
    *           type: string
-   *           format: date
+   *           format: date-time
    *         required: false
-   *         description: Filter tasks by due date (exact match)
-   *         example: "2025-07-20"
+   *         description: Filter tasks by due date
+   *         example: "2025-11-01T23:59:59.000Z"
    *       - in: query
    *         name: page
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 1
    *         required: false
    *         description: Page number for pagination
@@ -351,13 +348,14 @@ module.exports = (app) => {
    *         name: limit
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 20
    *         required: false
-   *         description: Number of tasks per page
+   *         description: Number of items per page
    *         example: 20
    *     responses:
    *       200:
-   *         description: List of tasks matching the filters
+   *         description: List of tasks
    *         content:
    *           application/json:
    *             schema:
@@ -375,15 +373,15 @@ module.exports = (app) => {
    *                       example: 1
    *                     totalPages:
    *                       type: integer
-   *                       example: 1
+   *                       example: 5
    *                     totalItems:
    *                       type: integer
-   *                       example: 1
+   *                       example: 100
    *                     itemsPerPage:
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid pagination parameters
+   *         description: Invalid page or limit
    *         content:
    *           application/json:
    *             schema:
@@ -421,9 +419,9 @@ module.exports = (app) => {
   /**
    * @swagger
    * /api/tasks/{taskId}/status:
-   *   patch:
-   *     summary: Update the status of a task
-   *     description: Staff can update the status of their assigned tasks. Admins and managers can update the status of any task.
+   *   put:
+   *     summary: Update a task's status
+   *     description: Updates the status of a task and sends email notifications to admins, managers, and the assignee. Accessible to any authenticated user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -463,7 +461,7 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Invalid status or task ID
+   *         description: Missing or invalid status
    *         content:
    *           application/json:
    *             schema:
@@ -471,7 +469,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Invalid status. Must be one of: To Do, In Progress, Review, Done"
+   *                   example: "Status is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -482,16 +480,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot update others' tasks
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this task's status"
    *       404:
    *         description: Task not found
    *         content:
@@ -516,14 +504,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.patch("/:taskId/status", verifyToken, taskController.updateTaskStatus);
+  router.put("/:taskId/status", verifyToken, taskController.updateTaskStatus);
 
   /**
    * @swagger
    * /api/tasks/{taskId}:
-   *   patch:
-   *     summary: Update task details
-   *     description: Staff can update title, description, and dueDate of their assigned tasks. Admins and managers can update all fields of any task, including reassignment.
+   *   put:
+   *     summary: Update a task
+   *     description: Updates a task's details (title, description, dueDate, assignedTo, status) and sends email notifications to admins, managers, and the assignee. Accessible to any authenticated user. The assigned user must be part of the project's team.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -544,31 +532,28 @@ module.exports = (app) => {
    *             properties:
    *               title:
    *                 type: string
-   *                 example: "Design Homepage Updated"
-   *                 description: Updated task title
-   *                 nullable: true
+   *                 example: "Updated Login Page"
+   *                 description: New title for the task
    *               description:
    *                 type: string
-   *                 example: "Updated wireframes and mockups for the homepage"
-   *                 description: Updated task description
+   *                 example: "Updated description for login page UI"
+   *                 description: New description for the task
    *                 nullable: true
    *               dueDate:
    *                 type: string
    *                 format: date-time
-   *                 example: "2025-07-25T00:00:00Z"
-   *                 description: Updated due date for the task (ISO 8601 format)
+   *                 example: "2025-11-01T23:59:59.000Z"
+   *                 description: New due date for the task
    *                 nullable: true
    *               assignedTo:
    *                 type: integer
-   *                 example: 2
-   *                 description: ID of the user to reassign the task to (admin/manager only, must be part of the project's team)
-   *                 nullable: true
+   *                 example: 1
+   *                 description: ID of the new user assigned to the task
    *               status:
    *                 type: string
    *                 enum: ["To Do", "In Progress", "Review", "Done"]
    *                 example: "In Progress"
-   *                 description: Updated task status
-   *                 nullable: true
+   *                 description: New status for the task
    *     responses:
    *       200:
    *         description: Task updated successfully
@@ -583,7 +568,7 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Invalid input or no fields provided
+   *         description: No fields provided or invalid fields
    *         content:
    *           application/json:
    *             schema:
@@ -602,18 +587,8 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot update others' tasks or reassign tasks
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this task"
    *       404:
-   *         description: Task or user not found
+   *         description: Task or assigned user not found
    *         content:
    *           application/json:
    *             schema:
@@ -622,6 +597,16 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Task not found"
+   *       400:
+   *         description: Assigned user not in project team
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Assigned user is not part of the project's team"
    *       500:
    *         description: Internal server error
    *         content:
@@ -636,14 +621,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.patch("/:taskId", verifyToken, taskController.updateTask);
+  router.put("/:taskId", verifyToken, taskController.updateTask);
 
   /**
    * @swagger
    * /api/tasks/{taskId}:
    *   delete:
    *     summary: Delete a task
-   *     description: Staff can delete their assigned tasks. Admins and managers can delete any task.
+   *     description: Deletes a task and sends email notifications to admins, managers, and the assignee (excluding the deleter). Accessible to any authenticated user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -676,16 +661,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Staff cannot delete others' tasks
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to delete this task"
    *       404:
    *         description: Task not found
    *         content:
@@ -713,198 +688,190 @@ module.exports = (app) => {
   router.delete("/:taskId", verifyToken, taskController.deleteTask);
 
   /**
- * @swagger
- * /api/tasks/{taskId}/assign:
- *   patch:
- *     summary: Assign a task to a user
- *     description: Assigns a task to a user who is part of the project's team. Staff can only assign tasks to themselves; admins and managers can assign to any team member.
- *     tags: [Tasks]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: taskId
- *         required: true
- *         schema:
- *           type: integer
- *         description: ID of the task to assign
- *         example: 1
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               assignedTo:
- *                 type: integer
- *                 example: 2
- *                 description: ID of the user to assign the task to
- *             required:
- *               - assignedTo
- *     responses:
- *       200:
- *         description: Task assigned successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Task assigned successfully"
- *                 task:
- *                   $ref: '#/components/schemas/Task'
- *       400:
- *         description: Invalid taskId or assignedTo, or user not in project's team
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Assigned user is not part of the project's team"
- *       401:
- *         description: Unauthorized - Invalid or missing token
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Unauthorized"
- *       403:
- *         description: Forbidden - Staff can only assign to themselves
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Staff can only assign tasks to themselves"
- *       404:
- *         description: Task or user not found
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Task not found"
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Error assigning task"
- *                 details:
- *                   type: string
- *                   example: "Database error"
- */
-router.patch("/:taskId/assign", verifyToken, taskController.assignTask);
+   * @swagger
+   * /api/tasks/{taskId}/assign:
+   *   post:
+   *     summary: Assign a task to a user
+   *     description: Assigns a task to a specified user and sends email notifications to admins, managers, and the assignee. Accessible to any authenticated user. The assigned user must be part of the project's team.
+   *     tags: [Tasks]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: taskId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Task ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - assignedTo
+   *             properties:
+   *               assignedTo:
+   *                 type: integer
+   *                 example: 1
+   *                 description: ID of the user to assign the task to
+   *     responses:
+   *       200:
+   *         description: Task assigned successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Task assigned successfully"
+   *                 task:
+   *                   $ref: '#/components/schemas/Task'
+   *       400:
+   *         description: Missing or invalid fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "taskId and assignedTo are required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       404:
+   *         description: Task or assigned user not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Task not found"
+   *       400:
+   *         description: Assigned user not in project team
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Assigned user is not part of the project's team"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Error assigning task"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.post("/:taskId/assign", verifyToken, taskController.assignTask);
 
-/**
- * @swagger
- * /api/tasks/{taskId}:
- *   get:
- *     summary: Get a task by ID
- *     description: Retrieves a task by its ID, with optional filters for title and assignee email. Staff can only view their own tasks; admins and managers can view any task.
- *     tags: [Tasks]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: taskId
- *         required: true
- *         schema:
- *           type: integer
- *         description: ID of the task to retrieve
- *         example: 1
- *       - in: query
- *         name: title
- *         schema:
- *           type: string
- *         description: Filter task by title (partial, case-insensitive match)
- *         example: login
- *       - in: query
- *         name: assigneeEmail
- *         schema:
- *           type: string
- *         description: Filter task by assignee email (partial, case-insensitive match)
- *         example: john.doe
- *     responses:
- *       200:
- *         description: Task retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 task:
- *                   $ref: '#/components/schemas/Task'
- *       400:
- *         description: Invalid taskId
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "taskId is required"
- *       401:
- *         description: Unauthorized - Invalid or missing token
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Unauthorized"
- *       403:
- *         description: Forbidden - Staff can only view their own tasks
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Unauthorized to view this task"
- *       404:
- *         description: Task not found or does not match filters
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Task not found or does not match filters"
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Error fetching task"
- *                 details:
- *                   type: string
- *                   example: "Database error"
- */
-router.get("/:taskId", verifyToken, taskController.getTaskById);
+  /**
+   * @swagger
+   * /api/tasks/{taskId}:
+   *   get:
+   *     summary: Get a task by ID with optional filters
+   *     description: Retrieves a specific task by ID with optional filters for title and assignee email. Accessible to any authenticated user.
+   *     tags: [Tasks]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: taskId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Task ID
+   *         example: 1
+   *       - in: query
+   *         name: title
+   *         schema:
+   *           type: string
+   *         required: false
+   *         description: Filter by task title (partial match)
+   *         example: "Login"
+   *       - in: query
+   *         name: assigneeEmail
+   *         schema:
+   *           type: string
+   *         required: false
+   *         description: Filter by assignee email (partial match)
+   *         example: "john.doe"
+   *     responses:
+   *       200:
+   *         description: Task details
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 task:
+   *                   $ref: '#/components/schemas/Task'
+   *       400:
+   *         description: Missing taskId
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "taskId is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       404:
+   *         description: Task not found or does not match filters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Task not found or does not match filters"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Error fetching task"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get("/:taskId", verifyToken, taskController.getTaskById);
 
   app.use("/api/tasks", router);
 };
