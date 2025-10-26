@@ -73,7 +73,7 @@ module.exports = (app) => {
    * /api/documents/{projectId}:
    *   post:
    *     summary: Upload documents for a project
-   *     description: Allows authenticated users (project clients or team members) to upload one or more documents for a project. Documents are set to 'pending' status by default.
+   *     description: Allows authenticated users to upload one or more documents for a project. Documents are set to 'pending' status by default.
    *     tags: [Documents]
    *     security:
    *       - bearerAuth: []
@@ -133,16 +133,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Access denied - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to upload documents for this project"
    *       404:
    *         description: Project not found
    *         content:
@@ -174,7 +164,7 @@ module.exports = (app) => {
    * /api/documents/{projectId}:
    *   get:
    *     summary: Get documents for a project
-   *     description: Retrieves documents for a project, with optional name filtering and pagination. Accessible by project clients or team members.
+   *     description: Retrieves documents for a project, with optional name filtering and pagination. Accessible by authenticated users.
    *     tags: [Documents]
    *     security:
    *       - bearerAuth: []
@@ -255,16 +245,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Access denied - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to view documents for this project"
    *       404:
    *         description: Project not found
    *         content:
@@ -295,8 +275,8 @@ module.exports = (app) => {
    * @swagger
    * /api/documents/{documentId}:
    *   put:
-   *     summary: Update a document
-   *     description: Allows project clients or team members to update a document's name, status, or file.
+   *     summary: Update a document's metadata
+   *     description: Allows authenticated users to update a document's name or file (not status).
    *     tags: [Documents]
    *     security:
    *       - bearerAuth: []
@@ -318,11 +298,6 @@ module.exports = (app) => {
    *                 type: string
    *                 example: "updated_report.pdf"
    *                 description: New document name
-   *               status:
-   *                 type: string
-   *                 enum: [pending, approved, rejected, completed, not complete]
-   *                 example: "approved"
-   *                 description: New document status
    *               files:
    *                 type: array
    *                 items:
@@ -351,7 +326,7 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "At least one field (name, status, or file) is required"
+   *                   example: "At least one field (name or file) is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -362,18 +337,8 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Access denied - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to update this document"
    *       404:
-   *         description: Document or project not found
+   *         description: Document not found
    *         content:
    *           application/json:
    *             schema:
@@ -400,10 +365,100 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/documents/{documentId}/status:
+   *   put:
+   *     summary: Update a document's status
+   *     description: Allows authenticated users to update a document's status (pending, approved, rejected, completed, not complete).
+   *     tags: [Documents]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: documentId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Document ID
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - status
+   *             properties:
+   *               status:
+   *                 type: string
+   *                 enum: [pending, approved, rejected, completed, not complete]
+   *                 example: "approved"
+   *                 description: New document status
+   *     responses:
+   *       200:
+   *         description: Document status updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Document status updated successfully"
+   *                 document:
+   *                   $ref: '#/components/schemas/Document'
+   *       400:
+   *         description: Missing or invalid status
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "status is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       404:
+   *         description: Document not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Document not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to update document status"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.put("/:documentId/status", verifyToken, documentController.updateDocumentStatus);
+
+  /**
+   * @swagger
    * /api/documents/{documentId}:
    *   delete:
    *     summary: Delete a document
-   *     description: Allows project clients or team members to delete a document and its file from Firebase.
+   *     description: Allows authenticated users to delete a document and its file from Firebase.
    *     tags: [Documents]
    *     security:
    *       - bearerAuth: []
@@ -446,18 +501,8 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Access denied - User not assigned to project
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized to delete this document"
    *       404:
-   *         description: Document or project not found
+   *         description: Document not found
    *         content:
    *           application/json:
    *             schema:
