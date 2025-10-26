@@ -1,9 +1,6 @@
 const express = require("express");
 const leaveController = require("../controllers/leave.controller");
-const {
-  verifyToken,
-  isAdminOrManager,
-} = require("../middlewares/auth.middleware");
+const { verifyToken } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -13,6 +10,61 @@ module.exports = (app) => {
    * tags:
    *   - name: Leaves
    *     description: Leave request management endpoints
+   *
+   * components:
+   *   securitySchemes:
+   *     bearerAuth:
+   *       type: http
+   *       scheme: bearer
+   *       bearerFormat: JWT
+   *   schemas:
+   *     Leave:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         userId:
+   *           type: integer
+   *           example: 1
+   *         startDate:
+   *           type: string
+   *           format: date
+   *           example: "2025-08-01"
+   *         endDate:
+   *           type: string
+   *           format: date
+   *           example: "2025-08-05"
+   *         reason:
+   *           type: string
+   *           example: "Personal leave for family event"
+   *         status:
+   *           type: string
+   *           enum: [pending, approved, rejected]
+   *           example: "pending"
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-19T20:13:00.000Z"
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *           example: "2025-07-19T20:13:00.000Z"
+   *         User:
+   *           type: object
+   *           properties:
+   *             id:
+   *               type: integer
+   *               example: 1
+   *             firstName:
+   *               type: string
+   *               example: "John"
+   *             lastName:
+   *               type: string
+   *               example: "Doe"
+   *             email:
+   *               type: string
+   *               example: "john.doe@example.com"
    */
 
   /**
@@ -20,6 +72,7 @@ module.exports = (app) => {
    * /api/leaves:
    *   post:
    *     summary: Create a new leave request
+   *     description: Creates a new leave request for the authenticated user. Notifies all admins and managers via email.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -60,51 +113,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Leave created successfully"
    *                 leave:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     startDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-01"
-   *                     endDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-05"
-   *                     reason:
-   *                       type: string
-   *                       example: "Personal leave for family event"
-   *                     status:
-   *                       type: string
-   *                       example: "pending"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     User:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         firstName:
-   *                           type: string
-   *                           example: "John"
-   *                         lastName:
-   *                           type: string
-   *                           example: "Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
+   *                   $ref: '#/components/schemas/Leave'
    *       400:
    *         description: Missing required fields
    *         content:
@@ -116,7 +125,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "All fields are required"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -156,7 +165,7 @@ module.exports = (app) => {
    * /api/leaves:
    *   get:
    *     summary: Get all leave requests with optional filters
-   *     description: Staff can view their own leaves. Admins and managers can view all leaves with filters.
+   *     description: Retrieves a paginated list of leave requests. Any authenticated user can view their own leaves or filter by status, userId, startDate, or endDate.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -174,7 +183,7 @@ module.exports = (app) => {
    *         schema:
    *           type: integer
    *         required: false
-   *         description: Filter leaves by user ID (admin/manager only)
+   *         description: Filter leaves by user ID
    *         example: 1
    *       - in: query
    *         name: startDate
@@ -196,6 +205,7 @@ module.exports = (app) => {
    *         name: page
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 1
    *         required: false
    *         description: Page number for pagination
@@ -204,6 +214,7 @@ module.exports = (app) => {
    *         name: limit
    *         schema:
    *           type: integer
+   *           minimum: 1
    *           default: 20
    *         required: false
    *         description: Number of items per page
@@ -219,51 +230,7 @@ module.exports = (app) => {
    *                 leaves:
    *                   type: array
    *                   items:
-   *                     type: object
-   *                     properties:
-   *                       id:
-   *                         type: integer
-   *                         example: 1
-   *                       userId:
-   *                         type: integer
-   *                         example: 1
-   *                       startDate:
-   *                         type: string
-   *                         format: date
-   *                         example: "2025-08-01"
-   *                       endDate:
-   *                         type: string
-   *                         format: date
-   *                         example: "2025-08-05"
-   *                       reason:
-   *                         type: string
-   *                         example: "Personal leave for family event"
-   *                       status:
-   *                         type: string
-   *                         example: "pending"
-   *                       createdAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-19T20:13:00.000Z"
-   *                       updatedAt:
-   *                         type: string
-   *                         format: date-time
-   *                         example: "2025-07-19T20:13:00.000Z"
-   *                       User:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                             example: 1
-   *                           firstName:
-   *                             type: string
-   *                             example: "John"
-   *                           lastName:
-   *                             type: string
-   *                             example: "Doe"
-   *                           email:
-   *                             type: string
-   *                             example: "john.doe@example.com"
+   *                     $ref: '#/components/schemas/Leave'
    *                 pagination:
    *                   type: object
    *                   properties:
@@ -280,7 +247,7 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -310,7 +277,7 @@ module.exports = (app) => {
    * /api/leaves/{id}:
    *   get:
    *     summary: Get a leave request by ID
-   *     description: Staff can view their own leave requests. Admins and managers can view any leave request.
+   *     description: Retrieves a specific leave request by ID. Any authenticated user can view their own leave requests.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -331,53 +298,9 @@ module.exports = (app) => {
    *               type: object
    *               properties:
    *                 leave:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     startDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-01"
-   *                     endDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-05"
-   *                     reason:
-   *                       type: string
-   *                       example: "Personal leave for family event"
-   *                     status:
-   *                       type: string
-   *                       example: "pending"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     User:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         firstName:
-   *                           type: string
-   *                           example: "John"
-   *                         lastName:
-   *                           type: string
-   *                           example: "Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
+   *                   $ref: '#/components/schemas/Leave'
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -387,7 +310,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Unauthorized"
    *       403:
-   *         description: Forbidden - Staff cannot view others' leave requests
+   *         description: Forbidden - User cannot view this leave
    *         content:
    *           application/json:
    *             schema:
@@ -427,7 +350,7 @@ module.exports = (app) => {
    * /api/leaves/{id}:
    *   put:
    *     summary: Update a leave request
-   *     description: Staff can update their own pending leave requests. Admins and managers can update any leave request.
+   *     description: Updates a pending leave request. Only the leave owner can update their own pending requests.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -472,51 +395,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Leave updated successfully"
    *                 leave:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     startDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-02"
-   *                     endDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-06"
-   *                     reason:
-   *                       type: string
-   *                       example: "Updated: Extended personal leave"
-   *                     status:
-   *                       type: string
-   *                       example: "pending"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:14:00.000Z"
-   *                     User:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         firstName:
-   *                           type: string
-   *                           example: "John"
-   *                         lastName:
-   *                           type: string
-   *                           example: "Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
+   *                   $ref: '#/components/schemas/Leave'
    *       400:
    *         description: Invalid input or leave not pending
    *         content:
@@ -528,7 +407,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "At least one field (startDate, endDate, reason) is required"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -538,7 +417,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Unauthorized"
    *       403:
-   *         description: Forbidden - Staff cannot update others' leave requests
+   *         description: Forbidden - User cannot update this leave
    *         content:
    *           application/json:
    *             schema:
@@ -577,7 +456,8 @@ module.exports = (app) => {
    * @swagger
    * /api/leaves/{id}/status:
    *   put:
-   *     summary: Update leave request status (Admin or Manager only)
+   *     summary: Update leave request status
+   *     description: Updates the status of a leave request to approved or rejected. Any authenticated user can perform this action.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -615,53 +495,9 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Leave status updated successfully"
    *                 leave:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                       example: 1
-   *                     userId:
-   *                       type: integer
-   *                       example: 1
-   *                     startDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-01"
-   *                     endDate:
-   *                       type: string
-   *                       format: date
-   *                       example: "2025-08-05"
-   *                     reason:
-   *                       type: string
-   *                       example: "Personal leave for family event"
-   *                     status:
-   *                       type: string
-   *                       example: "approved"
-   *                     createdAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:13:00.000Z"
-   *                     updatedAt:
-   *                       type: string
-   *                       format: date-time
-   *                       example: "2025-07-19T20:14:00.000Z"
-   *                     User:
-   *                       type: object
-   *                       properties:
-   *                         id:
-   *                           type: integer
-   *                           example: 1
-   *                         firstName:
-   *                           type: string
-   *                           example: "John"
-   *                         lastName:
-   *                           type: string
-   *                           example: "Doe"
-   *                         email:
-   *                           type: string
-   *                           example: "john.doe@example.com"
+   *                   $ref: '#/components/schemas/Leave'
    *       400:
-   *         description: Invalid status or leave ID
+   *         description: Invalid status
    *         content:
    *           application/json:
    *             schema:
@@ -671,7 +507,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Status must be 'approved' or 'rejected'"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -680,16 +516,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Only admins or managers can update leave status
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers can update leave status"
    *       404:
    *         description: Leave request not found
    *         content:
@@ -714,13 +540,14 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id/status", verifyToken, isAdminOrManager, leaveController.updateLeaveStatus);
+  router.put("/:id/status", verifyToken, leaveController.updateLeaveStatus);
 
   /**
    * @swagger
    * /api/leaves/{id}:
    *   delete:
-   *     summary: Delete a leave request (Admin or Manager only)
+   *     summary: Delete a leave request
+   *     description: Deletes a leave request. Any authenticated user can perform this action.
    *     tags: [Leaves]
    *     security:
    *       - bearerAuth: []
@@ -744,7 +571,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Leave deleted successfully"
    *       401:
-   *         description: Unauthorized - Invalid or lacking a token
+   *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
@@ -753,16 +580,6 @@ module.exports = (app) => {
    *                 message:
    *                   type: string
    *                   example: "Unauthorized"
-   *       403:
-   *         description: Forbidden - Only admins or managers can delete leave requests
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Only admins or managers can delete leave requests"
    *       404:
    *         description: Leave request not found
    *         content:
@@ -787,7 +604,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, isAdminOrManager, leaveController.deleteLeave);
+  router.delete("/:id", verifyToken, leaveController.deleteLeave);
 
   app.use("/api/leaves", router);
 };
