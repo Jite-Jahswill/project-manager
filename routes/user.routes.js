@@ -252,6 +252,7 @@ module.exports = (app) => {
    *             email:
    *               type: string
    *               example: "john.doe@example.com"
+   */
 
   /**
    * @swagger
@@ -448,7 +449,7 @@ module.exports = (app) => {
    *                 user:
    *                   $ref: '#/components/schemas/User'
    *       400:
-   *         description: Missing user ID
+   *         description: Missing or invalid user ID
    *         content:
    *           application/json:
    *             schema:
@@ -539,6 +540,16 @@ module.exports = (app) => {
    *                   example: "User updated"
    *                 user:
    *                   $ref: '#/components/schemas/User'
+   *       400:
+   *         description: Invalid input or no fields provided
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "At least one field is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
@@ -614,7 +625,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "User deleted successfully"
    *       400:
-   *         description: Missing user ID
+   *         description: Missing or invalid user ID
    *         content:
    *           application/json:
    *             schema:
