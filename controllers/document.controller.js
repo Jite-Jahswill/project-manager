@@ -21,26 +21,17 @@ module.exports = {
       }
 
       // Verify project exists
-      const project = await Project.findByPk(projectId, {
-        include: [
-          { model: Client, through: ClientProject },
-          { model: Team, through: TeamProject },
-        ],
-        transaction,
-      });
+      const [project] = await sequelize.query(
+        `SELECT id FROM Projects WHERE id = :projectId`,
+        {
+          replacements: { projectId },
+          type: sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
       if (!project) {
         await transaction.rollback();
         return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Authorization: Project clients or team members
-      const isClient = project.Clients.some((client) => client.id === req.user.id);
-      const isTeamMember = project.Teams.some((team) =>
-        team.UserTeam.some((userTeam) => userTeam.userId === req.user.id)
-      );
-      if (!isClient && !isTeamMember) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to upload documents for this project" });
       }
 
       // Create documents using raw MySQL
@@ -65,9 +56,9 @@ module.exports = {
         );
         const [insertedDocument] = await sequelize.query(
           `SELECT * FROM Documents WHERE id = LAST_INSERT_ID()`,
-          { transaction }
+          { type: sequelize.QueryTypes.SELECT, transaction }
         );
-        documents.push(insertedDocument[0]);
+        documents.push(insertedDocument);
       }
 
       await transaction.commit();
@@ -99,23 +90,15 @@ module.exports = {
       }
 
       // Verify project exists
-      const project = await Project.findByPk(projectId, {
-        include: [
-          { model: Client, through: ClientProject },
-          { model: Team, through: TeamProject },
-        ],
-      });
+      const [project] = await sequelize.query(
+        `SELECT id FROM Projects WHERE id = :projectId`,
+        {
+          replacements: { projectId },
+          type: sequelize.QueryTypes.SELECT,
+        }
+      );
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Authorization: Project clients or team members
-      const isClient = project.Clients.some((client) => client.id === req.user.id);
-      const isTeamMember = project.Teams.some((team) =>
-        team.UserTeam.some((userTeam) => userTeam.userId === req.user.id)
-      );
-      if (!isClient && !isTeamMember) {
-        return res.status(403).json({ message: "Unauthorized to view documents for this project" });
       }
 
       const searchCriteria = { projectId };
@@ -161,12 +144,12 @@ module.exports = {
     }
   },
 
-  // Update a document
+  // Update a document (name or file, not status)
   async updateDocument(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { documentId } = req.params;
-      const { name, status } = req.body;
+      const { name } = req.body;
       const newFile = req.uploadedFiles && req.uploadedFiles[0];
 
       if (!documentId) {
@@ -174,14 +157,9 @@ module.exports = {
         return res.status(400).json({ message: "documentId is required" });
       }
 
-      if (!name && !status && !newFile) {
+      if (!name && !newFile) {
         await transaction.rollback();
-        return res.status(400).json({ message: "At least one field (name, status, or file) is required" });
-      }
-
-      if (status && !["pending", "approved", "rejected", "completed", "not complete"].includes(status)) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Invalid status. Must be pending, approved, rejected, completed, or not complete" });
+        return res.status(400).json({ message: "At least one field (name or file) is required" });
       }
 
       // Verify document exists
@@ -198,33 +176,9 @@ module.exports = {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Verify project exists and user authorization
-      const project = await Project.findByPk(document.projectId, {
-        include: [
-          { model: Client, through: ClientProject },
-          { model: Team, through: TeamProject },
-        ],
-        transaction,
-      });
-      if (!project) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Authorization: Project clients or team members
-      const isClient = project.Clients.some((client) => client.id === req.user.id);
-      const isTeamMember = project.Teams.some((team) =>
-        team.UserTeam.some((userTeam) => userTeam.userId === req.user.id)
-      );
-      if (!isClient && !isTeamMember) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to update this document" });
-      }
-
       // Prepare updates
       const updates = {};
       if (name) updates.name = name;
-      if (status) updates.status = status;
       if (newFile) {
         updates.firebaseUrl = newFile.firebaseUrl;
         updates.type = newFile.mimetype.split("/")[1] || "unknown";
@@ -240,7 +194,7 @@ module.exports = {
       // Update document using raw MySQL
       await sequelize.query(
         `UPDATE Documents
-         SET name = :name, firebaseUrl = :firebaseUrl, type = :type, size = :size, status = :status, updatedAt = NOW()
+         SET name = :name, firebaseUrl = :firebaseUrl, type = :type, size = :size, updatedAt = NOW()
          WHERE id = :documentId`,
         {
           replacements: {
@@ -248,7 +202,6 @@ module.exports = {
             firebaseUrl: updates.firebaseUrl || document.firebaseUrl,
             type: updates.type || document.type,
             size: updates.size || document.size,
-            status: updates.status || document.status,
             documentId,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -282,6 +235,80 @@ module.exports = {
     }
   },
 
+  // Update document status only
+  async updateDocumentStatus(req, res) {
+    const transaction = await sequelize.transaction();
+    try {
+      const { documentId } = req.params;
+      const { status } = req.body;
+
+      if (!documentId) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "documentId is required" });
+      }
+
+      if (!status) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "status is required" });
+      }
+
+      if (!["pending", "approved", "rejected", "completed", "not complete"].includes(status)) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Invalid status. Must be pending, approved, rejected, completed, or not complete" });
+      }
+
+      // Verify document exists
+      const [document] = await sequelize.query(
+        `SELECT * FROM Documents WHERE id = :documentId`,
+        {
+          replacements: { documentId },
+          type: sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+      if (!document) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      // Update document status using raw MySQL
+      await sequelize.query(
+        `UPDATE Documents
+         SET status = :status, updatedAt = NOW()
+         WHERE id = :documentId`,
+        {
+          replacements: { status, documentId },
+          type: sequelize.QueryTypes.UPDATE,
+          transaction,
+        }
+      );
+
+      // Fetch updated document
+      const [updatedDocument] = await sequelize.query(
+        `SELECT * FROM Documents WHERE id = :documentId`,
+        {
+          replacements: { documentId },
+          type: sequelize.QueryTypes.SELECT,
+          transaction,
+        }
+      );
+
+      await transaction.commit();
+      res.status(200).json({ message: "Document status updated successfully", document: updatedDocument });
+    } catch (err) {
+      await transaction.rollback();
+      console.error("Update document status error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        documentId: req.params.documentId,
+        body: req.body,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Failed to update document status", details: err.message });
+    }
+  },
+
   // Delete a document
   async deleteDocument(req, res) {
     const transaction = await sequelize.transaction();
@@ -305,29 +332,6 @@ module.exports = {
       if (!document) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
-      }
-
-      // Verify project exists and user authorization
-      const project = await Project.findByPk(document.projectId, {
-        include: [
-          { model: Client, through: ClientProject },
-          { model: Team, through: TeamProject },
-        ],
-        transaction,
-      });
-      if (!project) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      // Authorization: Project clients or team members
-      const isClient = project.Clients.some((client) => client.id === req.user.id);
-      const isTeamMember = project.Teams.some((team) =>
-        team.UserTeam.some((userTeam) => userTeam.userId === req.user.id)
-      );
-      if (!isClient && !isTeamMember) {
-        await transaction.rollback();
-        return res.status(403).json({ message: "Unauthorized to delete this document" });
       }
 
       // Delete file from Firebase
