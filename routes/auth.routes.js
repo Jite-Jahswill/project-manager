@@ -1,5 +1,5 @@
 const express = require("express");
-const userController = require("../controllers/userController");
+const userController = require("../controllers/user.controller");
 const { verifyToken } = require("../middlewares/auth.middleware");
 const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
