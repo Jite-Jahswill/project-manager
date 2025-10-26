@@ -4,7 +4,7 @@ const User = db.User;
 const sendMail = require("../utils/mailer");
 
 module.exports = {
-  // Create a new leave request (Staff, Admin, Manager)
+  // Create a new leave request (Retains admin/manager notifications)
   async createLeave(req, res) {
     try {
       const { startDate, endDate, reason } = req.body;
@@ -101,20 +101,15 @@ module.exports = {
     }
   },
 
-  // Get all leaves (Staff see own, Admins/Managers see all with filters)
+  // Get all leaves (No role restrictions, fetch all with filters)
   async getAllLeaves(req, res) {
     try {
       const { status, userId, startDate, endDate, page = 1, limit = 20 } = req.query;
 
       const whereClause = {};
 
-      // Role-based visibility
-      if (req.user.role === "staff") {
-        whereClause.userId = req.user.id;
-      }
-
-      // Optional filters for admins/managers
-      if (userId && ["admin", "manager"].includes(req.user.role)) {
+      // Optional filters
+      if (userId) {
         whereClause.userId = userId;
       }
       if (status) {
@@ -161,7 +156,6 @@ module.exports = {
         message: error.message,
         stack: error.stack,
         userId: req.user?.id,
-        role: req.user?.role,
         query: req.query,
         timestamp: new Date().toISOString(),
       });
@@ -169,7 +163,71 @@ module.exports = {
     }
   },
 
-  // Get a single leave by ID (Staff see own, Admins/Managers see all)
+  // Get leaves by user ID (New endpoint, no role restrictions)
+  async getLeavesByUserId(req, res) {
+    try {
+      const { userId } = req.params;
+      const { status, startDate, endDate, page = 1, limit = 20 } = req.query;
+
+      const whereClause = { userId: parseInt(userId) };
+
+      if (status) {
+        whereClause.status = status;
+      }
+      if (startDate) {
+        whereClause.startDate = {
+          [db.Sequelize.Op.gte]: new Date(startDate),
+        };
+      }
+      if (endDate) {
+        whereClause.endDate = {
+          [db.Sequelize.Op.lte]: new Date(endDate),
+        };
+      }
+
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { count, rows } = await Leave.findAndCountAll({
+        where: whereClause,
+        include: [
+          {
+            model: User,
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: parseInt(limit),
+        offset,
+      });
+
+      if (count === 0) {
+        return res.status(404).json({ message: "No leaves found for this user" });
+      }
+
+      const totalPages = Math.ceil(count / limit);
+
+      res.status(200).json({
+        leaves: rows,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching leaves by user ID:", {
+        message: error.message,
+        stack: error.stack,
+        userId: req.user?.id,
+        queryUserId: req.params.userId,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Error fetching leaves by user ID", details: error.message });
+    }
+  },
+
+  // Get a single leave by ID (No role restrictions)
   async getLeaveById(req, res) {
     try {
       const { id } = req.params;
@@ -185,11 +243,6 @@ module.exports = {
         return res.status(404).json({ message: "Leave not found" });
       }
 
-      // Restrict staff to their own leaves
-      if (req.user.role === "staff" && leave.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to view this leave" });
-      }
-
       res.status(200).json({ leave });
     } catch (error) {
       console.error("Error retrieving leave:", {
@@ -203,7 +256,7 @@ module.exports = {
     }
   },
 
-  // Update a leave request (Staff can update own, Admins/Managers can update any)
+  // Update a leave request (No role restrictions)
   async updateLeave(req, res) {
     try {
       const { id } = req.params;
@@ -218,11 +271,6 @@ module.exports = {
 
       if (!leave) {
         return res.status(404).json({ message: "Leave not found" });
-      }
-
-      // Restrict staff to their own leaves
-      if (req.user.role === "staff" && leave.userId !== req.user.id) {
-        return res.status(403).json({ message: "Unauthorized to update this leave" });
       }
 
       // Prevent updates if status is not pending
@@ -297,13 +345,9 @@ module.exports = {
     }
   },
 
-  // Update leave status (Admins and Managers only)
+  // Update leave status (No role restrictions)
   async updateLeaveStatus(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can update leave status" });
-      }
-
       const { id } = req.params;
       const { status } = req.body;
 
@@ -364,13 +408,9 @@ module.exports = {
     }
   },
 
-  // Delete a leave request (Admins and Managers only)
+  // Delete a leave request (No role restrictions)
   async deleteLeave(req, res) {
     try {
-      if (!["admin", "manager"].includes(req.user.role)) {
-        return res.status(403).json({ message: "Only admins or managers can delete leave requests" });
-      }
-
       const { id } = req.params;
 
       const leave = await Leave.findByPk(id, {
