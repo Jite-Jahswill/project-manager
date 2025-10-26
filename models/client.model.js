@@ -27,15 +27,64 @@ module.exports = (sequelize, DataTypes) => {
     },
     otp: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if required
+      allowNull: true,
     },
     otpExpiresAt: {
       type: DataTypes.DATE,
-      allowNull: true, // Change to false if required
+      allowNull: true,
     },
     phoneNumber: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if you want it to be required
+      allowNull: true,
+    },
+    cacCertificate: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    tin: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    taxClearance: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    corporateProfile: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    address: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    state: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    country: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    bankName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    accountNumber: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    accountName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    approvalStatus: {
+      type: DataTypes.ENUM("pending", "approved", "rejected"),
+      defaultValue: "pending",
+      allowNull: false,
     },
   });
 
