@@ -84,6 +84,7 @@ module.exports = (app) => {
    *             title:
    *               type: string
    *               example: "Implement Login Page"
+   */
 
   /**
    * @swagger
@@ -178,7 +179,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Failed to create work log"
    *                 details:
@@ -298,9 +299,9 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
-   *                   example: "Failed to fetch user logs"
+   *                   example: "Failed to fetch work logs"
    *                 details:
    *                   type: string
    *                   example: "Database error"
@@ -406,7 +407,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Failed to fetch project logs"
    *                 details:
@@ -502,7 +503,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Failed to update work log"
    *                 details:
@@ -540,7 +541,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Work log deleted successfully"
    *       400:
-   *         description: Missing logId
+   *         description: Missing or invalid logId
    *         content:
    *           application/json:
    *             schema:
@@ -576,7 +577,7 @@ module.exports = (app) => {
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
+   *                 message:
    *                   type: string
    *                   example: "Failed to delete work log"
    *                 details:
