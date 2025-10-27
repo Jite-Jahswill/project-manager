@@ -941,6 +941,114 @@ module.exports = {
     }
   },
 
+  // Get current client's details
+async getCurrentClient(req, res) {
+  try {
+    const client = await Client.findByPk(req.user.id, {
+      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
+      include: [
+        {
+          model: Project,
+          as: "Projects",
+          include: [
+            {
+              model: Team,
+              attributes: ["id", "name"],
+              include: [
+                {
+                  model: User,
+                  attributes: ["id", "firstName", "lastName", "email"],
+                  through: { attributes: ["role", "note"] },
+                },
+              ],
+            },
+            {
+              model: Task,
+              as: "Tasks",
+              attributes: ["id", "title", "description", "status", "dueDate"],
+              include: [
+                {
+                  model: User,
+                  as: "assignee",
+                  attributes: ["id", "firstName", "lastName", "email"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!client) {
+      return res.status(404).json({ message: "Client not found" });
+    }
+
+    const formattedClient = {
+      id: client.id,
+      firstName: client.firstName,
+      lastName: client.lastName,
+      email: client.email,
+      image: client.image,
+      phoneNumber: client.phoneNumber,
+      address: client.address,
+      city: client.city,
+      state: client.state,
+      country: client.country,
+      bankName: client.bankName,
+      accountNumber: client.accountNumber,
+      accountName: client.accountName,
+      approvalStatus: client.approvalStatus,
+      projects: client.Projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+        team: project.Team
+          ? {
+              teamId: project.Team.id,
+              teamName: project.Team.name,
+              members: project.Team.Users.map((user) => ({
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                role: user.UserTeam.role,
+                note: user.UserTeam.note,
+              })),
+            }
+          : null,
+        tasks: project.Tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+      })),
+    };
+
+    res.status(200).json({ client: formattedClient });
+  } catch (err) {
+    console.error("Get current client error:", {
+      message: err.message,
+      stack: err.stack,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({ message: "Failed to fetch client", details: err.message });
+  }
+},
+
   // Delete client
   async deleteClient(req, res) {
     const transaction = await sequelize.transaction();
