@@ -1,6 +1,8 @@
 const { sequelize, Document, Project, Client, Team, User, ClientProject, TeamProject } = require("../models");
 const { Op } = require("sequelize");
 const admin = require("firebase-admin");
+console.log("Firebase Key starts with:", process.env.FIREBASE_PRIVATE_KEY?.slice(0, 20));
+
 
 module.exports = {
   // Create one or more documents for a project
