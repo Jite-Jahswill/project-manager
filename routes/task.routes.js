@@ -75,6 +75,14 @@ module.exports = (app) => {
    *             email:
    *               type: string
    *               example: "john.doe@example.com"
+   *     ErrorResponse:
+   *       type: object
+   *       properties:
+   *         message:
+   *           type: string
+   *         details:
+   *           type: string
+   *           nullable: true
    */
 
   /**
@@ -139,58 +147,45 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Missing or invalid fields
+   *         description: Invalid input (e.g., missing required fields or assigned user not in project team)
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "title, projectId, and assignedTo are required"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               examples:
+   *                 missingFields:
+   *                   summary: Missing required fields
+   *                   value:
+   *                     message: "title, projectId, and assignedTo are required"
+   *                 invalidTeam:
+   *                   summary: Assigned user not in project team
+   *                   value:
+   *                     message: "Assigned user is not part of the project's team"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Project or assigned user not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Project not found"
-   *       400:
-   *         description: Assigned user not in project team
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Assigned user is not part of the project's team"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Project not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error creating task"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error creating task"
+   *                 details: "Database error"
    */
   router.post("/", verifyToken, taskController.createTask);
 
@@ -257,48 +252,38 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid projectId, page, or limit
+   *         description: Invalid projectId or pagination parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "projectId is required"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "projectId is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Project not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Project not found"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Project not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error fetching tasks"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error fetching tasks"
+   *                 details: "Database error"
    */
   router.get("/project/:projectId", verifyToken, taskController.getProjectTasks);
 
@@ -381,38 +366,30 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid page or limit
+   *         description: Invalid pagination or filter parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error fetching tasks"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error fetching tasks"
+   *                 details: "Database error"
    */
   router.get("/", verifyToken, taskController.getAllTasks);
 
@@ -461,48 +438,38 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Missing or invalid status
+   *         description: Invalid status or missing parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Status is required"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Status is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Task not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Task not found"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Task not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error updating task status"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error updating task status"
+   *                 details: "Database error"
    */
   router.put("/:taskId/status", verifyToken, taskController.updateTaskStatus);
 
@@ -568,58 +535,45 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: No fields provided or invalid fields
+   *         description: Invalid input (e.g., no fields provided or assigned user not in project team)
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "At least one field is required for update"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               examples:
+   *                 noFields:
+   *                   summary: No fields provided
+   *                   value:
+   *                     message: "At least one field is required for update"
+   *                 invalidTeam:
+   *                   summary: Assigned user not in project team
+   *                   value:
+   *                     message: "Assigned user is not part of the project's team"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Task or assigned user not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Task not found"
-   *       400:
-   *         description: Assigned user not in project team
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Assigned user is not part of the project's team"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Task not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error updating task"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error updating task"
+   *                 details: "Database error"
    */
   router.put("/:taskId", verifyToken, taskController.updateTask);
 
@@ -656,34 +610,26 @@ module.exports = (app) => {
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Task not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Task not found"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Task not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error deleting task"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error deleting task"
+   *                 details: "Database error"
    */
   router.delete("/:taskId", verifyToken, taskController.deleteTask);
 
@@ -731,58 +677,45 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Missing or invalid fields
+   *         description: Invalid input (e.g., missing taskId or assignedTo, or assigned user not in project team)
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "taskId and assignedTo are required"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               examples:
+   *                 missingFields:
+   *                   summary: Missing required fields
+   *                   value:
+   *                     message: "taskId and assignedTo are required"
+   *                 invalidTeam:
+   *                   summary: Assigned user not in project team
+   *                   value:
+   *                     message: "Assigned user is not part of the project's team"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Task or assigned user not found
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Task not found"
-   *       400:
-   *         description: Assigned user not in project team
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Assigned user is not part of the project's team"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Task not found"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error assigning task"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error assigning task"
+   *                 details: "Database error"
    */
   router.post("/:taskId/assign", verifyToken, taskController.assignTask);
 
@@ -828,48 +761,38 @@ module.exports = (app) => {
    *                 task:
    *                   $ref: '#/components/schemas/Task'
    *       400:
-   *         description: Missing taskId
+   *         description: Invalid taskId or filter parameters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "taskId is required"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "taskId is required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Unauthorized"
    *       404:
    *         description: Task not found or does not match filters
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Task not found or does not match filters"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Task not found or does not match filters"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error fetching task"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
+   *               $ref: '#/components/schemas/ErrorResponse'
+   *               example:
+   *                 message: "Error fetching task"
+   *                 details: "Database error"
    */
   router.get("/:taskId", verifyToken, taskController.getTaskById);
 
