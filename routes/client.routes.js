@@ -132,7 +132,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/me", verifyToken, clientController.getCurrentClient);
+  router.get("/me", verifyToken, clientController.getClientProjects);
 
   /**
    * @swagger
