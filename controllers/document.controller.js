@@ -79,6 +79,73 @@ module.exports = {
     }
   },
 
+    // Get all documents (across all projects)
+  async getAllDocuments(req, res) {
+    try {
+      const { page = 1, limit = 20, search, status } = req.query;
+  
+      const whereClause = {};
+      const searchConditions = [];
+  
+      // Optional filters
+      if (status) {
+        whereClause.status = status;
+      }
+  
+      // Build dynamic search filters
+      if (search) {
+        const likeQuery = `%${search}%`;
+        searchConditions.push(
+          { name: { [Op.like]: likeQuery } } // match document name
+        );
+      }
+  
+      // Fetch all documents
+      const { count, rows } = await Document.findAndCountAll({
+        where: {
+          ...whereClause,
+          ...(searchConditions.length > 0 ? { [Op.or]: searchConditions } : {}),
+        },
+        include: [
+          {
+            model: Project,
+            as: "project",
+            attributes: ["id", "name", "description"],
+          },
+          {
+            model: User,
+            as: "uploader",
+            attributes: ["id", "firstName", "lastName", "email"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit),
+      });
+  
+      const totalPages = Math.ceil(count / limit);
+  
+      res.status(200).json({
+        documents: rows,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
+    } catch (err) {
+      console.error("Get all documents error:", {
+        message: err.message,
+        stack: err.stack,
+        userId: req.user?.id,
+        query: req.query,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(500).json({ message: "Failed to fetch all documents", details: err.message });
+    }
+  },
+
   // Get documents by projectId
   async getDocumentsByProject(req, res) {
     try {
