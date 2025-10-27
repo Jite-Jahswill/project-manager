@@ -16,25 +16,25 @@ const generateOTP = () => {
 
 module.exports = {
   // Get current client's details
-  async getCurrentClient(req, res) {
-    try {
-      const client = await Client.findByPk(req.user.id, {
-        attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
-      });
-      if (!client) {
-        return res.status(404).json({ message: "Client not found" });
-      }
-      res.status(200).json({ client });
-    } catch (err) {
-      console.error("Get current client error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to fetch client", details: err.message });
-    }
-  },
+  // async getCurrentClient(req, res) {
+  //   try {
+  //     const client = await Client.findByPk(req.user.id, {
+  //       attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
+  //     });
+  //     if (!client) {
+  //       return res.status(404).json({ message: "Client not found" });
+  //     }
+  //     res.status(200).json({ client });
+  //   } catch (err) {
+  //     console.error("Get current client error:", {
+  //       message: err.message,
+  //       stack: err.stack,
+  //       userId: req.user?.id,
+  //       timestamp: new Date().toISOString(),
+  //     });
+  //     res.status(500).json({ message: "Failed to fetch client", details: err.message });
+  //   }
+  // },
 
   // Get projects owned by a client
   async getClientProjects(req, res) {
