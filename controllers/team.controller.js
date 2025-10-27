@@ -444,11 +444,11 @@ module.exports = {
       };
 
       // Notify users
-      const users = await db.User.findAll({
+      const allUsers = await db.User.findAll({
         attributes: ["email"],
       });
       const userEmails = updatedTeam.Users.map((u) => u.email);
-      const emails = [...users.map((u) => u.email), ...userEmails].filter(
+      const emails = [...allUsers.map((u) => u.email), ...userEmails].filter(
         (email, index, self) => email && self.indexOf(email) === index
       );
 
