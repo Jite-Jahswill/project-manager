@@ -4,10 +4,7 @@ const {
   uploadToFirebase,
 } = require("../middlewares/upload.middleware");
 const clientController = require("../controllers/client.controller");
-
-console.log("clientController:", clientController);
-const verifyToken = require("../middlewares/auth.middleware");
-
+const { verifyToken } = require("../middlewares/auth.middleware");
 module.exports = (app) => {
   const router = express.Router();
 
