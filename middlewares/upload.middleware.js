@@ -1,6 +1,7 @@
 const multer = require("multer");
 const path = require("path");
 const admin = require("firebase-admin");
+require("dotenv").config();
 
 // ✅ Initialize Firebase using environment variables
 if (!admin.apps.length) {
@@ -12,6 +13,7 @@ if (!admin.apps.length) {
     }),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
+  console.log("Firebase initialized successfully");
 }
 
 const bucket = admin.storage().bucket();
