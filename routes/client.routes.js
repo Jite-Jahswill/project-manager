@@ -81,61 +81,6 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/clients/me:
-   *   get:
-   *     summary: Get current client details
-   *     description: Retrieves details of the authenticated client.
-   *     tags: [Clients]
-   *     security:
-   *       - bearerAuth: []
-   *     responses:
-   *       200:
-   *         description: Client details retrieved successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 client:
-   *                   $ref: '#/components/schemas/Client'
-   *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
-   *       404:
-   *         description: Client not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Client not found"
-   *       500:
-   *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Failed to fetch client"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
-   */
-  router.get("/me", verifyToken, clientController.getCurrentClient);
-
-  /**
-   * @swagger
    * /api/clients/{clientId}/projects:
    *   get:
    *     summary: Get projects owned by a client
