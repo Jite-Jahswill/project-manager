@@ -161,6 +161,108 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/documents:
+   *   get:
+   *     summary: Get all documents
+   *     description: Retrieves all documents across all projects, with optional filters like search, status, and pagination. Accessible by authenticated users.
+   *     tags: [Documents]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         description: Page number for pagination
+   *         example: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 20
+   *         description: Number of documents per page
+   *         example: 20
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search documents by name
+   *         example: "proposal"
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: [pending, approved, rejected, completed, not complete]
+   *         description: Filter documents by status
+   *         example: "approved"
+   *     responses:
+   *       200:
+   *         description: Documents retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 documents:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Document'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                       example: 1
+   *                     totalPages:
+   *                       type: integer
+   *                       example: 3
+   *                     totalItems:
+   *                       type: integer
+   *                       example: 45
+   *                     itemsPerPage:
+   *                       type: integer
+   *                       example: 20
+   *       400:
+   *         description: Invalid query parameters
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Invalid query parameters"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to fetch all documents"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get("/", verifyToken, documentController.getAllDocuments);
+
+  /**
+   * @swagger
    * /api/documents/{projectId}:
    *   get:
    *     summary: Get documents for a project
