@@ -14,10 +14,11 @@ const sequelize = new Sequelize(
       bigNumberStrings: true,
     },
     pool: {
-      max: 5,
+      max: 5,        // limit concurrent connections
       min: 0,
-      acquire: 30000,
-      idle: 10000,
+      acquire: 30000, // wait 30s for a connection before throwing error
+      idle: 10000,   // release connection after 10s idle
+      evict: 10000,  // actively remove idle connections
     },
     retry: {
       match: [
@@ -26,11 +27,35 @@ const sequelize = new Sequelize(
         /ECONNRESET/,
         /ECONNREFUSED/,
         /EPIPE/,
-        /Prepared statement needs to be re-prepared/,
+        /SequelizeConnectionError/,
+        /SequelizeConnectionRefusedError/,
+        /SequelizeHostNotFoundError/,
+        /SequelizeHostNotReachableError/,
+        /SequelizeInvalidConnectionError/,
+        /SequelizeConnectionTimedOutError/,
       ],
-      max: 3, // Retry up to 3 times
+      max: 3, // Retry failed DB connections up to 3 times
     },
   }
 );
+
+// Optional: safe connect with retry loop
+const connectWithRetry = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ Database connected successfully");
+  } catch (err) {
+    console.error("❌ Database connection failed. Retrying in 5s...\n", err.message);
+    setTimeout(connectWithRetry, 5000);
+  }
+};
+connectWithRetry();
+
+// Gracefully close DB connection on Render shutdown
+process.on("SIGTERM", async () => {
+  console.log("🧹 Closing DB connections...");
+  await sequelize.close();
+  process.exit(0);
+});
 
 module.exports = sequelize;
