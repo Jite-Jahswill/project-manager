@@ -1,5 +1,5 @@
 const express = require("express");
-const workLogController = require("../controllers/workLog.controller");
+const workLogController = require("../controllers/worklog.controller");
 const { verifyToken } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
