@@ -22,6 +22,7 @@ db.Role = require("./role.model")(sequelize, DataTypes);
 db.Permission = require("./permission.model")(sequelize, DataTypes);
 db.RolePermission = require("./rolePermission.model")(sequelize, DataTypes);
 db.UserRole = require("./userRole.model")(sequelize, DataTypes);
+db.Document = require("./document.model")(sequelize, DataTypes);
 
 // Run associations
 Object.keys(db).forEach((modelName) => {
