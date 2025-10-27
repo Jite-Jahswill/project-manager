@@ -100,6 +100,7 @@ require("./routes/report.routes")(app);
 require("./routes/team.routes")(app);
 require("./routes/client.routes")(app);
 require("./routes/workLog.routes")(app);
+require("./routes/document.routes")(app);
 // In your main server.js or app.js
 app.use("/uploads", express.static("uploads"));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
