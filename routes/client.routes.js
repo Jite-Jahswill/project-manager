@@ -1,5 +1,8 @@
 const express = require("express");
-const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
+const {
+  upload,
+  uploadToFirebase,
+} = require("../middlewares/upload.middleware");
 const clientController = require("../controllers/client.controller");
 const verifyToken = require("../middlewares/auth.middleware");
 
@@ -78,6 +81,61 @@ module.exports = (app) => {
    *           enum: [pending, approved, rejected]
    *           example: "pending"
    */
+
+  /**
+   * @swagger
+   * /api/clients/me:
+   *   get:
+   *     summary: Get current client details
+   *     description: Retrieves details of the authenticated client.
+   *     tags: [Clients]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Client details retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 client:
+   *                   $ref: '#/components/schemas/Client'
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       404:
+   *         description: Client not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Client not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to fetch client"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get("/me", verifyToken, clientController.getCurrentClient);
 
   /**
    * @swagger
@@ -285,7 +343,11 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:clientId/projects", verifyToken, clientController.getClientProjects);
+  router.get(
+    "/:clientId/projects",
+    verifyToken,
+    clientController.getClientProjects
+  );
 
   /**
    * @swagger
@@ -483,7 +545,13 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id/company-info", verifyToken, upload, uploadToFirebase, clientController.uploadCompanyInfo);
+  router.put(
+    "/:id/company-info",
+    verifyToken,
+    upload,
+    uploadToFirebase,
+    clientController.uploadCompanyInfo
+  );
 
   /**
    * @swagger
@@ -576,7 +644,11 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id/registration", verifyToken, clientController.updateRegistration);
+  router.put(
+    "/:id/registration",
+    verifyToken,
+    clientController.updateRegistration
+  );
 
   /**
    * @swagger
@@ -641,7 +713,11 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id/approval-status", verifyToken, clientController.getApprovalStatus);
+  router.get(
+    "/:id/approval-status",
+    verifyToken,
+    clientController.getApprovalStatus
+  );
 
   /**
    * @swagger
@@ -1349,7 +1425,13 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id", verifyToken, upload, uploadToFirebase, clientController.updateClient);
+  router.put(
+    "/:id",
+    verifyToken,
+    upload,
+    uploadToFirebase,
+    clientController.updateClient
+  );
 
   /**
    * @swagger
