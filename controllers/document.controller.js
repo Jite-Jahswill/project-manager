@@ -78,20 +78,19 @@ module.exports = {
       res.status(500).json({ message: "Failed to upload documents", details: err.message });
     }
   },
-
-    // Get all documents (across all projects)
+  
   async getAllDocuments(req, res) {
     try {
       const { page = 1, limit = 20, search, status } = req.query;
-  
+
       const whereClause = {};
       const searchConditions = [];
-  
+
       // Optional filters
       if (status) {
         whereClause.status = status;
       }
-  
+
       // Build dynamic search filters
       if (search) {
         const likeQuery = `%${search}%`;
@@ -99,7 +98,7 @@ module.exports = {
           { name: { [Op.like]: likeQuery } } // match document name
         );
       }
-  
+
       // Fetch all documents
       const { count, rows } = await Document.findAndCountAll({
         where: {
@@ -109,7 +108,7 @@ module.exports = {
         include: [
           {
             model: Project,
-            as: "project",
+            as: "Project", // Use uppercase 'Project' to match default association
             attributes: ["id", "name", "description"],
           },
           {
@@ -122,9 +121,9 @@ module.exports = {
         limit: parseInt(limit),
         offset: (parseInt(page) - 1) * parseInt(limit),
       });
-  
+
       const totalPages = Math.ceil(count / limit);
-  
+
       res.status(200).json({
         documents: rows,
         pagination: {
