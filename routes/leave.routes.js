@@ -1,6 +1,6 @@
 const express = require("express");
 const leaveController = require("../controllers/leave.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -158,7 +158,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, leaveController.createLeave);
+  router.post("/", verifyToken, hasPermission("leave:create"), leaveController.createLeave);
 
   /**
    * @swagger
@@ -270,7 +270,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, leaveController.getAllLeaves);
+  router.get("/", verifyToken, hasPermission("leave:read"), leaveController.getAllLeaves);
 
   /**
    * @swagger
@@ -392,7 +392,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/user/:userId", verifyToken, leaveController.getLeavesByUserId);
+  router.get("/user/:userId", verifyToken, hasPermission("leave:read"), leaveController.getLeavesByUserId);
 
   /**
    * @swagger
@@ -455,7 +455,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", verifyToken, leaveController.getLeaveById);
+  router.get("/:id", verifyToken, hasPermission("leave:read"), leaveController.getLeaveById);
 
   /**
    * @swagger
@@ -552,7 +552,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id", verifyToken, leaveController.updateLeave);
+  router.put("/:id", verifyToken, hasPermission("leave:update"), leaveController.updateLeave);
 
   /**
    * @swagger
@@ -642,7 +642,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id/status", verifyToken, leaveController.updateLeaveStatus);
+  router.put("/:id/status", verifyToken, hasPermission("leave:update"), leaveController.updateLeaveStatus);
 
   /**
    * @swagger
@@ -706,7 +706,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, leaveController.deleteLeave);
+  router.delete("/:id", verifyToken, hasPermission("leave:delete"), leaveController.deleteLeave);
 
   app.use("/api/leaves", router);
 };
