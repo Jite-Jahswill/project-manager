@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const { User, Role } = require("../models");
 
 // 🔹 Verify Token Middleware
 exports.verifyToken = (req, res, next) => {
