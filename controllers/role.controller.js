@@ -36,7 +36,6 @@ exports.createRole = async (req, res) => {
       return res.status(400).json({ error: "Role name is required" });
     }
 
-    // Prevent duplicate role name
     const exists = await Role.findOne({ where: { name }, transaction: t });
     if (exists) {
       await t.rollback();
@@ -71,7 +70,6 @@ exports.getAllRoles = async (req, res) => {
       order: [["name", "ASC"]],
     });
 
-    // Optionally enrich with permission descriptions
     const permissionIds = new Set();
     roles.forEach((r) => r.permissions.forEach((p) => permissionIds.add(p)));
 
@@ -112,7 +110,6 @@ exports.getRoleById = async (req, res) => {
 
     if (!role) return res.status(404).json({ error: "Role not found" });
 
-    // enrich permissions
     const permissionMap = await Permission.findAll({
       where: { name: { [Op.in]: role.permissions } },
       attributes: ["name", "description"],
@@ -139,7 +136,7 @@ exports.getRoleById = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------
-// UPDATE ROLE (name + permissions)
+// UPDATE ROLE – USING RAW SQL
 // ---------------------------------------------------------------------
 exports.updateRole = async (req, res) => {
   const t = await sequelize.transaction();
@@ -147,36 +144,94 @@ exports.updateRole = async (req, res) => {
     const { id } = req.params;
     const { name, permissionNames = [] } = req.body;
 
-    const role = await Role.findByPk(id, { transaction: t });
-    if (!role) {
+    // 1. Verify role exists
+    const [roleExists] = await sequelize.query(
+      `SELECT id, name FROM Roles WHERE id = :id`,
+      {
+        replacements: { id },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
+    );
+
+    if (!roleExists) {
       await t.rollback();
       return res.status(404).json({ error: "Role not found" });
     }
 
-    // If name changes, check uniqueness
-    if (name && name.trim() !== role.name) {
-      const duplicate = await Role.findOne({
-        where: { name: name.trim(), id: { [Op.ne]: id } },
-        transaction: t,
-      });
+    // 2. Validate new name (if provided) – uniqueness
+    if (name && name.trim() !== roleExists.name) {
+      const [duplicate] = await sequelize.query(
+        `SELECT id FROM Roles WHERE name = :name AND id != :id LIMIT 1`,
+        {
+          replacements: { name: name.trim(), id },
+          type: sequelize.QueryTypes.SELECT,
+          transaction: t,
+        }
+      );
+
       if (duplicate) {
         await t.rollback();
         return res.status(409).json({ error: "Role name already taken" });
       }
     }
 
+    // 3. Validate permission names
     const validPermissions = await validatePermissionNames(permissionNames, t);
 
-    await role.update(
+    // 4. Build JSON string for PostgreSQL/MySQL
+    const permissionsJson = JSON.stringify(validPermissions);
+
+    // 5. Raw UPDATE
+    await sequelize.query(
+      `UPDATE Roles 
+       SET name = :name, 
+           permissions = :permissions,
+           updatedAt = NOW()
+       WHERE id = :id`,
       {
-        name: name ? name.trim() : role.name,
-        permissions: validPermissions,
-      },
-      { transaction: t }
+        replacements: {
+          name: name ? name.trim() : roleExists.name,
+          permissions: permissionsJson,
+          id,
+        },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      }
+    );
+
+    // 6. Return fresh data
+    const [updated] = await sequelize.query(
+      `SELECT id, name, permissions, createdAt, updatedAt FROM Roles WHERE id = :id`,
+      {
+        replacements: { id },
+        type: sequelize.QueryTypes.SELECT,
+        transaction: t,
+      }
     );
 
     await t.commit();
-    return res.json({ role: await Role.findByPk(id) });
+
+    // Enrich with descriptions
+    const permissionMap = await Permission.findAll({
+      where: { name: { [Op.in]: updated.permissions } },
+      attributes: ["name", "description"],
+    }).then((perms) =>
+      perms.reduce((map, p) => {
+        map[p.name] = p.description;
+        return map;
+      }, {})
+    );
+
+    const enriched = {
+      ...updated,
+      permissionsDetail: updated.permissions.map((p) => ({
+        name: p,
+        description: permissionMap[p] || null,
+      })),
+    };
+
+    return res.json({ role: enriched });
   } catch (err) {
     await t.rollback();
     console.error("updateRole error:", err);
@@ -200,7 +255,6 @@ exports.deleteRole = async (req, res) => {
       return res.status(404).json({ error: "Role not found" });
     }
 
-    // Check if any user has this role
     const users = await User.findAll({
       include: [{ model: Role, where: { id }, required: true }],
       limit: 1,
@@ -221,5 +275,21 @@ exports.deleteRole = async (req, res) => {
     await t.rollback();
     console.error("deleteRole error:", err);
     return res.status(500).json({ error: "Failed to delete role" });
+  }
+};
+
+// ---------------------------------------------------------------------
+// GET ALL PERMISSIONS (for UI)
+// ---------------------------------------------------------------------
+exports.getAllPermissions = async (req, res) => {
+  try {
+    const perms = await Permission.findAll({
+      attributes: ["id", "name", "description"],
+      order: [["name", "ASC"]],
+    });
+    return res.json({ permissions: perms });
+  } catch (err) {
+    console.error("getAllPermissions error:", err);
+    return res.status(500).json({ error: "Failed to fetch permissions" });
   }
 };
