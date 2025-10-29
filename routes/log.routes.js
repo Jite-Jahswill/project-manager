@@ -13,7 +13,7 @@ module.exports = (app) => {
    *
    * components:
    *   schemas:
-   *     WorkLog:
+   *     Log:
    *       type: object
    *       properties:
    *         id:
