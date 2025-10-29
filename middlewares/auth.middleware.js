@@ -32,15 +32,27 @@ exports.isCustomer = (req, res, next) => {
 
 // 🔹 Permission-based Access
 exports.hasPermission = (requiredPermission) => {
-  return (req, res, next) => {
-    // SuperAdmin always has access
-    if (req.user.role === "superadmin") return next();
+  return async (req, res, next) => {
+    try {
+      const user = await User.findByPk(req.user.id, {
+        include: [{ model: Role, as: "role" }],
+      });
 
-    // Ensure permission exists
-    if (!req.user.permissions || !req.user.permissions.includes(requiredPermission)) {
-      return res.status(403).json({ error: "Permission denied" });
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+      // SuperAdmin always has access
+      if (user.role?.name === "superadmin") return next();
+
+      // Check permission from role
+      const permissions = user.role?.permissions || [];
+      if (!permissions.includes(requiredPermission)) {
+        return res.status(403).json({ error: "Permission denied" });
+      }
+
+      next();
+    } catch (err) {
+      console.error("Permission middleware error:", err);
+      res.status(500).json({ error: "Server error" });
     }
-
-    next();
   };
 };
