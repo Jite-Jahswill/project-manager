@@ -9,7 +9,7 @@ const Team = db.Team;
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
   try {
     const recipients = await User.findAll({
-      where: { role: ["admin", "manager"] },
+      where: { role: ["superadmin", "admin"] },
       attributes: ["email"],
       transaction,
     });
