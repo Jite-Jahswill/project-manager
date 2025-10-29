@@ -106,56 +106,30 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password required" });
-    }
 
     const user = await User.findOne({
       where: { email },
-      include: [
-        {
-          model: Role,
-          as: "role", // must match the alias defined in User.belongsTo
-          attributes: ["id", "name", "permissions"], // select what you need
-        },
-      ],
+      include: [{ model: Role, as: "role" }],
     });
 
-    if (!user || !user.Role) {
-      return res.status(404).json({ error: "Invalid credentials" });
-    }
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
-    const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.Role.name,
-        rolePermissions: user.role.permissions,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    const payload = {
+      id: user.id,
+      email: user.email,
+      role: user.role.name,
+      permissions: user.role.permissions,
+    };
 
-    res.json({
-      message: "Login successful",
-      token,
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        role: user.Role.name,
-        rolePermissions: user.role.permissions,
-      },
-    });
-  } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ error: "Login failed", details: error.message });
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" });
+
+    res.status(200).json({ message: "Login successful", token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error", details: err.message });
   }
 };
 
