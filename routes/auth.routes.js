@@ -1,6 +1,6 @@
 const express = require("express");
 const authController = require("../controllers/auth.controller");
-const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission, isSuperAdmin } = require("../middlewares/auth.middleware");
 const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
 module.exports = (app) => {
@@ -42,8 +42,8 @@ module.exports = (app) => {
    *           example: "https://firebasestorage.googleapis.com/v0/b/your-bucket/o/images%2Fuser.jpg"
    *         role:
    *           type: string
-   *           enum: [admin, manager, staff]
-   *           example: "staff"
+   *           enum: [superadmin, admin, customer]
+   *           example: "customer"
    *         createdAt:
    *           type: string
    *           format: date-time
@@ -90,8 +90,8 @@ module.exports = (app) => {
    *                 example: "+1234567890"
    *               role:
    *                 type: string
-   *                 enum: [admin, manager, staff]
-   *                 example: "staff"
+   *                 enum: [superadmin, admin, customer]
+   *                 example: "customer"
    *               image:
    *                 type: string
    *                 format: binary
@@ -259,10 +259,10 @@ module.exports = (app) => {
    *         name: role
    *         schema:
    *           type: string
-   *           enum: [admin, manager, staff]
+   *           enum: [superadmin, admin, customer]
    *         required: false
    *         description: Filter users by role
-   *         example: "admin"
+   *         example: "superadmin"
    *       - in: query
    *         name: firstName
    *         schema:
@@ -571,8 +571,8 @@ module.exports = (app) => {
    *             properties:
    *               role:
    *                 type: string
-   *                 enum: [admin, manager, staff]
-   *                 example: "manager"
+   *                 enum: [superadmin, customer]
+   *                 example: "customer"
    *     responses:
    *       200:
    *         description: User role updated successfully
@@ -630,7 +630,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id/role", verifyToken, hasPermission("user:update"),  authController.updateUserRole);
+  router.put("/users/:id/role", verifyToken, isSuperAdmin, hasPermission("user:update"),  authController.updateUserRole);
 
   /**
    * @swagger
