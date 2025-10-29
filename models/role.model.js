@@ -24,10 +24,11 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   Role.associate = (models) => {
-    Role.belongsToMany(models.User, {
-      through: "UserRole",   // tiny join table only for user↔role
-      foreignKey: "roleId",
-    });
+    // Role.belongsToMany(models.User, {
+    //   through: "UserRole",   // tiny join table only for user↔role
+    //   foreignKey: "roleId",
+    // });
+    Role.hasMany(models.User, { foreignKey: "roleId", as: "users" });
   };
 
   return Role;
