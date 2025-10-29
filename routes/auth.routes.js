@@ -1,6 +1,6 @@
 const express = require("express");
 const authController = require("../controllers/auth.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
 module.exports = (app) => {
@@ -356,7 +356,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users", verifyToken,  authController.getAllUsers);
+  router.get("/users", verifyToken, hasPermission("user:read"), authController.getAllUsers);
 
   /**
    * @swagger
@@ -426,7 +426,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/users/:id", verifyToken,  authController.getUserById);
+  router.get("/users/:id", verifyToken, hasPermission("user:read"),  authController.getUserById);
 
   /**
    * @swagger
@@ -538,6 +538,7 @@ module.exports = (app) => {
   router.put(
     "/users/:id",
     verifyToken,
+    hasPermission("user:update"),
     uploadToFirebase,
      authController.updateUser
   );
@@ -629,7 +630,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/users/:id/role", verifyToken,  authController.updateUserRole);
+  router.put("/users/:id/role", verifyToken, hasPermission("user:update"),  authController.updateUserRole);
 
   /**
    * @swagger
@@ -703,7 +704,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/users/:id", verifyToken,  authController.deleteUser);
+  router.delete("/users/:id", verifyToken, hasPermission("user:delete"),  authController.deleteUser);
 
   /**
    * @swagger
