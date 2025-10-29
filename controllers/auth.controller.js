@@ -1,75 +1,87 @@
+// controllers/auth.controller.js
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { User, sequelize } = require("../models");
+const { User, Role, sequelize } = require("../models");
 const sendMail = require("../utils/mailer");
 const crypto = require("crypto");
 
-// Generate a 6-digit OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
+// Generate 6-digit OTP
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
-// Register User
+// ---------------------------------------------------------------------
+// REGISTER USER
+// ---------------------------------------------------------------------
 exports.register = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const { firstName, lastName, email, role, phoneNumber } = req.body;
-    const image = req.uploadedFiles && req.uploadedFiles[0]?.firebaseUrl;
+    const { firstName, lastName, email, roleName = "staff", phoneNumber } = req.body;
+    const image = req.uploadedFiles?.[0]?.firebaseUrl;
 
     if (!firstName || !lastName || !email || !phoneNumber || !image) {
+      await t.rollback();
       return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
     }
 
-    if (role && !["admin", "manager", "staff"].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
+    // Find role by name
+    const role = await Role.findOne({ where: { name: roleName }, transaction: t });
+    if (!role) {
+      await t.rollback();
+      return res.status(400).json({ message: `Role '${roleName}' not found` });
     }
 
-    const existingUserByEmail = await User.findOne({ where: { email } });
-    if (existingUserByEmail) {
+    // Check uniqueness
+    const existingEmail = await User.findOne({ where: { email }, transaction: t });
+    if (existingEmail) {
+      await t.rollback();
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    const existingUserByPhone = await User.findOne({ where: { phoneNumber } });
-    if (existingUserByPhone) {
+    const existingPhone = await User.findOne({ where: { phoneNumber }, transaction: t });
+    if (existingPhone) {
+      await t.rollback();
       return res.status(409).json({ message: "Phone number already in use" });
     }
 
-    // Auto-generate a secure password
+    // Auto-generate password + OTP
     const autoPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(autoPassword, 10);
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const user = await User.create({
-      firstName,
-      lastName,
-      email,
-      password: hashedPassword,
-      role: role || "staff",
-      image,
-      phoneNumber,
-      emailVerified: false,
-      otp: hashedOTP,
-      otpExpiresAt,
-    });
+    const user = await User.create(
+      {
+        firstName,
+        lastName,
+        email,
+        password: hashedPassword,
+        roleId: role.id, // ← foreign key
+        image,
+        phoneNumber,
+        emailVerified: false,
+        otp: hashedOTP,
+        otpExpiresAt,
+      },
+      { transaction: t }
+    );
 
     await sendMail({
       to: user.email,
-      subject: "Welcome! Verify Your Email and Set Up Your Account",
+      subject: "Welcome! Verify Your Email",
       html: `
         <p>Hello ${user.firstName},</p>
-        <p>Your account has been created successfully. Below are your login details:</p>
+        <p>Your account has been created.</p>
         <p><strong>Email:</strong> ${user.email}</p>
         <p><strong>Password:</strong> ${autoPassword}</p>
-        <p><strong>OTP for email verification:</strong> ${otp}</p>
-        <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
-        <p>For security, we recommend changing your password from your dashboard.</p>
+        <p><strong>OTP:</strong> ${otp} (expires in 10 mins)</p>
         <p>Best,<br>Team</p>
       `,
     });
 
+    await t.commit();
+
     res.status(201).json({
-      message: "User registered successfully, OTP and password sent to email",
+      message: "User registered. OTP and password sent.",
       user: {
         id: user.id,
         firstName: user.firstName,
@@ -77,32 +89,33 @@ exports.register = async (req, res) => {
         email: user.email,
         phoneNumber: user.phoneNumber,
         image: user.image,
-        role: user.role,
+        role: role.name,
       },
     });
   } catch (error) {
-    console.error("Register user error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ message: "Failed to register user", details: error.message });
+    await t.rollback();
+    console.error("Register error:", error);
+    res.status(500).json({ message: "Failed to register", details: error.message });
   }
 };
 
-// Login User
+// ---------------------------------------------------------------------
+// LOGIN USER (inject permissions into JWT)
+// ---------------------------------------------------------------------
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+      return res.status(400).json({ error: "Email and password required" });
     }
 
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    const user = await User.findOne({
+      where: { email },
+      include: [{ model: Role, attributes: ["name", "permissions"] }],
+    });
+
+    if (!user || !user.Role) {
+      return res.status(404).json({ error: "Invalid credentials" });
     }
 
     const valid = await bcrypt.compare(password, user.password);
@@ -111,7 +124,11 @@ exports.login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      {
+        id: user.id,
+        role: user.Role.name,
+        permissions: user.Role.permissions, // ← array of strings
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
@@ -125,82 +142,72 @@ exports.login = async (req, res) => {
         lastName: user.lastName,
         email: user.email,
         phoneNumber: user.phoneNumber,
-        role: user.role,
+        role: user.Role.name,
       },
     });
   } catch (error) {
-    console.error("Login error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to login", details: error.message });
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Login failed", details: error.message });
   }
 };
 
-// Get All Users
+// ---------------------------------------------------------------------
+// GET ALL USERS (with role name)
+// ---------------------------------------------------------------------
 exports.getAllUsers = async (req, res) => {
   try {
     const { role, firstName, lastName, page = 1, limit = 20 } = req.query;
     const where = {};
-    if (role) where.role = role;
+    const roleWhere = {};
+
+    if (role) roleWhere.name = role;
     if (firstName) where.firstName = { [sequelize.Op.like]: `%${firstName}%` };
     if (lastName) where.lastName = { [sequelize.Op.like]: `%${lastName}%` };
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const { count, rows } = await User.findAndCountAll({
       where,
-      attributes: { exclude: ["password", "otp"] },
+      include: [{ model: Role, where: roleWhere.name ? roleWhere : null, attributes: ["name"] }],
+      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
       limit: parseInt(limit),
       offset,
     });
 
     const totalPages = Math.ceil(count / limit);
 
-    const users = rows.map(user => ({
-      id: user.id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phoneNumber: user.phoneNumber,
-      role: user.role,
+    const users = rows.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      phoneNumber: u.phoneNumber,
+      role: u.Role?.name || "unknown",
     }));
 
     res.json({
       users,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages,
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-      },
+      pagination: { currentPage: +page, totalPages, totalItems: count, itemsPerPage: +limit },
     });
   } catch (error) {
-    console.error("Get all users error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to fetch users", details: error.message });
+    console.error("Get users error:", error);
+    res.status(500).json({ error: "Failed to fetch users" });
   }
 };
 
-// Get Single User
+// ---------------------------------------------------------------------
+// GET SINGLE USER
+// ---------------------------------------------------------------------
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
+    if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
 
     const user = await User.findByPk(id, {
-      attributes: { exclude: ["password", "otp"] },
+      include: [{ model: Role, attributes: ["name"] }],
+      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
     });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+
+    if (!user) return res.status(404).json({ error: "User not found" });
 
     res.json({
       id: user.id,
@@ -208,52 +215,54 @@ exports.getUserById = async (req, res) => {
       lastName: user.lastName,
       email: user.email,
       phoneNumber: user.phoneNumber,
-      role: user.role,
+      role: user.Role?.name || "unknown",
     });
   } catch (error) {
-    console.error("Get user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to fetch user", details: error.message });
+    console.error("Get user error:", error);
+    res.status(500).json({ error: "Failed to fetch user" });
   }
 };
 
-// Update User
+// ---------------------------------------------------------------------
+// UPDATE USER (raw SQL)
+// ---------------------------------------------------------------------
 exports.updateUser = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
+    const { firstName, lastName, email, phoneNumber } = req.body;
+    const image = req.uploadedFiles?.[0]?.firebaseUrl;
 
-    const user = await User.findByPk(id);
+    const user = await User.findByPk(id, { transaction: t });
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    const { firstName, lastName, email, phoneNumber } = req.body;
-    const image = req.uploadedFiles && req.uploadedFiles[0]?.firebaseUrl ? req.uploadedFiles[0].firebaseUrl : user.image;
-
+    // Uniqueness checks
     if (email && email !== user.email) {
-      const existingUser = await User.findOne({ where: { email } });
-      if (existingUser) {
+      const exists = await User.findOne({ where: { email }, transaction: t });
+      if (exists) {
+        await t.rollback();
         return res.status(409).json({ error: "Email already in use" });
       }
     }
-
     if (phoneNumber && phoneNumber !== user.phoneNumber) {
-      const existingUser = await User.findOne({ where: { phoneNumber } });
-      if (existingUser) {
+      const exists = await User.findOne({ where: { phoneNumber }, transaction: t });
+      if (exists) {
+        await t.rollback();
         return res.status(409).json({ error: "Phone number already in use" });
       }
     }
 
     await sequelize.query(
-      "UPDATE Users SET firstName = :firstName, lastName = :lastName, email = :email, phoneNumber = :phoneNumber, image = :image WHERE id = :id",
+      `UPDATE Users 
+       SET firstName = :firstName, 
+           lastName = :lastName, 
+           email = :email, 
+           phoneNumber = :phoneNumber, 
+           image = COALESCE(:image, image)
+       WHERE id = :id`,
       {
         replacements: {
           firstName: firstName || user.firstName,
@@ -264,330 +273,247 @@ exports.updateUser = async (req, res) => {
           id,
         },
         type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
       }
     );
 
-    const updatedUser = await User.findByPk(id, {
-      attributes: { exclude: ["password", "otp"] },
+    const updated = await User.findByPk(id, {
+      include: [{ model: Role, attributes: ["name"] }],
+      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
+      transaction: t,
     });
 
+    await t.commit();
+
     res.json({
-      message: "User updated successfully",
+      message: "User updated",
       user: {
-        id: updatedUser.id,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName,
-        email: updatedUser.email,
-        phoneNumber: updatedUser.phoneNumber,
-        image: updatedUser.image,
-        role: updatedUser.role,
+        id: updated.id,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        phoneNumber: updated.phoneNumber,
+        image: updated.image,
+        role: updated.Role?.name,
       },
     });
   } catch (error) {
-    console.error("Update user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to update user", details: error.message });
+    await t.rollback();
+    console.error("Update user error:", error);
+    res.status(500).json({ error: "Update failed" });
   }
 };
 
-// Update User Role
+// ---------------------------------------------------------------------
+// UPDATE USER ROLE (by role name)
+// ---------------------------------------------------------------------
 exports.updateUserRole = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { role } = req.body;
+    const { role: roleName } = req.body;
 
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
+    if (!roleName) return res.status(400).json({ error: "Role name required" });
+
+    const role = await Role.findOne({ where: { name: roleName }, transaction: t });
+    if (!role) {
+      await t.rollback();
+      return res.status(400).json({ error: `Role '${roleName}' not found` });
     }
 
-    if (!["admin", "manager", "staff"].includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
-
-    const user = await User.findByPk(id);
+    const user = await User.findByPk(id, { transaction: t });
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
     await sequelize.query(
-      "UPDATE Users SET role = :role WHERE id = :id",
+      `UPDATE Users SET roleId = :roleId WHERE id = :id`,
       {
-        replacements: { role, id },
+        replacements: { roleId: role.id, id },
         type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
       }
     );
 
     await sendMail({
       to: user.email,
-      subject: "Your Role Was Updated",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your role has been updated to <strong>${role}</strong>.</p>
-        <p>Best,<br>Team</p>
-      `,
+      subject: "Role Updated",
+      html: `<p>Hello ${user.firstName},</p><p>Your role is now <strong>${role.name}</strong>.</p>`,
     });
 
-    const updatedUser = await User.findByPk(id, {
-      attributes: { exclude: ["password", "otp"] },
+    const updated = await User.findByPk(id, {
+      include: [{ model: Role, attributes: ["name"] }],
+      transaction: t,
     });
+
+    await t.commit();
 
     res.json({
-      message: "User role updated successfully",
+      message: "Role updated",
       user: {
-        id: updatedUser.id,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName,
-        email: updatedUser.email,
-        role: updatedUser.role,
+        id: updated.id,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.Role.name,
       },
     });
   } catch (error) {
-    console.error("Update user role error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to update user role", details: error.message });
+    await t.rollback();
+    console.error("Update role error:", error);
+    res.status(500).json({ error: "Failed to update role" });
   }
 };
 
-// Delete User
+// ---------------------------------------------------------------------
+// DELETE USER
+// ---------------------------------------------------------------------
 exports.deleteUser = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    if (!id || isNaN(id)) {
-      return res.status(400).json({ error: "Invalid user ID" });
-    }
-
-    const user = await User.findByPk(id);
+    const user = await User.findByPk(id, { transaction: t });
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    await user.destroy();
-    res.json({ message: "User deleted successfully" });
+    await user.destroy({ transaction: t });
+    await t.commit();
+    res.json({ message: "User deleted" });
   } catch (error) {
-    console.error("Delete user error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      targetUserId: req.params.id,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to delete user", details: error.message });
+    await t.rollback();
+    console.error("Delete user error:", error);
+    res.status(500).json({ error: "Delete failed" });
   }
 };
 
-// Verify Email
+// ---------------------------------------------------------------------
+// VERIFY EMAIL
+// ---------------------------------------------------------------------
 exports.verifyEmail = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { email, otp } = req.body;
-    if (!email || !otp) {
-      return res.status(400).json({ error: "Email and OTP are required" });
-    }
+    if (!email || !otp) return res.status(400).json({ error: "Email and OTP required" });
 
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    const user = await User.findOne({ where: { email }, transaction: t });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.emailVerified) return res.status(400).json({ message: "Already verified" });
+    if (!user.otp || new Date() > user.otpExpiresAt) return res.status(400).json({ error: "OTP expired" });
 
-    if (user.emailVerified) {
-      return res.status(400).json({ message: "Email already verified" });
-    }
-
-    if (!user.otp || !user.otpExpiresAt) {
-      return res.status(400).json({ error: "No valid OTP found for this user" });
-    }
-
-    if (new Date() > user.otpExpiresAt) {
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-
-    const isValidOTP = await bcrypt.compare(otp, user.otp);
-    if (!isValidOTP) {
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
+    const valid = await bcrypt.compare(otp, user.otp);
+    if (!valid) return res.status(400).json({ error: "Invalid OTP" });
 
     await sequelize.query(
-      "UPDATE Users SET emailVerified = true, otp = NULL, otpExpiresAt = NULL WHERE email = :email",
-      {
-        replacements: { email },
-        type: sequelize.QueryTypes.UPDATE,
-      }
+      `UPDATE Users SET emailVerified = true, otp = NULL, otpExpiresAt = NULL WHERE email = :email`,
+      { replacements: { email }, type: sequelize.QueryTypes.UPDATE, transaction: t }
     );
 
-    res.json({
-      message: "Email verified successfully",
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-      },
-    });
+    await t.commit();
+    res.json({ message: "Email verified" });
   } catch (error) {
-    console.error("Verify email error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to verify email", details: error.message });
+    await t.rollback();
+    console.error("Verify email error:", error);
+    res.status(500).json({ error: "Verification failed" });
   }
 };
 
-// Forgot Password
+// ---------------------------------------------------------------------
+// FORGOT / RESET PASSWORD (unchanged logic, uses raw SQL)
+// ---------------------------------------------------------------------
 exports.forgotPassword = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Email is required" });
-    }
+    if (!email) return res.status(400).json({ error: "Email required" });
 
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
+    const user = await User.findOne({ where: { email }, transaction: t });
+    if (!user) return res.status(404).json({ error: "User not found" });
 
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await sequelize.query(
-      "UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE email = :email",
-      {
-        replacements: { otp: hashedOTP, otpExpiresAt, email },
-        type: sequelize.QueryTypes.UPDATE,
-      }
+      `UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE email = :email`,
+      { replacements: { otp: hashedOTP, otpExpiresAt, email }, type: sequelize.QueryTypes.UPDATE, transaction: t }
     );
 
     await sendMail({
-      to: user.email,
-      subject: "Reset Your Password with OTP",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your OTP for password reset is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
-        <p>Best,<br>Team</p>
-      `,
+      to: email,
+      subject: "Password Reset OTP",
+      html: `<p>Your OTP: <strong>${otp}</strong> (10 mins)</p>`,
     });
 
-    res.json({ message: "Password reset OTP sent to email" });
+    await t.commit();
+    res.json({ message: "OTP sent" });
   } catch (error) {
-    console.error("Forgot password error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to send reset OTP", details: error.message });
+    await t.rollback();
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Failed" });
   }
 };
 
-// Reset Password
 exports.resetPassword = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { email, otp, password } = req.body;
+    if (!email || !otp || !password) return res.status(400).json({ error: "All fields required" });
+    if (password.length < 8) return res.status(400).json({ error: "Password too short" });
 
-    if (!email || !otp || !password) {
-      return res.status(400).json({ error: "Email, OTP, and password are required" });
-    }
+    const user = await User.findOne({ where: { email }, transaction: t });
+    if (!user || !user.otp || new Date() > user.otpExpiresAt) return res.status(400).json({ error: "Invalid/expired OTP" });
 
-    if (password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
+    const valid = await bcrypt.compare(otp, user.otp);
+    if (!valid) return res.status(400).json({ error: "Invalid OTP" });
 
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (!user.otp || !user.otpExpiresAt) {
-      return res.status(400).json({ error: "No valid OTP found for this user" });
-    }
-
-    if (new Date() > user.otpExpiresAt) {
-      return res.status(400).json({ error: "OTP has expired" });
-    }
-
-    const isValidOTP = await bcrypt.compare(otp, user.otp);
-    if (!isValidOTP) {
-      return res.status(400).json({ error: "Invalid OTP" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
     await sequelize.query(
-      "UPDATE Users SET password = :password, otp = NULL, otpExpiresAt = NULL WHERE email = :email",
-      {
-        replacements: { password: hashedPassword, email },
-        type: sequelize.QueryTypes.UPDATE,
-      }
+      `UPDATE Users SET password = :password, otp = NULL, otpExpiresAt = NULL WHERE email = :email`,
+      { replacements: { password: hashed, email }, type: sequelize.QueryTypes.UPDATE, transaction: t }
     );
 
-    res.json({ message: "Password reset successful" });
+    await t.commit();
+    res.json({ message: "Password reset" });
   } catch (error) {
-    console.error("Reset password error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to reset password", details: error.message });
+    await t.rollback();
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: "Reset failed" });
   }
 };
 
-// Resend Verification Email
+// ---------------------------------------------------------------------
+// RESEND VERIFICATION
+// ---------------------------------------------------------------------
 exports.resendVerification = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const user = await User.findByPk(req.user.id);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    if (user.emailVerified) {
-      return res.status(400).json({ message: "Email already verified" });
-    }
+    const user = await User.findByPk(req.user.id, { transaction: t });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.emailVerified) return res.status(400).json({ message: "Already verified" });
 
     const otp = generateOTP();
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await sequelize.query(
-      "UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE id = :id",
-      {
-        replacements: { otp: hashedOTP, otpExpiresAt, id: req.user.id },
-        type: sequelize.QueryTypes.UPDATE,
-      }
+      `UPDATE Users SET otp = :otp, otpExpiresAt = :otpExpiresAt WHERE id = :id`,
+      { replacements: { otp: hashedOTP, otpExpiresAt, id: req.user.id }, type: sequelize.QueryTypes.UPDATE, transaction: t }
     );
 
     await sendMail({
       to: user.email,
-      subject: "Verify Your Email with OTP",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your OTP for email verification is: <strong>${otp}</strong></p>
-        <p>This OTP expires in 10 minutes.</p>
-        <p>Best,<br>Team</p>
-      `,
+      subject: "Verify Email",
+      html: `<p>OTP: <strong>${otp}</strong> (10 mins)</p>`,
     });
 
-    res.json({ message: "Verification OTP resent successfully" });
+    await t.commit();
+    res.json({ message: "OTP resent" });
   } catch (error) {
-    console.error("Resend verification email error:", {
-      message: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to resend verification OTP", details: error.message });
+    await t.rollback();
+    console.error("Resend OTP error:", error);
+    res.status(500).json({ error: "Failed" });
   }
 };
