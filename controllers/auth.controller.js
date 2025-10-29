@@ -107,31 +107,51 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    // Include role so we can return role name in response
     const user = await User.findOne({
       where: { email },
-      include: [{ model: Role, as: "role" }],
+      include: [{ model: Role, as: "role" }], // ensure alias matches model
     });
 
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-    const payload = {
-      id: user.id,
-      email: user.email,
-      role: user.role.name,
-      permissions: user.role.permissions,
-    };
+    // JWT only carries user ID (and optionally role name)
+    const token = jwt.sign(
+      { id: user.id, role: user.role?.name || "unknown" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1d" });
-
-    res.status(200).json({ message: "Login successful", token });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error", details: err.message });
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        role: user.role?.name || "unknown",
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", {
+      message: error.message,
+      stack: error.stack,
+      body: req.body,
+      timestamp: new Date().toISOString(),
+    });
+    res.status(500).json({ error: "Failed to login", details: error.message });
   }
 };
+
 
 // ---------------------------------------------------------------------
 // GET ALL USERS (with role name)
