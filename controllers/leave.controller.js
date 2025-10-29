@@ -35,14 +35,14 @@ module.exports = {
 
       // Notify admins and managers
       const admins = await User.findAll({
-        where: { role: ["admin", "manager"] },
+        where: { role: ["superadmin", "admin"] },
         attributes: ["email"],
       });
 
       const adminEmails = admins.map((admin) => admin.email).filter(Boolean);
 
       if (adminEmails.length === 0) {
-        console.warn("No admin or manager emails found. No notifications sent.", {
+        console.warn("No superadmin or admin emails found. No notifications sent.", {
           userId: req.user.id,
           timestamp: new Date().toISOString(),
         });
@@ -301,7 +301,7 @@ module.exports = {
 
       // Notify admins and managers
       const admins = await User.findAll({
-        where: { role: ["admin", "manager"] },
+        where: { role: ["superadmin", "admin"] },
         attributes: ["email"],
       });
 
