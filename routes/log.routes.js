@@ -1,6 +1,6 @@
 const express = require("express");
 const logController = require("../controllers/worklog.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -191,7 +191,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/me", verifyToken, logController.logWork);
+  router.post("/me", verifyToken, hasPermission("worklog:create"), logController.logWork);
 
   /**
    * @swagger
@@ -302,7 +302,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/me", verifyToken, logController.getUserLogs);
+  router.get("/me", verifyToken, hasPermission("worklog:read"), logController.getUserLogs);
 
   /**
    * @swagger
@@ -418,7 +418,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/project/:projectId", verifyToken, logController.getProjectLogs);
+  router.get("/project/:projectId", verifyToken, hasPermission("worklog:read"), logController.getProjectLogs);
 
   /**
    * @swagger
@@ -524,7 +524,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:logId", verifyToken, logController.updateLog);
+  router.put("/:logId", verifyToken, hasPermission("worklog:update"), logController.updateLog);
 
   /**
    * @swagger
@@ -608,7 +608,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:logId", verifyToken, logController.deleteLog);
+  router.delete("/:logId", verifyToken, hasPermission("worklog:delete"), logController.deleteLog);
 
   app.use("/api/logs", router);
 };
