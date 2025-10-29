@@ -9,93 +9,64 @@ const crypto = require("crypto");
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ---------------------------------------------------------------------
-// REGISTER USER
+// UPDATE USER ROLE (by role name)
 // ---------------------------------------------------------------------
-exports.register = async (req, res) => {
+exports.updateUserRole = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { firstName, lastName, email, roleName = "staff", phoneNumber } = req.body;
-    const image = req.uploadedFiles?.[0]?.firebaseUrl;
+    const { id } = req.params;
+    const { role: roleName } = req.body;
 
-    if (!firstName || !lastName || !email || !phoneNumber || !image) {
-      await t.rollback();
-      return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
-    }
+    if (!roleName) return res.status(400).json({ error: "Role name required" });
 
-    // Find role by name
     const role = await Role.findOne({ where: { name: roleName }, transaction: t });
     if (!role) {
       await t.rollback();
-      return res.status(400).json({ message: `Role '${roleName}' not found` });
+      return res.status(400).json({ error: `Role '${roleName}' not found` });
     }
 
-    // Check uniqueness
-    const existingEmail = await User.findOne({ where: { email }, transaction: t });
-    if (existingEmail) {
+    const user = await User.findByPk(id, { transaction: t });
+    if (!user) {
       await t.rollback();
-      return res.status(409).json({ message: "Email already exists" });
+      return res.status(404).json({ error: "User not found" });
     }
 
-    const existingPhone = await User.findOne({ where: { phoneNumber }, transaction: t });
-    if (existingPhone) {
-      await t.rollback();
-      return res.status(409).json({ message: "Phone number already in use" });
-    }
-
-    // Auto-generate password + OTP
-    const autoPassword = crypto.randomBytes(8).toString("hex");
-    const hashedPassword = await bcrypt.hash(autoPassword, 10);
-    const otp = generateOTP();
-    const hashedOTP = await bcrypt.hash(otp, 10);
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    const user = await User.create(
+    await sequelize.query(
+      `UPDATE Users SET roleId = :roleId WHERE id = :id`,
       {
-        firstName,
-        lastName,
-        email,
-        password: hashedPassword,
-        roleId: role.id, // ← foreign key
-        image,
-        phoneNumber,
-        emailVerified: false,
-        otp: hashedOTP,
-        otpExpiresAt,
-      },
-      { transaction: t }
+        replacements: { roleId: role.id, id },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      }
     );
 
     await sendMail({
       to: user.email,
-      subject: "Welcome! Verify Your Email",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your account has been created.</p>
-        <p><strong>Email:</strong> ${user.email}</p>
-        <p><strong>Password:</strong> ${autoPassword}</p>
-        <p><strong>OTP:</strong> ${otp} (expires in 10 mins)</p>
-        <p>Best,<br>Team</p>
-      `,
+      subject: "Role Updated",
+      html: `<p>Hello ${user.firstName},</p><p>Your role is now <strong>${role.name}</strong>.</p>`,
+    });
+
+    const updated = await User.findByPk(id, {
+      include: [{ model: Role, attributes: ["name"] }],
+      transaction: t,
     });
 
     await t.commit();
 
-    res.status(201).json({
-      message: "User registered. OTP and password sent.",
+    res.json({
+      message: "Role updated",
       user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        image: user.image,
-        role: role.name,
+        id: updated.id,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        role: updated.Role.name,
       },
     });
   } catch (error) {
     await t.rollback();
-    console.error("Register error:", error);
-    res.status(500).json({ message: "Failed to register", details: error.message });
+    console.error("Update role error:", error);
+    res.status(500).json({ error: "Failed to update role" });
   }
 };
 
