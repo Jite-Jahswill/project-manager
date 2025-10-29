@@ -55,12 +55,17 @@ module.exports = (sequelize, DataTypes) => {
 
   User.associate = (models) => {
     User.hasMany(models.UserTeam, { foreignKey: "userId" });
-    
+
     User.belongsToMany(models.Role, {
-    through: models.UserRole,
-    foreignKey: "userId",
-    otherKey: "roleId",
-  });
+      through: "UserRole",
+      foreignKey: "userId",
+    });
+    
+  //   User.belongsToMany(models.Role, {
+  //   through: models.UserRole,
+  //   foreignKey: "userId",
+  //   otherKey: "roleId",
+  // });
   };
 
   return User;
