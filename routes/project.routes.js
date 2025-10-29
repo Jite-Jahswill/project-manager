@@ -1,6 +1,6 @@
 const express = require("express");
 const projectController = require("../controllers/project.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -303,7 +303,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, projectController.createProject);
+  router.post("/", verifyToken, hasPermission("project:create"), projectController.createProject);
 
   /**
    * @swagger
@@ -417,7 +417,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, projectController.getAllProjects);
+  router.get("/", verifyToken, hasPermission("project:create"), projectController.getAllProjects);
 
   /**
    * @swagger
@@ -515,7 +515,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/user/:userId", verifyToken, projectController.getProjectsByUserId);
+  router.get("/user/:userId", verifyToken, hasPermission("project:read"), projectController.getProjectsByUserId);
 
   /**
    * @swagger
@@ -588,7 +588,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:projectId", verifyToken, projectController.getProjectById);
+  router.get("/:projectId", verifyToken, hasPermission("project:read"), projectController.getProjectById);
 
   /**
    * @swagger
@@ -719,7 +719,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/client/:clientId", verifyToken, projectController.getClientProjects);
+  router.get("/client/:clientId", verifyToken, hasPermission("project:read"), projectController.getClientProjects);
 
   /**
    * @swagger
@@ -832,7 +832,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/assign-team", verifyToken, projectController.assignTeamToProject);
+  router.post("/assign-team", verifyToken, hasPermission("project:create"), projectController.assignTeamToProject);
 
   /**
    * @swagger
@@ -945,7 +945,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/remove-team", verifyToken, projectController.removeTeamFromProject);
+  router.post("/remove-team", verifyToken, hasPermission("project:create"), projectController.removeTeamFromProject);
 
   /**
    * @swagger
@@ -1045,7 +1045,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:projectId/members", verifyToken, projectController.getProjectMembers);
+  router.get("/:projectId/members", verifyToken, hasPermission("project:read"), projectController.getProjectMembers);
 
   /**
    * @swagger
@@ -1135,7 +1135,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:projectId/status", verifyToken, projectController.updateProjectStatus);
+  router.put("/:projectId/status", verifyToken, hasPermission("project:update"), projectController.updateProjectStatus);
 
   /**
    * @swagger
@@ -1249,7 +1249,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:projectId", verifyToken, projectController.updateProject);
+  router.put("/:projectId", verifyToken, hasPermission("project:update"), projectController.updateProject);
 
   /**
    * @swagger
@@ -1323,7 +1323,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:projectId", verifyToken, projectController.deleteProject);
+  router.delete("/:projectId", verifyToken, hasPermission("project:delete"), projectController.deleteProject);
 
   /**
    * @swagger
@@ -1407,7 +1407,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/add-client", verifyToken, projectController.addClientToProject);
+  router.post("/add-client", verifyToken, hasPermission("project:create"), projectController.addClientToProject);
 
   /**
    * @swagger
@@ -1488,7 +1488,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:projectId/client/:clientId", verifyToken, projectController.removeClientFromProject);
+  router.delete("/:projectId/client/:clientId", verifyToken, hasPermission("project:delete"), projectController.removeClientFromProject);
 
   /**
    * @swagger
@@ -1596,7 +1596,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:projectId/tasks", verifyToken, projectController.getTasksByProject);
+  router.get("/:projectId/tasks", verifyToken, hasPermission("project:read"), projectController.getTasksByProject);
 
   app.use("/api/projects", router);
 };
