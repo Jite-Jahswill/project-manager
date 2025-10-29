@@ -1,6 +1,6 @@
 const express = require("express");
 const teamController = require("../controllers/team.controller");
-const { verifyToken, isAdminOrManager } = require("../middlewares/auth.middleware");
+const { verifyToken } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -205,7 +205,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, isAdminOrManager, teamController.createTeam);
+  router.post("/", verifyToken, teamController.createTeam);
 
   /**
    * @swagger
@@ -520,7 +520,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id", verifyToken, isAdminOrManager, teamController.updateTeam);
+  router.put("/:id", verifyToken, teamController.updateTeam);
 
   /**
    * @swagger
@@ -604,7 +604,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, isAdminOrManager, teamController.deleteTeam);
+  router.delete("/:id", verifyToken, teamController.deleteTeam);
 
   /**
    * @swagger
@@ -738,7 +738,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/assign", verifyToken, isAdminOrManager, teamController.assignUsersToTeam);
+  router.post("/assign", verifyToken, teamController.assignUsersToTeam);
 
   /**
    * @swagger
@@ -853,7 +853,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/unassign", verifyToken, isAdminOrManager, teamController.unassignUsersFromTeam);
+  router.post("/unassign", verifyToken, teamController.unassignUsersFromTeam);
 
   app.use("/api/teams", router);
 };
