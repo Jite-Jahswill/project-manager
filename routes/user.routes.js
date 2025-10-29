@@ -1,6 +1,6 @@
 const express = require("express");
 const userController = require("../controllers/user.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -307,7 +307,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/me", verifyToken, userController.getCurrentUser);
+  router.get("/me", verifyToken, hasPermission("user:read"), userController.getCurrentUser);
 
   /**
    * @swagger
@@ -419,7 +419,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, userController.getAllUsers);
+  router.get("/", verifyToken, hasPermission("user:read"), userController.getAllUsers);
 
   /**
    * @swagger
@@ -492,7 +492,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", verifyToken, userController.getUserById);
+  router.get("/:id", verifyToken, hasPermission("user:read"), userController.getUserById);
 
   /**
    * @swagger
@@ -594,7 +594,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/me", verifyToken, userController.updateCurrentUser);
+  router.put("/me", verifyToken, hasPermission("user:update"), userController.updateCurrentUser);
 
   /**
    * @swagger
@@ -668,7 +668,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, userController.deleteCurrentUser);
+  router.delete("/:id", verifyToken, hasPermission("user:delete"), userController.deleteCurrentUser);
 
   /**
    * @swagger
@@ -776,7 +776,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:userId/projects", verifyToken, userController.getUserProjects);
+  router.get("/:userId/projects", verifyToken, hasPermission("user:read"), userController.getUserProjects);
 
   /**
    * @swagger
@@ -898,7 +898,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:userId/tasks", verifyToken, userController.getUserTasks);
+  router.get("/:userId/tasks", verifyToken, hasPermission("user:read"), userController.getUserTasks);
 
   app.use("/api/users", router);
 };
