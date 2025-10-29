@@ -1,6 +1,6 @@
 const express = require("express");
 const taskController = require("../controllers/task.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -187,7 +187,7 @@ module.exports = (app) => {
    *                 message: "Error creating task"
    *                 details: "Database error"
    */
-  router.post("/", verifyToken, taskController.createTask);
+  router.post("/", verifyToken, hasPermission("task:create"), taskController.createTask);
 
   /**
    * @swagger
@@ -285,7 +285,7 @@ module.exports = (app) => {
    *                 message: "Error fetching tasks"
    *                 details: "Database error"
    */
-  router.get("/project/:projectId", verifyToken, taskController.getProjectTasks);
+  router.get("/project/:projectId", verifyToken, hasPermission("task:read"), taskController.getProjectTasks);
 
   /**
    * @swagger
@@ -391,7 +391,7 @@ module.exports = (app) => {
    *                 message: "Error fetching tasks"
    *                 details: "Database error"
    */
-  router.get("/", verifyToken, taskController.getAllTasks);
+  router.get("/", verifyToken, hasPermission("task:read"), taskController.getAllTasks);
 
   /**
    * @swagger
@@ -471,7 +471,7 @@ module.exports = (app) => {
    *                 message: "Error updating task status"
    *                 details: "Database error"
    */
-  router.put("/:taskId/status", verifyToken, taskController.updateTaskStatus);
+  router.put("/:taskId/status", verifyToken, hasPermission("task:update"), taskController.updateTaskStatus);
 
   /**
    * @swagger
@@ -575,7 +575,7 @@ module.exports = (app) => {
    *                 message: "Error updating task"
    *                 details: "Database error"
    */
-  router.put("/:taskId", verifyToken, taskController.updateTask);
+  router.put("/:taskId", verifyToken, hasPermission("task:update"), taskController.updateTask);
 
   /**
    * @swagger
@@ -631,7 +631,7 @@ module.exports = (app) => {
    *                 message: "Error deleting task"
    *                 details: "Database error"
    */
-  router.delete("/:taskId", verifyToken, taskController.deleteTask);
+  router.delete("/:taskId", verifyToken, hasPermission("task:delete"), taskController.deleteTask);
 
   /**
    * @swagger
@@ -717,7 +717,7 @@ module.exports = (app) => {
    *                 message: "Error assigning task"
    *                 details: "Database error"
    */
-  router.post("/:taskId/assign", verifyToken, taskController.assignTask);
+  router.post("/:taskId/assign", verifyToken, hasPermission("task:create"), taskController.assignTask);
 
   /**
    * @swagger
@@ -794,7 +794,7 @@ module.exports = (app) => {
    *                 message: "Error fetching task"
    *                 details: "Database error"
    */
-  router.get("/:taskId", verifyToken, taskController.getTaskById);
+  router.get("/:taskId", verifyToken, hasPermission("task:read"), taskController.getTaskById);
 
   app.use("/api/tasks", router);
 };
