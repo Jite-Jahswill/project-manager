@@ -8,7 +8,7 @@ module.exports = (app) => {
   /**
    * @swagger
    * tags:
-   *   - name: Work Logs
+   *   - name: Logs
    *     description: Work log tracking endpoints
    *
    * components:
