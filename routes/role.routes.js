@@ -1,7 +1,7 @@
 // routes/role.routes.js
 const express = require("express");
 const roleController = require("../controllers/role.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -104,7 +104,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.post("/", verifyToken, roleController.createRole);
+  router.post("/", verifyToken, hasPermission("role:create"), roleController.createRole);
 
   /**
    * @swagger
@@ -129,7 +129,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.get("/", verifyToken, roleController.getAllRoles);
+  router.get("/", verifyToken, hasPermission("role:read"), roleController.getAllRoles);
 
   /**
    * @swagger
@@ -161,7 +161,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.get("/:id", verifyToken, roleController.getRoleById);
+  router.get("/:id", verifyToken, hasPermission("role:read"), roleController.getRoleById);
 
   /**
    * @swagger
@@ -211,7 +211,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.put("/:id", verifyToken, roleController.updateRole);
+  router.put("/:id", verifyToken, hasPermission("role:update"), roleController.updateRole);
 
   /**
    * @swagger
@@ -245,7 +245,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.delete("/:id", verifyToken, roleController.deleteRole);
+  router.delete("/:id", verifyToken, hasPermission("role:delete"), roleController.deleteRole);
 
   /**
    * @swagger
@@ -270,7 +270,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.get("/permissions", verifyToken, roleController.getAllPermissions);
+  router.get("/permissions", verifyToken, hasPermission("role:read"), roleController.getAllPermissions);
 
   // Mount router
   app.use("/api/roles", router);
