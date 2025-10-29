@@ -1,6 +1,6 @@
 const express = require("express");
 const logController = require("../controllers/worklog.controller");
-const { verifyToken, isAdminOrManager } = require("../middlewares/auth.middleware");
+const { verifyToken } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -418,7 +418,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/project/:projectId", verifyToken, isAdminOrManager, logController.getProjectLogs);
+  router.get("/project/:projectId", verifyToken, logController.getProjectLogs);
 
   /**
    * @swagger
