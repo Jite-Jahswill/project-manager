@@ -112,7 +112,13 @@ exports.login = async (req, res) => {
 
     const user = await User.findOne({
       where: { email },
-      include: [{ model: Role, attributes: ["name", "permissions"] }],
+      include: [
+        {
+          model: Role,
+          as: "role", // must match the alias defined in User.belongsTo
+          attributes: ["id", "name", "permissions"], // select what you need
+        },
+      ],
     });
 
     if (!user || !user.Role) {
