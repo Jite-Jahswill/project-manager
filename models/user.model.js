@@ -1,3 +1,4 @@
+// models/user.model.js
 module.exports = (sequelize, DataTypes) => {
   const User = sequelize.define("User", {
     id: {
@@ -16,15 +17,12 @@ module.exports = (sequelize, DataTypes) => {
     email: {
       type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
     },
     password: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    // role: {
-    //   type: DataTypes.ENUM("admin", "manager", "staff"),
-    //   defaultValue: "staff",
-    // },
     emailVerified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -35,15 +33,23 @@ module.exports = (sequelize, DataTypes) => {
     },
     phoneNumber: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if you want it to be required
+      allowNull: true,
+    },
+    roleId: {                     // ← ADD THIS
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Roles',
+        key: 'id'
+      }
     },
     otp: {
       type: DataTypes.STRING,
-      allowNull: true, // Change to false if you want it to be required
+      allowNull: true,
     },
     otpExpiresAt: {
       type: DataTypes.DATE,
-      allowNull: true, // Change to false if you want it to be required
+      allowNull: true,
     },
     fullName: {
       type: DataTypes.VIRTUAL,
@@ -53,19 +59,10 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
+  // Associations
   User.associate = (models) => {
+    User.belongsTo(models.Role, { foreignKey: "roleId" });  // ← ADD THIS
     User.hasMany(models.UserTeam, { foreignKey: "userId" });
-
-    User.belongsToMany(models.Role, {
-      through: "UserRole",
-      foreignKey: "userId",
-    });
-    
-  //   User.belongsToMany(models.Role, {
-  //   through: models.UserRole,
-  //   foreignKey: "userId",
-  //   otherKey: "roleId",
-  // });
   };
 
   return User;
