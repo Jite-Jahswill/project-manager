@@ -1,32 +1,32 @@
+// models/role.model.js
 module.exports = (sequelize, DataTypes) => {
-  const Role = sequelize.define("Role", {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true,
+  const Role = sequelize.define(
+    "Role",
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+      },
+      // Store an array of permission **names** (not ids)
+      permissions: {
+        type: DataTypes.JSON,          // MySQL → JSON, PostgreSQL → JSONB
+        allowNull: false,
+        defaultValue: [],
+      },
     },
-    name: {
-      type: DataTypes.STRING,
-      unique: true,
-      allowNull: false,
-    },
-    description: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-  });
+    { timestamps: true }
+  );
 
   Role.associate = (models) => {
-    Role.belongsToMany(models.Permission, {
-      through: models.RolePermission,
-      foreignKey: "roleId",
-      otherKey: "permissionId",
-    });
-
     Role.belongsToMany(models.User, {
-      through: models.UserRole,
+      through: "UserRole",   // tiny join table only for user↔role
       foreignKey: "roleId",
-      otherKey: "userId",
     });
   };
 
