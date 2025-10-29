@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
 const documentController = require("../controllers/document.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -157,7 +157,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/:projectId", verifyToken, upload, uploadToFirebase, documentController.createDocument);
+  router.post("/:projectId", verifyToken, hasPermission("document:create"), upload, uploadToFirebase, documentController.createDocument);
 
   /**
    * @swagger
@@ -259,7 +259,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, documentController.getAllDocuments);
+  router.get("/", verifyToken, hasPermission("document:read"), documentController.getAllDocuments);
 
   /**
    * @swagger
@@ -371,7 +371,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:projectId", verifyToken, documentController.getDocumentsByProject);
+  router.get("/:projectId", verifyToken, hasPermission("document:get"), documentController.getDocumentsByProject);
 
   /**
    * @swagger
@@ -463,7 +463,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:documentId", verifyToken, upload, uploadToFirebase, documentController.updateDocument);
+  router.put("/:documentId", verifyToken, upload, hasPermission("document:update"), uploadToFirebase, documentController.updateDocument);
 
   /**
    * @swagger
@@ -553,7 +553,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:documentId/status", verifyToken, documentController.updateDocumentStatus);
+  router.put("/:documentId/status", verifyToken,  hasPermission("document:update"), documentController.updateDocumentStatus);
 
   /**
    * @swagger
@@ -627,7 +627,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:documentId", verifyToken, documentController.deleteDocument);
+  router.delete("/:documentId", verifyToken, hasPermission("document:delete"), documentController.deleteDocument);
 
   app.use("/api/documents", router);
 };
