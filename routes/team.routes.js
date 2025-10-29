@@ -1,6 +1,6 @@
 const express = require("express");
 const teamController = require("../controllers/team.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -205,7 +205,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, teamController.createTeam);
+  router.post("/", verifyToken, hasPermission("team:create"), teamController.createTeam);
 
   /**
    * @swagger
@@ -300,7 +300,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, teamController.getAllTeams);
+  router.get("/", verifyToken, hasPermission("team:read"), teamController.getAllTeams);
 
   /**
    * @swagger
@@ -380,7 +380,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", verifyToken, teamController.getTeamById);
+  router.get("/:id", verifyToken, hasPermission("team:read"), teamController.getTeamById);
 
   /**
    * @swagger
@@ -520,7 +520,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id", verifyToken, teamController.updateTeam);
+  router.put("/:id", verifyToken, hasPermission("team:update"), teamController.updateTeam);
 
   /**
    * @swagger
@@ -604,7 +604,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, teamController.deleteTeam);
+  router.delete("/:id", verifyToken, hasPermission("team:delete"), teamController.deleteTeam);
 
   /**
    * @swagger
@@ -738,7 +738,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/assign", verifyToken, teamController.assignUsersToTeam);
+  router.post("/assign", verifyToken, hasPermission("team:create"), teamController.assignUsersToTeam);
 
   /**
    * @swagger
@@ -853,7 +853,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/unassign", verifyToken, teamController.unassignUsersFromTeam);
+  router.post("/unassign", verifyToken, hasPermission("team:create"), teamController.unassignUsersFromTeam);
 
   app.use("/api/teams", router);
 };
