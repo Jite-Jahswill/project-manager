@@ -1,28 +1,25 @@
+// models/permission.model.js
 module.exports = (sequelize, DataTypes) => {
-  const Permission = sequelize.define("Permission", {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true,
+  const Permission = sequelize.define(
+    "Permission",
+    {
+      id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+      },
+      name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,               // e.g. "project:create"
+      },
+      description: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
     },
-    name: {
-      type: DataTypes.STRING,
-      unique: true,
-      allowNull: false,
-    },
-    description: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-  });
-
-  Permission.associate = (models) => {
-    Permission.belongsToMany(models.Role, {
-      through: models.RolePermission,
-      foreignKey: "permissionId",
-      otherKey: "roleId",
-    });
-  };
+    { timestamps: false }
+  );
 
   return Permission;
 };
