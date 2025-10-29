@@ -4,7 +4,7 @@ const {
   uploadToFirebase,
 } = require("../middlewares/upload.middleware");
 const clientController = require("../controllers/client.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 module.exports = (app) => {
   const router = express.Router();
 
@@ -134,7 +134,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/me", verifyToken, clientController.getCurrentClient);
+  router.get("/me", verifyToken, hasPermission("client:read"), clientController.getCurrentClient);
 
   /**
    * @swagger
@@ -345,6 +345,7 @@ module.exports = (app) => {
   router.get(
     "/:clientId/projects",
     verifyToken,
+    hasPermission("client:read"),
     clientController.getClientProjects
   );
 
@@ -548,6 +549,7 @@ module.exports = (app) => {
     "/:id/company-info",
     verifyToken,
     upload,
+    hasPermission("client:update"),
     uploadToFirebase,
     clientController.uploadCompanyInfo
   );
@@ -646,6 +648,7 @@ module.exports = (app) => {
   router.put(
     "/:id/registration",
     verifyToken,
+    hasPermission("client:update"),
     clientController.updateRegistration
   );
 
@@ -715,6 +718,7 @@ module.exports = (app) => {
   router.get(
     "/:id/approval-status",
     verifyToken,
+    hasPermission("client:read"),
     clientController.getApprovalStatus
   );
 
@@ -805,7 +809,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id/approve", verifyToken, clientController.approveClient);
+  router.put("/:id/approve", verifyToken, hasPermission("client:update"), clientController.approveClient);
 
   /**
    * @swagger
@@ -1263,7 +1267,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, clientController.getAllClients);
+  router.get("/", verifyToken, hasPermission("client:read"), clientController.getAllClients);
 
   /**
    * @swagger
@@ -1326,7 +1330,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", verifyToken, clientController.getClientById);
+  router.get("/:id", verifyToken, hasPermission("client:read"), clientController.getClientById);
 
   /**
    * @swagger
@@ -1427,6 +1431,7 @@ module.exports = (app) => {
   router.put(
     "/:id",
     verifyToken,
+    hasPermission("client:update"),
     upload,
     uploadToFirebase,
     clientController.updateClient
@@ -1494,7 +1499,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, clientController.deleteClient);
+  router.delete("/:id", verifyToken, hasPermission("client:delete"), clientController.deleteClient);
 
   app.use("/api/clients", router);
 };
