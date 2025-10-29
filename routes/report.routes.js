@@ -1,6 +1,6 @@
 const express = require("express");
 const reportController = require("../controllers/report.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -168,7 +168,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, reportController.createReport);
+  router.post("/", verifyToken, hasPermission("report:create"), reportController.createReport);
 
   /**
    * @swagger
@@ -280,7 +280,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, reportController.getAllReports);
+  router.get("/", verifyToken, hasPermission("report:read"), reportController.getAllReports);
 
   /**
    * @swagger
@@ -343,7 +343,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:id", verifyToken, reportController.getReportById);
+  router.get("/:id", verifyToken, hasPermission("report:read"), reportController.getReportById);
 
   /**
    * @swagger
@@ -434,7 +434,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:id", verifyToken, reportController.updateReport);
+  router.put("/:id", verifyToken, hasPermission("report:update"), reportController.updateReport);
 
   /**
    * @swagger
@@ -498,7 +498,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:id", verifyToken, reportController.deleteReport);
+  router.delete("/:id", verifyToken, hasPermission("report:delete"), reportController.deleteReport);
 
   /**
    * @swagger
@@ -584,7 +584,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/assign", verifyToken, reportController.assignReportToUser);
+  router.post("/assign", verifyToken, hasPermission("report:create"), reportController.assignReportToUser);
 
   app.use("/api/reports", router);
 };
