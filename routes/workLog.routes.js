@@ -1,6 +1,6 @@
 const express = require("express");
 const workLogController = require("../controllers/worklog.controller");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -186,7 +186,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.post("/", verifyToken, workLogController.logWork);
+  router.post("/", verifyToken, hasPermission("worklog:create"), workLogController.logWork);
 
   /**
    * @swagger
@@ -306,7 +306,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/", verifyToken, workLogController.getUserLogs);
+  router.get("/", verifyToken, hasPermission("worklog:read"), workLogController.getUserLogs);
 
   /**
    * @swagger
@@ -414,7 +414,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/project/:projectId", verifyToken, workLogController.getProjectLogs);
+  router.get("/project/:projectId", verifyToken, hasPermission("worklog:read"), workLogController.getProjectLogs);
 
   /**
    * @swagger
@@ -510,7 +510,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.put("/:logId", verifyToken, workLogController.updateLog);
+  router.put("/:logId", verifyToken, hasPermission("worklog:update"), workLogController.updateLog);
 
   /**
    * @swagger
@@ -584,7 +584,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.delete("/:logId", verifyToken, workLogController.deleteLog);
+  router.delete("/:logId", verifyToken, hasPermission("worklog:delete"), workLogController.deleteLog);
 
   app.use("/api/work-logs", router);
 };
