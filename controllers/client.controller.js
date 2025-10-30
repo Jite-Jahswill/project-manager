@@ -154,7 +154,7 @@ module.exports = {
         {
           model: Team,
           as: "Team",
-          through: { attributes: [] },  // ← CRITICAL
+          through: { attributes: [] },
           attributes: ["id", "name"],
           include: [
             {
@@ -164,6 +164,7 @@ module.exports = {
             },
           ],
         },
+
         {
           model: Task,
           as: "Tasks",
@@ -189,22 +190,22 @@ module.exports = {
       startDate: project.startDate,
       endDate: project.endDate,
       status: project.status,
-      team: project.Team
-        ? {
-            teamId: project.Team.id,
-            teamName: project.Team.name,
-            members: project.Team.Users.map((user) => ({
-              userId: user.id,
-              firstName: user.firstName,
-              lastName: user.lastName,
-              email: user.email,
-              phoneNumber: user.phoneNumber || null,
-              role: user.UserTeam.role,
-              note: user.UserTeam.note,
-            })),
-          }
-        : null,
-      tasks: (project.Tasks || []).map((task) => ({  // ← ADD NULL CHECK
+    
+      teams: (project.Team || []).map((team) => ({
+        teamId: team.id,
+        teamName: team.name,
+        members: (team.Users || []).map((user) => ({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          phoneNumber: user.phoneNumber || null,
+          role: user.UserTeam?.role || null,
+          note: user.UserTeam?.note || null,
+        })),
+      })),
+    
+      tasks: (project.Tasks || []).map((task) => ({
         id: task.id,
         title: task.title,
         description: task.description,
