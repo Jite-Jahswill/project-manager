@@ -1,5 +1,6 @@
 const express = require("express");
 const authController = require("../controllers/auth.controller");
+const roleController = require("../controllers/role.controller");
 const { verifyToken, hasPermission, isSuperAdmin } = require("../middlewares/auth.middleware");
 const { uploadToFirebase } = require("../middlewares/upload.middleware");
 
@@ -1000,6 +1001,31 @@ module.exports = (app) => {
     verifyToken,
      authController.resendVerification
   );
+
+  /**
+   * @swagger
+   * /api/auth/permissions:
+   *   get:
+   *     summary: Get all available permissions (for UI checkbox)
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: List of permissions
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 permissions:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Permission'
+   *       401:
+   *         description: Unauthorized
+   */
+  router.get("/permissions", roleController.getAllPermissions);
 
   app.use("/api/auth", router);
 };
