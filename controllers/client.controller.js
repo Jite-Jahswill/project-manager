@@ -1105,4 +1105,84 @@ module.exports = {
       });
     }
   },
+  
+  // Matrix stats for client dashboard
+  async getClientMatrix(req, res) {
+    try {
+      const { clientId } = req.params;
+  
+      if (!clientId) {
+        return res.status(400).json({ message: "clientId is required" });
+      }
+  
+      const client = await Client.findByPk(clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+  
+      if (client.approvalStatus !== "approved") {
+        return res.status(403).json({ message: "Client registration not approved" });
+      }
+  
+      // 1. Total projects owned by client
+      const totalProjects = await Project.count({
+        include: [
+          {
+            model: Client,
+            as: "Clients",
+            where: { id: clientId },
+            through: { attributes: [] },
+          },
+        ],
+      });
+  
+      // 2. Completed projects
+      const completedProjects = await Project.count({
+        where: { status: "Done" }, // adjust if your enum is different
+        include: [
+          {
+            model: Client,
+            as: "Clients",
+            where: { id: clientId },
+            through: { attributes: [] },
+          },
+        ],
+      });
+  
+      // 3. In-progress (not Done)
+      const inProgressProjects = await Project.count({
+        where: { status: { [Op.not]: "Done" } },
+        include: [
+          {
+            model: Client,
+            as: "Clients",
+            where: { id: clientId },
+            through: { attributes: [] },
+          },
+        ],
+      });
+  
+      // 4. Pending client registrations (optional global stat)
+      const approvalPendingClients = await Client.count({
+        where: { approvalStatus: "pending" },
+      });
+  
+      res.status(200).json({
+        totalProjects,
+        completedProjects,
+        pendingProjects: inProgressProjects, // alias for clarity
+        inProgressProjects,
+        approvalPendingClients,
+      });
+    } catch (err) {
+        console.error("Get client matrix error:", {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id,
+          clientId: req.params.clientId,
+          timestamp: new Date().toISOString(),
+        });
+        res.status(500).json({ message: "Failed to fetch client matrix", details: err.message });
+      }
+    },
 };
