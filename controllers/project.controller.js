@@ -497,7 +497,7 @@ module.exports = {
           },
           {
             model: db.Task,
-            as: "tasks",
+            as: "Tasks",
             attributes: ["id", "title", "description", "status", "dueDate"],
             include: [
               {
