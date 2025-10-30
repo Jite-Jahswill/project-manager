@@ -146,14 +146,15 @@ module.exports = {
       include: [
         {
           model: Client,
-          as: "Clients",  // ← must match alias
+          as: "Clients",
           where: { id: clientId },
           through: { attributes: [] },
-          attributes: [] // don't need client data here
+          attributes: []
         },
         {
           model: Team,
-          as: "Team",  
+          as: "Team",
+          through: { attributes: [] },  // ← CRITICAL
           attributes: ["id", "name"],
           include: [
             {
@@ -165,7 +166,7 @@ module.exports = {
         },
         {
           model: Task,
-          as: "Tasks",  // ← must match alias in Project model
+          as: "Tasks",
           attributes: ["id", "title", "description", "status", "dueDate"],
           include: [
             {
