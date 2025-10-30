@@ -143,80 +143,82 @@ module.exports = {
       }
 
       const { count, rows } = await Project.findAndCountAll({
-        include: [
-          {
-            model: Client,
-            as: "Clients",
-            where: { id: clientId },
-            through: { attributes: [] },
-          },
-          {
-            model: Team,
-            attributes: ["id", "name"],
-            include: [
-              {
-                model: User,
-                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-                through: { attributes: ["role", "note"] },
-              },
-            ],
-          },
-          {
-            model: Task,
-            as: "Tasks",
-            attributes: ["id", "title", "description", "status", "dueDate"],
-            include: [
-              {
-                model: User,
-                as: "assignee",
-                attributes: ["id", "firstName", "lastName", "email"],
-              },
-            ],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
-      });
+      include: [
+        {
+          model: Client,
+          as: "Clients",  // ← must match alias
+          where: { id: clientId },
+          through: { attributes: [] },
+          attributes: [] // don't need client data here
+        },
+        {
+          model: Team,
+          as: "Team",  // ← make sure this matches your Project → Team association
+          attributes: ["id", "name"],
+          include: [
+            {
+              model: User,
+              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+              through: { attributes: ["role", "note"] },
+            },
+          ],
+        },
+        {
+          model: Task,
+          as: "Tasks",  // ← must match alias in Project model
+          attributes: ["id", "title", "description", "status", "dueDate"],
+          include: [
+            {
+              model: User,
+              as: "assignee",
+              attributes: ["id", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit),
+    });
 
-      const projects = rows.map((project) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        startDate: project.startDate,
-        endDate: project.endDate,
-        status: project.status,
-        team: project.Team
+     const projects = rows.map((project) => ({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      status: project.status,
+      team: project.Team
+        ? {
+            teamId: project.Team.id,
+            teamName: project.Team.name,
+            members: project.Team.Users.map((user) => ({
+              userId: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              phoneNumber: user.phoneNumber || null,
+              role: user.UserTeam.role,
+              note: user.UserTeam.note,
+            })),
+          }
+        : null,
+      tasks: (project.Tasks || []).map((task) => ({  // ← ADD NULL CHECK
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        dueDate: task.dueDate,
+        assignee: task.assignee
           ? {
-              teamId: project.Team.id,
-              teamName: project.Team.name,
-              members: project.Team.Users.map((user) => ({
-                userId: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                phoneNumber: user.phoneNumber || null,
-                role: user.UserTeam.role,
-                note: user.UserTeam.note,
-              })),
+              userId: task.assignee.id,
+              firstName: task.assignee.firstName,
+              lastName: task.assignee.lastName,
+              email: task.assignee.email,
             }
           : null,
-        tasks: project.tasks.map((task) => ({
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          dueDate: task.dueDate,
-          assignee: task.assignee
-            ? {
-                userId: task.assignee.id,
-                firstName: task.assignee.firstName,
-                lastName: task.assignee.lastName,
-                email: task.assignee.email,
-              }
-            : null,
-        })),
-      }));
+      })),
+    }));
 
       const totalPages = Math.ceil(count / limit);
 
