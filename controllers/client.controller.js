@@ -153,7 +153,7 @@ module.exports = {
         },
         {
           model: Team,
-          as: "Team",  // ← make sure this matches your Project → Team association
+          as: "Teams",  // ← make sure this matches your Project → Team association
           attributes: ["id", "name"],
           include: [
             {
