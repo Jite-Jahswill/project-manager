@@ -183,15 +183,8 @@ module.exports = {
       });
   
       // ✅ Safe and correct mapping with "Teams"
-      const projects = rows.map((project) => ({
-        id: project.id,
-        name: project.name,
-        description: project.description,
-        startDate: project.startDate,
-        endDate: project.endDate,
-        status: project.status,
-  
-        teams: (project.Teams || []).map((team) => ({
+      const projects = rows.map((project) => {
+        const teams = (project.Teams || []).map((team) => ({
           teamId: team.id,
           teamName: team.name,
           members: (team.Users || []).map((user) => ({
@@ -203,25 +196,40 @@ module.exports = {
             role: user.UserTeam?.role || null,
             note: user.UserTeam?.note || null,
           })),
-        })),
-  
-        tasks: (project.Tasks || []).map((task) => ({
-          id: task.id,
-          title: task.title,
-          description: task.description,
-          status: task.status,
-          dueDate: task.dueDate,
-          assignee: task.assignee
-            ? {
-                userId: task.assignee.id,
-                firstName: task.assignee.firstName,
-                lastName: task.assignee.lastName,
-                email: task.assignee.email,
-              }
-            : null,
-        })),
-      }));
-  
+        }));
+      
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          startDate: project.startDate,
+          endDate: project.endDate,
+          status: project.status,
+      
+          // 👇 derived first team (if any)
+          team: teams.length > 0 ? teams[0] : null,
+      
+          // 👇 full teams array
+          teams,
+      
+          tasks: (project.Tasks || []).map((task) => ({
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            dueDate: task.dueDate,
+            assignee: task.assignee
+              ? {
+                  userId: task.assignee.id,
+                  firstName: task.assignee.firstName,
+                  lastName: task.assignee.lastName,
+                  email: task.assignee.email,
+                }
+              : null,
+          })),
+        };
+      });
+
       const totalPages = Math.ceil(count / limit);
   
       res.status(200).json({
