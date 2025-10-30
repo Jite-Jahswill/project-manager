@@ -1,4 +1,4 @@
-const { Client, Project, Team, User, Task } = require("../models");
+const { Client, Project, Team, User, Task, sequelize } = require("../models");
 const path = require("path");
 const fs = require("fs");
 const sendMail = require("../utils/mailer");
