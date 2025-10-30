@@ -247,31 +247,6 @@ module.exports = (app) => {
    */
   router.delete("/:id", verifyToken, hasPermission("role:delete"), roleController.deleteRole);
 
-  /**
-   * @swagger
-   * /api/roles/permissions:
-   *   get:
-   *     summary: Get all available permissions (for UI checkbox)
-   *     tags: [Role]
-   *     security:
-   *       - bearerAuth: []
-   *     responses:
-   *       200:
-   *         description: List of permissions
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 permissions:
-   *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/Permission'
-   *       401:
-   *         description: Unauthorized
-   */
-  router.get("/permissions", roleController.getAllPermissions);
-
   // Mount router
   app.use("/api/roles", router);
 };
