@@ -44,5 +44,10 @@ module.exports = (sequelize, DataTypes) => {
    // });
  // };
 
+  Task.associate = (models) => {
+    Task.belongsTo(models.Project, { foreignKey: "projectId", as: "Project" });
+    Task.belongsTo(models.User, { foreignKey: "assignedTo", as: "assignee" });
+  };
+
   return Task;
 };
