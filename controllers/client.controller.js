@@ -267,31 +267,52 @@ module.exports = {
   async createClient(req, res) {
     const transaction = await sequelize.transaction();
     try {
-      const { firstName, lastName, email, phoneNumber, address, city, state, country, bankName, accountNumber, accountName } = req.body;
+      const {
+        firstName,
+        lastName,
+        email,
+        phoneNumber,
+        address,
+        city,
+        state,
+        country,
+        bankName,
+        accountNumber,
+        accountName,
+      } = req.body;
+  
+      // Extract uploaded files (if any)
       const files = req.uploadedFiles || [];
-      const cacCertificate = files.find(f => f.originalname.toLowerCase().includes('cac'))?.firebaseUrl;
-      const tin = files.find(f => f.originalname.toLowerCase().includes('tin'))?.firebaseUrl;
-      const taxClearance = files.find(f => f.originalname.toLowerCase().includes('tax'))?.firebaseUrl;
-      const corporateProfile = files.find(f => f.originalname.toLowerCase().includes('profile'))?.firebaseUrl;
-      const image = files.find(f => ['image/jpeg', 'image/png', 'image/webp'].includes(f.mimetype))?.firebaseUrl;
-
-      if (!firstName || !lastName || !email || !cacCertificate || !tin || !taxClearance || !corporateProfile) {
+  
+      const cacCertificate = files.find(f => f.originalname.toLowerCase().includes('cac'))?.firebaseUrl || null;
+      const tin = files.find(f => f.originalname.toLowerCase().includes('tin'))?.firebaseUrl || null;
+      const taxClearance = files.find(f => f.originalname.toLowerCase().includes('tax'))?.firebaseUrl || null;
+      const corporateProfile = files.find(f => f.originalname.toLowerCase().includes('profile'))?.firebaseUrl || null;
+      const image = files.find(f => ['image/jpeg', 'image/png', 'image/webp'].includes(f.mimetype))?.firebaseUrl || null;
+  
+      // Only validate required text fields
+      if (!firstName || !lastName || !email) {
         await transaction.rollback();
-        return res.status(400).json({ message: "firstName, lastName, email, cacCertificate, tin, taxClearance, and corporateProfile are required" });
+        return res.status(400).json({
+          message: "firstName, lastName, and email are required",
+        });
       }
-
+  
+      // Check for duplicate email
       const exists = await Client.findOne({ where: { email }, transaction });
       if (exists) {
         await transaction.rollback();
         return res.status(409).json({ message: "Client with this email already exists" });
       }
-
+  
+      // Generate password & OTP
       const autoPassword = crypto.randomBytes(8).toString("hex");
       const hashedPassword = await bcrypt.hash(autoPassword, 10);
       const otp = generateOTP();
       const hashedOTP = await bcrypt.hash(otp, 10);
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
+  
+      // Create client – all file fields are optional (can be null)
       const client = await Client.create(
         {
           firstName,
@@ -314,13 +335,14 @@ module.exports = {
           bankName,
           accountNumber,
           accountName,
-          approvalStatus: "pending",
+          approvalStatus: "approved",
           createdAt: new Date(),
           updatedAt: new Date(),
         },
         { transaction }
       );
-
+  
+      // Send welcome email with login + OTP
       await sendMail({
         to: client.email,
         subject: "Welcome! Verify Your Client Account",
@@ -336,8 +358,9 @@ module.exports = {
           <p>Best,<br>Team</p>
         `,
       });
-
+  
       await transaction.commit();
+  
       res.status(201).json({
         message: "Client created successfully, OTP and password sent to email",
         client: {
