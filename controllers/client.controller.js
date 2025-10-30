@@ -27,6 +27,7 @@ module.exports = {
             include: [
               {
                 model: Team,
+                as: "Teams",
                 attributes: ["id", "name"],
                 include: [
                   {
