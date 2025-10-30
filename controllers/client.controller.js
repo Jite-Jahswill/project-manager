@@ -283,7 +283,6 @@ module.exports = {
   
       // Extract uploaded files (if any)
       const files = req.uploadedFiles || [];
-  
       const cacCertificate = files.find(f => f.originalname.toLowerCase().includes('cac'))?.firebaseUrl || null;
       const tin = files.find(f => f.originalname.toLowerCase().includes('tin'))?.firebaseUrl || null;
       const taxClearance = files.find(f => f.originalname.toLowerCase().includes('tax'))?.firebaseUrl || null;
@@ -343,22 +342,28 @@ module.exports = {
       );
   
       // Send welcome email with login + OTP
-      await sendMail({
-        to: client.email,
-        subject: "Welcome! Verify Your Client Account",
-        html: `
-          <p>Hello ${client.firstName},</p>
-          <p>Your client account has been created successfully. Below are your login details:</p>
-          <p><strong>Email:</strong> ${client.email}</p>
-          <p><strong>Password:</strong> ${autoPassword}</p>
-          <p><strong>OTP for email verification:</strong> ${otp}</p>
-          <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
-          <p>Your registration is pending approval. You will be notified once approved.</p>
-          <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
-          <p>Best,<br>Team</p>
-        `,
-      });
+      try {
+        await sendMail({
+          to: client.email,
+          subject: "Welcome! Verify Your Client Account",
+          html: `
+            <p>Hello ${client.firstName},</p>
+            <p>Your client account has been created successfully. Below are your login details:</p>
+            <p><strong>Email:</strong> ${client.email}</p>
+            <p><strong>Password:</strong> ${autoPassword}</p>
+            <p><strong>OTP for email verification:</strong> ${otp}</p>
+            <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
+            <p>Your registration is pending approval. You will be notified once approved.</p>
+            <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
+            <p>Best,<br>Team</p>
+          `,
+        });
+      } catch (err) {
+        console.error("Email sending error:", err);
+        // Optionally handle email errors, but don’t let them break client creation
+      }
   
+      // Commit transaction if everything went well
       await transaction.commit();
   
       res.status(201).json({
@@ -374,6 +379,7 @@ module.exports = {
         },
       });
     } catch (err) {
+      // Rollback transaction in case of errors
       await transaction.rollback();
       console.error("Create client error:", {
         message: err.message,
