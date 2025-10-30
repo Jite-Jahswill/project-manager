@@ -270,7 +270,7 @@ module.exports = (app) => {
    *       401:
    *         description: Unauthorized
    */
-  router.get("/permissions", verifyToken, hasPermission("role:read"), roleController.getAllPermissions);
+  router.get("/permissions", verifyToken, roleController.getAllPermissions);
 
   // Mount router
   app.use("/api/roles", router);
