@@ -61,6 +61,7 @@ db.Project.belongsToMany(db.Team, {
   through: db.TeamProject,
   foreignKey: "projectId",
   otherKey: "teamId",
+  as: "Team"
 });
 db.Team.belongsToMany(db.Project, {
   through: db.TeamProject,
