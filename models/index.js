@@ -1,4 +1,3 @@
-// models/index.js
 const { Sequelize, DataTypes } = require("sequelize");
 const sequelize = require("../config/db.config");
 
@@ -25,99 +24,76 @@ db.RolePermission = require("./rolePermission.model")(sequelize, DataTypes);
 db.UserRole = require("./userRole.model")(sequelize, DataTypes);
 db.Document = require("./document.model")(sequelize, DataTypes);
 
-// ========================================
-// ALL ASSOCIATIONS — CENTRALIZED HERE
-// ========================================
+// Run associations
+Object.keys(db).forEach((modelName) => {
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
 
-// Client ↔ Project (Many-to-Many)
+
+// Define associations
 db.Project.belongsToMany(db.Client, {
   through: db.ClientProject,
   foreignKey: "projectId",
   otherKey: "clientId",
-  as: "Clients"
+  as: "Clients"  
 });
 db.Client.belongsToMany(db.Project, {
   through: db.ClientProject,
   foreignKey: "clientId",
   otherKey: "projectId",
-  as: "Projects"
+  as: "Projects" 
 });
 
-// Project ↔ Team (Many-to-Many)
-db.Project.belongsToMany(db.Team, {
-  through: db.TeamProject,
-  foreignKey: "projectId",
-  otherKey: "teamId",
-  as: "Teams"
-});
-db.Team.belongsToMany(db.Project, {
-  through: db.TeamProject,
-  foreignKey: "teamId",
-  otherKey: "projectId",
-  as: "Projects"
-});
-
-// User ↔ Team (Many-to-Many)
 db.User.belongsToMany(db.Team, {
   through: db.UserTeam,
   foreignKey: "userId",
   otherKey: "teamId",
-  as: "Teams"
 });
 db.Team.belongsToMany(db.User, {
   through: db.UserTeam,
   foreignKey: "teamId",
   otherKey: "userId",
-  as: "Members"
 });
 
-// Project → Task (One-to-Many)
-db.Project.hasMany(db.Task, {
+db.Project.belongsToMany(db.Team, {
+  through: db.TeamProject,
   foreignKey: "projectId",
-  as: "Tasks",
-  onDelete: "CASCADE"
+  otherKey: "teamId",
 });
+db.Team.belongsToMany(db.Project, {
+  through: db.TeamProject,
+  foreignKey: "teamId",
+  otherKey: "projectId",
+});
+
+
+db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
 db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// User → Task (One-to-Many)
-db.User.hasMany(db.Task, {
-  foreignKey: "assignedTo",
-  as: "AssignedTasks"
-});
-db.Task.belongsTo(db.User, {
-  foreignKey: "assignedTo",
-  as: "Assignee"
-});
+db.User.hasMany(db.Task, { foreignKey: "assignedTo" });
+db.Task.belongsTo(db.User, { foreignKey: "assignedTo", as: "assignee" });
 
-// WorkLog
-db.User.hasMany(db.WorkLog, { foreignKey: "userId", as: "WorkLogs" });
+db.User.hasMany(db.WorkLog, { foreignKey: "userId" });
 db.WorkLog.belongsTo(db.User, { foreignKey: "userId" });
 
-db.Project.hasMany(db.WorkLog, { foreignKey: "projectId", as: "WorkLogs" });
+db.Project.hasMany(db.WorkLog, { foreignKey: "projectId" });
 db.WorkLog.belongsTo(db.Project, { foreignKey: "projectId" });
 
-db.Task.hasMany(db.WorkLog, { foreignKey: "taskId", as: "WorkLogs" });
+db.Task.hasMany(db.WorkLog, { foreignKey: "taskId" });
 db.WorkLog.belongsTo(db.Task, { foreignKey: "taskId" });
 
-// Leave
-db.User.hasMany(db.Leave, { foreignKey: "userId", as: "Leaves" });
+db.User.hasMany(db.Leave, { foreignKey: "userId" });
 db.Leave.belongsTo(db.User, { foreignKey: "userId" });
 
-// Report
-db.User.hasMany(db.Report, { foreignKey: "userId", as: "Reports" });
+db.User.hasMany(db.Report, { foreignKey: "userId" });
 db.Report.belongsTo(db.User, { foreignKey: "userId" });
 
-db.Project.hasMany(db.Report, { foreignKey: "projectId", as: "Reports" });
+db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// Document
-db.Project.hasMany(db.Document, { foreignKey: "projectId", as: "Documents" });
-db.Document.belongsTo(db.Project, { foreignKey: "projectId" });
-
-// Role & Permissions (if using)
-db.Role.belongsToMany(db.Permission, { through: db.RolePermission, foreignKey: "roleId" });
-db.Permission.belongsToMany(db.Role, { through: db.RolePermission, foreignKey: "permissionId" });
-
-db.User.belongsTo(db.Role, { foreignKey: "roleId", as: "Role" });
+// db.Client.hasMany(db.Project, { foreignKey: "clientId" });
+// db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
 
 module.exports = db;
