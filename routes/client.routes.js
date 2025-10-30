@@ -83,6 +83,112 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/clients/{clientId}/matrix:
+   *   get:
+   *     summary: Get client project matrix stats
+   *     description: Returns key metrics for a client's projects - total, completed, and in-progress. Requires approved client status.
+   *     tags: [Clients]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: clientId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Client ID
+   *         example: 1
+   *     responses:
+   *       200:
+   *         description: Client matrix stats retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 totalProjects:
+   *                   type: integer
+   *                   example: 15
+   *                   description: Total number of projects owned by the client
+   *                 completedProjects:
+   *                   type: integer
+   *                   example: 7
+   *                   description: Projects with status "Done"
+   *                 pendingProjects:
+   *                   type: integer
+   *                   example: 8
+   *                   description: Projects not yet completed (alias for inProgressProjects)
+   *                 inProgressProjects:
+   *                   type: integer
+   *                   example: 8
+   *                   description: Projects with status other than "Done"
+   *                 approvalPendingClients:
+   *                   type: integer
+   *                   example: 3
+   *                   description: Global count of clients awaiting approval (admin insight)
+   *       400:
+   *         description: Missing clientId
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "clientId is required"
+   *       401:
+   *         description: Unauthorized - Invalid or missing token
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Unauthorized"
+   *       403:
+   *         description: Client registration not approved
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Client registration not approved"
+   *       404:
+   *         description: Client not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Client not found"
+   *       500:
+   *         description: Internal server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Failed to fetch client matrix"
+   *                 details:
+   *                   type: string
+   *                   example: "Database error"
+   */
+  router.get(
+  "/:clientId/matrix",
+  verifyToken,
+  hasPermission("client:read"),
+  clientController.getClientMatrix
+  );
+
+  /**
+   * @swagger
    * /api/clients/me:
    *   get:
    *     summary: Get current client details
