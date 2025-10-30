@@ -128,102 +128,102 @@ module.exports = {
     try {
       const { clientId } = req.params;
       const { page = 1, limit = 20 } = req.query;
-
+  
       if (!clientId) {
         return res.status(400).json({ message: "clientId is required" });
       }
-
+  
       const client = await Client.findByPk(clientId);
       if (!client) {
         return res.status(404).json({ message: "Client not found" });
       }
-
+  
       if (client.approvalStatus !== "approved") {
         return res.status(403).json({ message: "Client registration not approved" });
       }
-
+  
       const { count, rows } = await Project.findAndCountAll({
-      include: [
-        {
-          model: Client,
-          as: "Clients",
-          where: { id: clientId },
-          through: { attributes: [] },
-          attributes: []
-        },
-        {
-          model: Team,
-          as: "Teams",
-          through: { attributes: [] },
-          attributes: ["id", "name"],
-          include: [
-            {
-              model: User,
-              attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
-              through: { attributes: ["role", "note"] },
-            },
-          ],
-        },
-
-        {
-          model: Task,
-          as: "Tasks",
-          attributes: ["id", "title", "description", "status", "dueDate"],
-          include: [
-            {
-              model: User,
-              as: "assignee",
-              attributes: ["id", "firstName", "lastName", "email"],
-            },
-          ],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit),
-    });
-
-     const projects = rows.map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      startDate: project.startDate,
-      endDate: project.endDate,
-      status: project.status,
-    
-      teams: (project.Team || []).map((team) => ({
-        teamId: team.id,
-        teamName: team.name,
-        members: (team.Users || []).map((user) => ({
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          phoneNumber: user.phoneNumber || null,
-          role: user.UserTeam?.role || null,
-          note: user.UserTeam?.note || null,
+        include: [
+          {
+            model: Client,
+            as: "Clients",
+            where: { id: clientId },
+            through: { attributes: [] },
+            attributes: [],
+          },
+          {
+            model: Team,
+            as: "Teams",
+            through: { attributes: [] },
+            attributes: ["id", "name"],
+            include: [
+              {
+                model: User,
+                attributes: ["id", "firstName", "lastName", "email", "phoneNumber"],
+                through: { attributes: ["role", "note"] },
+              },
+            ],
+          },
+          {
+            model: Task,
+            as: "Tasks",
+            attributes: ["id", "title", "description", "status", "dueDate"],
+            include: [
+              {
+                model: User,
+                as: "assignee",
+                attributes: ["id", "firstName", "lastName", "email"],
+              },
+            ],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit),
+      });
+  
+      // ✅ Safe and correct mapping with "Teams"
+      const projects = rows.map((project) => ({
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        startDate: project.startDate,
+        endDate: project.endDate,
+        status: project.status,
+  
+        teams: (project.Teams || []).map((team) => ({
+          teamId: team.id,
+          teamName: team.name,
+          members: (team.Users || []).map((user) => ({
+            userId: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber || null,
+            role: user.UserTeam?.role || null,
+            note: user.UserTeam?.note || null,
+          })),
         })),
-      })),
-    
-      tasks: (project.Tasks || []).map((task) => ({
-        id: task.id,
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        dueDate: task.dueDate,
-        assignee: task.assignee
-          ? {
-              userId: task.assignee.id,
-              firstName: task.assignee.firstName,
-              lastName: task.assignee.lastName,
-              email: task.assignee.email,
-            }
-          : null,
-      })),
-    }));
-
+  
+        tasks: (project.Tasks || []).map((task) => ({
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          status: task.status,
+          dueDate: task.dueDate,
+          assignee: task.assignee
+            ? {
+                userId: task.assignee.id,
+                firstName: task.assignee.firstName,
+                lastName: task.assignee.lastName,
+                email: task.assignee.email,
+              }
+            : null,
+        })),
+      }));
+  
       const totalPages = Math.ceil(count / limit);
-
+  
       res.status(200).json({
         projects,
         pagination: {
