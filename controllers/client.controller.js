@@ -153,7 +153,7 @@ module.exports = {
         },
         {
           model: Team,
-          as: "Team",
+          as: "Teams",
           through: { attributes: [] },
           attributes: ["id", "name"],
           include: [
