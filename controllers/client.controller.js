@@ -73,43 +73,51 @@ module.exports = {
         accountNumber: client.accountNumber,
         accountName: client.accountName,
         approvalStatus: client.approvalStatus,
-        projects: client.Projects.map((project) => ({
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          startDate: project.startDate,
-          endDate: project.endDate,
-          status: project.status,
-          team: project.Team
-            ? {
-                teamId: project.Team.id,
-                teamName: project.Team.name,
-                members: project.Team.Users.map((user) => ({
-                  userId: user.id,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  email: user.email,
-                  role: user.UserTeam.role,
-                  note: user.UserTeam.note,
-                })),
-              }
-            : null,
-          tasks: project.Tasks.map((task) => ({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            dueDate: task.dueDate,
-            assignee: task.assignee
-              ? {
-                  userId: task.assignee.id,
-                  firstName: task.assignee.firstName,
-                  lastName: task.assignee.lastName,
-                  email: task.assignee.email,
-                }
-              : null,
-          })),
-        })),
+        projects: client.Projects.map((project) => {
+          const teams = (project.Teams || []).map((team) => ({
+            teamId: team.id,
+            teamName: team.name,
+            members: (team.Users || []).map((user) => ({
+              userId: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              role: user.UserTeam?.role,
+              note: user.UserTeam?.note,
+            })),
+          }));
+        
+          return {
+            id: project.id,
+            name: project.name,
+            description: project.description,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            status: project.status,
+        
+            // derive one "team" (first)
+            team: teams.length > 0 ? teams[0] : null,
+        
+            // include all "teams"
+            teams,
+        
+            tasks: (project.Tasks || []).map((task) => ({
+              id: task.id,
+              title: task.title,
+              description: task.description,
+              status: task.status,
+              dueDate: task.dueDate,
+              assignee: task.assignee
+                ? {
+                    userId: task.assignee.id,
+                    firstName: task.assignee.firstName,
+                    lastName: task.assignee.lastName,
+                    email: task.assignee.email,
+                  }
+                : null,
+            })),
+          };
+        }),
       };
 
       res.status(200).json({ client: formattedClient });
