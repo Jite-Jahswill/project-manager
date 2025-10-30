@@ -31,16 +31,19 @@ Object.keys(db).forEach((modelName) => {
   }
 });
 
+
 // Define associations
 db.Project.belongsToMany(db.Client, {
   through: db.ClientProject,
   foreignKey: "projectId",
   otherKey: "clientId",
+  as: "Clients"  
 });
 db.Client.belongsToMany(db.Project, {
   through: db.ClientProject,
   foreignKey: "clientId",
   otherKey: "projectId",
+  as: "Projects" 
 });
 
 db.User.belongsToMany(db.Team, {
@@ -64,6 +67,7 @@ db.Team.belongsToMany(db.Project, {
   foreignKey: "teamId",
   otherKey: "projectId",
 });
+
 
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
 db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
@@ -89,7 +93,7 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-db.Client.hasMany(db.Project, { foreignKey: "clientId" });
-db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
+// db.Client.hasMany(db.Project, { foreignKey: "clientId" });
+// db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
 
 module.exports = db;
