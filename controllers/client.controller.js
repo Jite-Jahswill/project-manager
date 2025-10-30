@@ -265,8 +265,10 @@ module.exports = {
 
   // Create a new client
   async createClient(req, res) {
-    const transaction = await sequelize.transaction();
+    let transaction = null;
     try {
+      transaction = await sequelize.transaction();
+  
       const {
         firstName,
         lastName,
@@ -283,24 +285,34 @@ module.exports = {
   
       // Extract uploaded files (if any)
       const files = req.uploadedFiles || [];
-      const cacCertificate = files.find(f => f.originalname.toLowerCase().includes('cac'))?.firebaseUrl || null;
-      const tin = files.find(f => f.originalname.toLowerCase().includes('tin'))?.firebaseUrl || null;
-      const taxClearance = files.find(f => f.originalname.toLowerCase().includes('tax'))?.firebaseUrl || null;
-      const corporateProfile = files.find(f => f.originalname.toLowerCase().includes('profile'))?.firebaseUrl || null;
-      const image = files.find(f => ['image/jpeg', 'image/png', 'image/webp'].includes(f.mimetype))?.firebaseUrl || null;
+      const cacCertificate =
+        files.find((f) => f.originalname?.toLowerCase().includes("cac"))?.firebaseUrl || null;
+      const tin =
+        files.find((f) => f.originalname?.toLowerCase().includes("tin"))?.firebaseUrl || null;
+      const taxClearance =
+        files.find((f) => f.originalname?.toLowerCase().includes("tax"))?.firebaseUrl || null;
+      const corporateProfile =
+        files.find((f) => f.originalname?.toLowerCase().includes("profile"))?.firebaseUrl || null;
+      const image =
+        files.find((f) =>
+          ["image/jpeg", "image/png", "image/webp"].includes(f.mimetype)
+        )?.firebaseUrl || null;
   
       // Only validate required text fields
       if (!firstName || !lastName || !email) {
-        await transaction.rollback();
+        // safe rollback
+        if (transaction) {
+          try { await transaction.rollback(); } catch (_) {}
+        }
         return res.status(400).json({
           message: "firstName, lastName, and email are required",
         });
       }
   
-      // Check for duplicate email
+      // Check for duplicate email (inside transaction)
       const exists = await Client.findOne({ where: { email }, transaction });
       if (exists) {
-        await transaction.rollback();
+        try { await transaction.rollback(); } catch (_) {}
         return res.status(409).json({ message: "Client with this email already exists" });
       }
   
@@ -335,39 +347,38 @@ module.exports = {
           accountNumber,
           accountName,
           approvalStatus: "approved",
-          createdAt: new Date(),
-          updatedAt: new Date(),
         },
         { transaction }
       );
   
-      // Send welcome email with login + OTP
-      try {
-        await sendMail({
-          to: client.email,
-          subject: "Welcome! Verify Your Client Account",
-          html: `
-            <p>Hello ${client.firstName},</p>
-            <p>Your client account has been created successfully. Below are your login details:</p>
-            <p><strong>Email:</strong> ${client.email}</p>
-            <p><strong>Password:</strong> ${autoPassword}</p>
-            <p><strong>OTP for email verification:</strong> ${otp}</p>
-            <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
-            <p>Your registration is pending approval. You will be notified once approved.</p>
-            <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } catch (err) {
-        console.error("Email sending error:", err);
-        // Optionally handle email errors, but don’t let them break client creation
-      }
-  
-      // Commit transaction if everything went well
+      // Commit transaction BEFORE external IO (email)
       await transaction.commit();
+      transaction = null; // mark as finished for safety
   
-      res.status(201).json({
-        message: "Client created successfully, OTP and password sent to email",
+      // Send welcome email with login + OTP — do not let this break the response.
+      // Fire-and-log: start sendMail but keep response independent.
+      sendMail({
+        to: client.email,
+        subject: "Welcome! Verify Your Client Account",
+        html: `
+          <p>Hello ${client.firstName},</p>
+          <p>Your client account has been created successfully. Below are your login details:</p>
+          <p><strong>Email:</strong> ${client.email}</p>
+          <p><strong>Password:</strong> ${autoPassword}</p>
+          <p><strong>OTP for email verification:</strong> ${otp}</p>
+          <p>Please use the OTP to verify your email. The OTP expires in 10 minutes.</p>
+          <p>Your registration is pending approval. You will be notified once approved.</p>
+          <p>For security, we recommend changing your password from your dashboard at <a href="http://<your-app-url>/dashboard/change-password">Change Password</a>.</p>
+          <p>Best,<br>Team</p>
+        `,
+      }).catch((emailErr) => {
+        // Log but don't throw
+        console.error("Email sending error (post-commit):", emailErr && emailErr.message ? emailErr.message : emailErr);
+      });
+  
+      // Respond success (email may still be sending)
+      return res.status(201).json({
+        message: "Client created successfully. OTP and password will be sent to email (if mailer succeeds).",
         client: {
           id: client.id,
           firstName: client.firstName,
@@ -379,8 +390,16 @@ module.exports = {
         },
       });
     } catch (err) {
-      // Rollback transaction in case of errors
-      await transaction.rollback();
+      // Attempt rollback only if transaction exists
+      if (transaction) {
+        try {
+          await transaction.rollback();
+        } catch (rbErr) {
+          // ignore rollback errors (transaction may already be finished)
+          console.error("Transaction rollback failed:", rbErr && rbErr.message ? rbErr.message : rbErr);
+        }
+      }
+  
       console.error("Create client error:", {
         message: err.message,
         stack: err.stack,
@@ -388,7 +407,8 @@ module.exports = {
         body: req.body,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Failed to create client", details: err.message });
+  
+      return res.status(500).json({ message: "Failed to create client", details: err.message });
     }
   },
 
