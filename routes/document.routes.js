@@ -371,7 +371,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Database error"
    */
-  router.get("/:projectId", verifyToken, hasPermission("document:get"), documentController.getDocumentsByProject);
+  router.get("/:projectId", verifyToken, hasPermission("document:read"), documentController.getDocumentsByProject);
 
   /**
    * @swagger
