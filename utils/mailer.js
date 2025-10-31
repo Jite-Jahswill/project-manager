@@ -8,6 +8,25 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// 🧩 Verify transporter connection on startup
+(async () => {
+  try {
+    console.log(`🔍 Verifying SMTP connection to ${process.env.MAIL_HOST}:${process.env.MAIL_PORT}...`);
+    await transporter.verify();
+    console.log("✅ SMTP connection verified successfully!");
+  } catch (err) {
+    console.error("❌ SMTP connection failed:", err.message);
+  }
+})();
+
+// 🪲 Listen for socket-level connection issues
+transporter.on("error", (err) => {
+  console.error("🚨 Transporter error:", err.message);
+});
+transporter.on("idle", () => {
+  console.log("📡 Transporter is idle and ready for new messages.");
+});
+
 /**
  * Sends an email using the configured transporter.
  * @param {Object} options - Email options
