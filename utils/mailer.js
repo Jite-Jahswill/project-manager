@@ -1,12 +1,12 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  host: process.env.MAIL_HOST, // e.g. "server133.web-hosting.com"
+  host: process.env.MAIL_HOST, 
   port: process.env.MAIL_PORT || 465, // 465 for SSL, 587 for TLS
   secure: true, // true for 465, false for 587
   auth: {
-    user: process.env.MAIL_USER, // e.g. "sizco@aoudit.com"
-    pass: process.env.MAIL_PASS, // e.g. "4YhTO_izfc(7"
+    user: process.env.MAIL_USER, 
+    pass: process.env.MAIL_PASS, 
   },
 });
 
