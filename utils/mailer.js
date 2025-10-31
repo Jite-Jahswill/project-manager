@@ -1,10 +1,12 @@
 const nodemailer = require("nodemailer");
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: process.env.MAIL_HOST, // e.g. "server133.web-hosting.com"
+  port: process.env.MAIL_PORT || 465, // 465 for SSL, 587 for TLS
+  secure: true, // true for 465, false for 587
   auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS,
+    user: process.env.MAIL_USER, // e.g. "sizco@aoudit.com"
+    pass: process.env.MAIL_PASS, // e.g. "4YhTO_izfc(7"
   },
 });
 
@@ -35,8 +37,9 @@ const sendMail = async ({ to, subject, text, html }) => {
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`Email sent successfully to ${recipients}`);
+    console.log(`✅ Email sent successfully to ${recipients}`);
   } catch (error) {
+    console.error("❌ Email sending failed:", error.message);
     throw new Error(`Failed to send email: ${error.message}`);
   }
 };
