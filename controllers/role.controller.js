@@ -36,29 +36,46 @@ exports.createRole = async (req, res) => {
       return res.status(400).json({ error: "Role name is required" });
     }
 
-    const exists = await Role.findOne({ where: { name }, transaction: t });
+    // Check if role name already exists
+    const exists = await Role.findOne({ where: { name: name.trim() }, transaction: t });
     if (exists) {
       await t.rollback();
       return res.status(409).json({ error: "Role name already exists" });
     }
 
+    // Validate permission names
     const validPermissions = await validatePermissionNames(permissionNames, t);
 
+    // Create the role
     const role = await Role.create(
-      { name: name.trim(), permissions: validPermissions },
+      {
+        name: name.trim(),
+        permissions: validPermissions, // stored permissions
+      },
       { transaction: t }
     );
 
     await t.commit();
-    return res.status(201).json({ role });
+
+    // Return both the role and the exact permissions the user selected
+    return res.status(201).json({
+      message: "Role created successfully",
+      role: {
+        id: role.id,
+        name: role.name,
+        permissions: validPermissions, // include validated permissions
+        selectedPermissions: permissionNames, // include what the user selected
+      },
+    });
   } catch (err) {
     await t.rollback();
     console.error("createRole error:", err);
-    return res
-      .status(400)
-      .json({ error: err.message || "Failed to create role" });
+    return res.status(400).json({
+      error: err.message || "Failed to create role",
+    });
   }
 };
+
 
 // ---------------------------------------------------------------------
 // GET ALL ROLES (with permission details)
