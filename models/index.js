@@ -97,19 +97,23 @@ db.User.belongsToMany(db.Conversation, {
 db.Participant.belongsTo(db.Conversation, {
   foreignKey: "conversationId",
   onDelete: "CASCADE",
+  as: "conversation",
 });
 db.Participant.belongsTo(db.User, {
   foreignKey: "userId",
   onDelete: "CASCADE",
+  as: "user",
 });
 
 db.Conversation.hasMany(db.Participant, {
   foreignKey: "conversationId",
   onDelete: "CASCADE",
+  as: "participants",
 });
 db.User.hasMany(db.Participant, {
   foreignKey: "userId",
   onDelete: "CASCADE",
+  as: "participantEntries",
 });
 
 // Conversation → Message
