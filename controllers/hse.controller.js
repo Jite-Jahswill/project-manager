@@ -1,26 +1,52 @@
 // controllers/hse.controller.js
-const { HSEReport, User, sequelize } = require("../models");
+const { HSEReport, User, sequelize, document } = require("../models");
 const { Op } = require("sequelize");
 
 // === CREATE ===
+// controllers/hse.controller.js
 exports.createHSEReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { dateOfReport, timeOfReport, report } = req.body;
+    const { dateOfReport, timeOfReport, report, documentId } = req.body;
     const reporterId = req.user.id;
-    const file = req.uploadedFiles?.[0];
+    const uploadedFile = req.uploadedFiles?.[0]; // from multer + Firebase
 
+    // === VALIDATION ===
     if (!dateOfReport || !timeOfReport || !report) {
-      return res.status(400).json({ message: "dateOfReport, timeOfReport, and report are required" });
+      return res.status(400).json({
+        message: "dateOfReport, timeOfReport, and report are required"
+      });
     }
 
+    let supportingDocUrl = null;
+
+    // === CASE 1: New file upload ===
+    if (uploadedFile?.firebaseUrl) {
+      supportingDocUrl = uploadedFile.firebaseUrl;
+    }
+    // === CASE 2: Reuse existing Document ===
+    else if (documentId) {
+      const doc = await db.Document.findByPk(documentId, { transaction: t });
+      if (!doc) {
+        await t.rollback();
+        return res.status(404).json({ message: "Document not found" });
+      }
+      // Optional: Check ownership / access
+      if (doc.userId !== reporterId && !req.user.isAdmin) {
+        await t.rollback();
+        return res.status(403).json({ message: "You don't have access to this document" });
+      }
+      supportingDocUrl = doc.url;
+    }
+
+    // === CREATE REPORT ===
     const hseReport = await HSEReport.create(
       {
         dateOfReport,
         timeOfReport,
         reporterId,
         report,
-        supportingDocUrl: file?.firebaseUrl || null,
+        supportingDocUrl,
         status: "open",
       },
       { transaction: t }
