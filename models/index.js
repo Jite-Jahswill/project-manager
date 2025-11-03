@@ -27,6 +27,7 @@ db.Document = require("./document.model")(sequelize, DataTypes);
 db.Conversation = require("./conversation.model")(sequelize, DataTypes);
 db.Message = require("./message.model")(sequelize, DataTypes);
 db.Participant = require("./participant.model")(sequelize, DataTypes);
+db.HSEReport = require("./hseReport.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
 Object.keys(db).forEach((modelName) => {
@@ -154,6 +155,8 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
+
+db.User.hasMany(db.HSEReport, { foreignKey: "reporterId", as: "hseReports" });
 
 // === END ===
 module.exports = db;
