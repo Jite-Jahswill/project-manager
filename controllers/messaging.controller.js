@@ -9,20 +9,24 @@ exports.createOrGetConversation = async (req, res) => {
   try {
     const { userId } = req.params;
     const currentUserId = req.user.id;
-    const otherUserId = parseInt(userId);
+    const otherUserId = Number(userId);
+
+    // ✅ Validation
+    if (!otherUserId || isNaN(otherUserId)) {
+      return res.status(400).json({ error: "Invalid userId parameter" });
+    }
 
     if (otherUserId === currentUserId) {
-      await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // Find existing direct chat between both users
+    // Step 1: Find existing conversation
     const conversation = await Conversation.findOne({
       where: { isGroup: false, name: null },
       include: [
         {
           model: Participant,
-          as: "participantEntries",
+          as: "participantEntries", // ✅ match alias in model
           attributes: [],
           where: { userId: { [Op.in]: [currentUserId, otherUserId] } },
         },
@@ -46,9 +50,12 @@ exports.createOrGetConversation = async (req, res) => {
       transaction: t,
     });
 
-    let finalConversation = conversation;
+    let finalConversation;
 
-    if (!finalConversation) {
+    if (conversation) {
+      finalConversation = conversation;
+    } else {
+      // Step 2: Create new conversation
       finalConversation = await Conversation.create(
         { isGroup: false, type: "direct" },
         { transaction: t }
@@ -65,6 +72,7 @@ exports.createOrGetConversation = async (req, res) => {
 
     await t.commit();
 
+    // Step 3: Load full conversation
     const fullConv = await Conversation.findByPk(finalConversation.id, {
       include: [
         {
@@ -73,14 +81,22 @@ exports.createOrGetConversation = async (req, res) => {
           attributes: ["id", "firstName", "lastName", "email"],
           through: { attributes: [] },
         },
+        {
+          model: Message,
+          limit: 50,
+          order: [["createdAt", "DESC"]],
+          include: [
+            { model: User, as: "sender", attributes: ["id", "firstName", "lastName"] },
+          ],
+        },
       ],
     });
 
-    return res.status(200).json({ conversation: fullConv });
+    res.json({ conversation: fullConv });
   } catch (err) {
     await t.rollback();
     console.error("createOrGetConversation error:", err);
-    return res.status(500).json({ error: "Failed to create/get conversation" });
+    res.status(500).json({ error: "Failed to create/get conversation" });
   }
 };
 
