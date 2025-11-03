@@ -84,6 +84,64 @@ exports.createOrGetConversation = async (req, res) => {
   }
 };
 
+exports.getAllMessages = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+    const search = req.query.search ? req.query.search.trim() : "";
+
+    // Build search filter
+    const where = {};
+    if (search) {
+      where[Op.or] = [
+        { content: { [Op.like]: `%${search}%` } },
+        { "$sender.firstName$": { [Op.like]: `%${search}%` } },
+        { "$sender.lastName$": { [Op.like]: `%${search}%` } },
+        { "$conversation.name$": { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    const { rows: messages, count } = await Message.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: Conversation,
+          as: "conversation",
+          attributes: ["id", "name", "isGroup", "type"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    const totalPages = Math.ceil(count / limit);
+
+    return res.status(200).json({
+      messages,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: count,
+        itemsPerPage: limit,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching all messages:", error);
+    return res.status(500).json({
+      message: "Server error fetching messages",
+      error: error.message,
+    });
+  }
+};
+
+
 // ---------------------------------------------------------------------
 // CREATE GROUP CONVERSATION
 // ---------------------------------------------------------------------
