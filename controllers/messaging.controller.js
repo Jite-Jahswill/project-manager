@@ -391,3 +391,37 @@ exports.deleteMessage = async (req, res) => {
     return res.status(500).json({ error: "Failed to delete message" });
   }
 };
+
+exports.leaveConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user.id; // comes from verifyToken middleware
+
+    // Check conversation
+    const conversation = await Conversation.findByPk(conversationId);
+    if (!conversation)
+      return res.status(404).json({ message: "Conversation not found" });
+
+    // Check if user is a participant
+    const participant = await ConversationParticipant.findOne({
+      where: { conversationId, userId },
+    });
+
+    if (!participant)
+      return res.status(404).json({ message: "You are not part of this conversation" });
+
+    // Remove participant
+    await participant.destroy();
+
+    return res.status(200).json({
+      message: "You have left the conversation successfully",
+      data: { conversationId },
+    });
+  } catch (error) {
+    console.error("❌ Error leaving conversation:", error);
+    return res.status(500).json({
+      message: "Server error while leaving conversation",
+      error: error.message,
+    });
+  }
+};
