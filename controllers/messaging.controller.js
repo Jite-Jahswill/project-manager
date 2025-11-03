@@ -23,34 +23,28 @@ exports.createOrGetConversation = async (req, res) => {
     }
 
     // Step 1: Try to find an existing direct conversation
-    const conversation = await Conversation.findOne({
-      where: { isGroup: false, name: null },
+     const conversation = await Conversation.findOne({
+      where: { id: conversationId },
       include: [
         {
-          model: Participant,
-          as: "participantEntries", // must match your association alias
-          attributes: [],
-          where: { userId: { [Op.in]: [currentUserId, otherUserId] } },
+          model: Message,
+          as: "messages", // ✅ Must match the alias
+          include: [
+            {
+              model: User,
+              as: "sender", // ✅ Because you aliased it in db.Message.belongsTo(db.User, { as: 'sender' })
+              attributes: ["id", "fullName", "email"],
+            },
+          ],
+        },
+        {
+          model: User,
+          as: "participants", // ✅ Must match Conversation.belongsToMany(User, { as: 'participants' })
+          attributes: ["id", "fullName", "email"],
         },
       ],
-      attributes: {
-        include: [
-          [
-            sequelize.literal(`
-              (SELECT COUNT(*) 
-               FROM Participants p 
-               WHERE p.conversationId = Conversation.id 
-               AND p.userId IN (${currentUserId}, ${otherUserId})
-              )
-            `),
-            "matchCount",
-          ],
-        ],
-      },
-      having: sequelize.literal("matchCount = 2"),
-      group: ["Conversation.id"],
-      transaction: t,
     });
+
 
     let finalConversation;
 
