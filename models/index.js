@@ -23,6 +23,9 @@ db.Permission = require("./permission.model")(sequelize, DataTypes);
 db.RolePermission = require("./rolePermission.model")(sequelize, DataTypes);
 db.UserRole = require("./userRole.model")(sequelize, DataTypes);
 db.Document = require("./document.model")(sequelize, DataTypes);
+db.Conversation = require("./conversation.model")(sequelize, DataTypes);
+db.Message = require("./message.model")(sequelize, DataTypes);
+db.Participant = require("./participant.model")(sequelize, DataTypes);
 
 // Run associations
 Object.keys(db).forEach((modelName) => {
@@ -93,6 +96,19 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
+
+// Messaging associations
+db.Conversation.belongsToMany(db.User, { through: db.Participant, as: "participants" });
+db.User.belongsToMany(db.Conversation, { through: db.Participant, as: "conversations" });
+
+db.Conversation.hasMany(db.Message, { foreignKey: "conversationId" });
+db.Message.belongsTo(db.Conversation, { foreignKey: "conversationId" });
+
+db.Message.belongsTo(db.User, { as: "sender", foreignKey: "senderId" });
+db.User.hasMany(db.Message, { as: "messages", foreignKey: "senderId" });
+
+db.Participant.belongsTo(db.Conversation, { foreignKey: "conversationId" });
+db.Participant.belongsTo(db.User, { foreignKey: "userId" });
 
 // db.Client.hasMany(db.Project, { foreignKey: "clientId" });
 // db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
