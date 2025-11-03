@@ -9,6 +9,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
     },
+  },
+    {
+      timestamps: true,
+      updatedAt: false,
+    }
   });
 
   return Participant;
