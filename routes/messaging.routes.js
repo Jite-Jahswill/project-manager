@@ -653,4 +653,5 @@ module.exports = (app) => {
     verifyToken,
     messagingController.leaveConversation
   );
+  app.use("/api/messaging", router);
 };
