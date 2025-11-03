@@ -1,4 +1,3 @@
-// routes/messaging.routes.js
 const express = require("express");
 const messagingController = require("../controllers/messaging.controller");
 const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
@@ -8,10 +7,16 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/messages/conversation/{userId}:
+   * tags:
+   *   name: Messaging
+   *   description: Messaging and conversations API
+   */
+
+  /**
+   * @swagger
+   * /api/messaging/direct/{userId}:
    *   post:
-   *     summary: Create or get 1:1 conversation
-   *     description: Creates a new direct message conversation between the authenticated user and another user, or returns existing one.
+   *     summary: Create or get direct (1:1) conversation
    *     tags: [Messaging]
    *     security:
    *       - bearerAuth: []
@@ -21,59 +26,243 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         description: ID of the user to chat with
-   *         example: 5
+   *         description: ID of the other user to start chat with
    *     responses:
    *       200:
    *         description: Conversation retrieved or created successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 conversation:
-   *                   type: object
-   *                   properties:
-   *                     id:
-   *                       type: integer
-   *                     name:
-   *                       type: string
-   *                       nullable: true
-   *                     isGroup:
-   *                       type: boolean
-   *                       example: false
-   *                     type:
-   *                       type: string
-   *                       enum: [direct, group]
-   *                     participants:
-   *                       type: array
-   *                       items:
-   *                         type: object
-   *                         properties:
-   *                           id:
-   *                             type: integer
-   *                           firstName:
-   *                             type: string
-   *                           lastName:
-   *                             type: string
-   *                     messages:
-   *                       type: array
-   *                       items:
-   *                         $ref: '#/components/schemas/Message'
    *       400:
    *         description: Cannot chat with yourself
    *       401:
    *         description: Unauthorized
-   *       403:
-   *         description: Missing permission
    *       500:
    *         description: Server error
    */
   router.post(
-    "/conversation/:userId",
+    "/direct/:userId",
+    verifyToken,
+    hasPermission("message:create"),
+    messagingController.createOrGetConversation
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/group:
+   *   post:
+   *     summary: Create a group conversation
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               name:
+   *                 type: string
+   *                 example: Project Alpha Discussion
+   *               userIds:
+   *                 type: array
+   *                 items:
+   *                   type: integer
+   *                 example: [2, 3, 4]
+   *     responses:
+   *       201:
+   *         description: Group created successfully
+   *       400:
+   *         description: Invalid input
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.post(
+    "/group",
+    verifyToken,
+    hasPermission("message:create"),
+    messagingController.createGroupConversation
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/conversations:
+   *   get:
+   *     summary: Get all conversations of the authenticated user
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: List of user conversations
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.get(
+    "/conversations",
     verifyToken,
     hasPermission("message:read"),
-    messagingController.createOrGetConversation
+    messagingController.getUserConversations
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/{conversationId}/messages:
+   *   get:
+   *     summary: Get all messages in a conversation
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: conversationId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the conversation
+   *     responses:
+   *       200:
+   *         description: Messages retrieved successfully
+   *       401:
+   *         description: Unauthorized
+   *       404:
+   *         description: Conversation not found
+   *       500:
+   *         description: Server error
+   */
+  router.get(
+    "/:conversationId/messages",
+    verifyToken,
+    hasPermission("message:read"),
+    messagingController.getMessages
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/{conversationId}/messages:
+   *   post:
+   *     summary: Send a new message in a conversation
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: conversationId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the conversation
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               content:
+   *                 type: string
+   *                 example: "Hey team, let's meet at 2 PM"
+   *               type:
+   *                 type: string
+   *                 enum: [text, image, file, system]
+   *                 example: text
+   *     responses:
+   *       201:
+   *         description: Message sent successfully
+   *       400:
+   *         description: Invalid message data
+   *       401:
+   *         description: Unauthorized
+   *       404:
+   *         description: Conversation not found
+   *       500:
+   *         description: Server error
+   */
+  router.post(
+    "/:conversationId/messages",
+    verifyToken,
+    hasPermission("message:create"),
+    messagingController.sendMessage
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/messages/{messageId}:
+   *   put:
+   *     summary: Update a message
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: messageId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the message to update
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               content:
+   *                 type: string
+   *                 example: "Updated message content"
+   *     responses:
+   *       200:
+   *         description: Message updated successfully
+   *       401:
+   *         description: Unauthorized
+   *       403:
+   *         description: Forbidden
+   *       404:
+   *         description: Message not found
+   *       500:
+   *         description: Server error
+   */
+  router.put(
+    "/messages/:messageId",
+    verifyToken,
+    hasPermission("message:update"),
+    messagingController.updateMessage
+  );
+
+  /**
+   * @swagger
+   * /api/messaging/messages/{messageId}:
+   *   delete:
+   *     summary: Delete a message
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: messageId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the message to delete
+   *     responses:
+   *       200:
+   *         description: Message deleted successfully
+   *       401:
+   *         description: Unauthorized
+   *       403:
+   *         description: Forbidden
+   *       404:
+   *         description: Message not found
+   *       500:
+   *         description: Server error
+   */
+  router.delete(
+    "/messages/:messageId",
+    verifyToken,
+    hasPermission("message:delete"),
+    messagingController.deleteMessage
   );
 
   /**
@@ -464,6 +653,4 @@ module.exports = (app) => {
     verifyToken,
     messagingController.leaveConversation
   );
-
-  app.use("/api/messages", router);
 };
