@@ -134,7 +134,7 @@ module.exports = (app) => {
    *         description: Server error
    */
   router.get(
-    "/all",
+    "/",
     verifyToken,
     hasPermission("message:admin"), // or role check: (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json(...)
     messagingController.getAllMessages
