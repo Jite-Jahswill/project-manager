@@ -8,12 +8,19 @@ const swaggerSpec = require("./swagger");
 const cron = require("node-cron");
 const { sendWeeklySummary } = require("./cron/weeklySummary");
 
+// server.js
+const http = require("http");
+const { initSocket } = require("./socket/io.server");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+
+const server = http.createServer(app);
+initSocket(server);  // ← Add this
 
 // Test route
 app.get("/", (req, res) => {
@@ -87,6 +94,10 @@ app.get("/", (req, res) => {
 cron.schedule("0 8 * * 1", () => {
   console.log("⏰ Running weekly summary job...");
   sendWeeklySummary();
+});
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
 // Import Routes
