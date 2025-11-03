@@ -68,7 +68,7 @@ module.exports = (app) => {
   router.post(
     "/report",
     verifyToken,
-    upload.single("file"),
+    upload,
     hseController.createHSEReport
   );
 
@@ -239,7 +239,7 @@ module.exports = (app) => {
     "/report/:id",
     verifyToken,
     hasPermission("hse:update"),
-    upload.single("file"),
+    upload,
     hseController.updateHSEReport
   );
 
