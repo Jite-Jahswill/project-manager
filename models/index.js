@@ -157,6 +157,7 @@ db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
 db.User.hasMany(db.HSEReport, { foreignKey: "reporterId", as: "hseReports" });
+db.User.hasMany(db.HSEReport, { foreignKey: "closedBy", as: "closedHseReports" });
 
 // === END ===
 module.exports = db;
