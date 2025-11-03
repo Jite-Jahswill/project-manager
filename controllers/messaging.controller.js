@@ -10,17 +10,18 @@ exports.createOrGetConversation = async (req, res) => {
     const otherUserId = parseInt(userId);
 
     if (otherUserId === currentUserId) {
+      await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // Step 1: Find conversation where both users are participants
+    // Step 1: Check for existing conversation where both users are participants
     const conversation = await Conversation.findOne({
       where: { isGroup: false, name: null },
       include: [
         {
           model: Participant,
-          as: "participants",
-          attributes: [], // No need for participant fields
+          as: "participantEntries", // ✅ correct alias
+          attributes: [],
           where: { userId: { [Op.in]: [currentUserId, otherUserId] } },
         },
       ],
@@ -48,7 +49,7 @@ exports.createOrGetConversation = async (req, res) => {
     if (conversation) {
       finalConversation = conversation;
     } else {
-      // Create new conversation
+      // Step 2: Create new conversation
       finalConversation = await Conversation.create(
         { isGroup: false, type: "direct" },
         { transaction: t }
@@ -65,12 +66,12 @@ exports.createOrGetConversation = async (req, res) => {
 
     await t.commit();
 
-    // Load full conversation with participants and messages
+    // Step 3: Load conversation with users (participants) + messages
     const fullConv = await Conversation.findByPk(finalConversation.id, {
       include: [
         {
           model: User,
-          as: "participants",
+          as: "participants", // ✅ this is the belongsToMany alias
           attributes: ["id", "firstName", "lastName", "email"],
           through: { attributes: [] },
         },
@@ -79,21 +80,24 @@ exports.createOrGetConversation = async (req, res) => {
           limit: 50,
           order: [["createdAt", "DESC"]],
           include: [
-            { model: User, as: "sender", attributes: ["id", "firstName", "lastName"] },
+            {
+              model: User,
+              as: "sender",
+              attributes: ["id", "firstName", "lastName"],
+            },
           ],
         },
       ],
-      transaction: t,
     });
 
-    res.json({ conversation: fullConv });
+    return res.json({ conversation: fullConv });
   } catch (err) {
     await t.rollback();
     console.error("Create conversation error:", err);
     if (err.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({ error: "Conversation already exists" });
     }
-    res.status(500).json({ error: "Failed to create/get conversation" });
+    return res.status(500).json({ error: "Failed to create/get conversation" });
   }
 };
 
