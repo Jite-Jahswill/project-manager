@@ -25,7 +25,7 @@ exports.createOrGetConversation = async (req, res) => {
         },
       ],
       group: ['Conversation.id'],
-      having: sequelize.literal(`COUNT(DISTINCT "participants"."id") = 2`),
+      having: sequelize.literal(`COUNT(DISTINCT \`participants\`.\`id\`) = 2`),  // Changed to backticks for MySQL compatibility
       transaction: t,
     });
 
@@ -80,6 +80,7 @@ exports.createOrGetConversation = async (req, res) => {
     res.status(500).json({ error: "Failed to create/get conversation" });
   }
 };
+
 
 exports.getAllMessages = async (req, res) => {
   try {
