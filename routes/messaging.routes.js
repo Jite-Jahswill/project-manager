@@ -78,6 +78,70 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/messages/all:
+   *   get:
+   *     summary: Get all messages (admin only)
+   *     description: Returns a paginated list of every message in the system with sender and conversation details.
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Page number
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 50
+   *         description: Messages per page
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Search in message content, sender name, or group name
+   *     responses:
+   *       200:
+   *         description: All messages retrieved
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 messages:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Message'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     currentPage:
+   *                       type: integer
+   *                     totalPages:
+   *                       type: integer
+   *                     totalItems:
+   *                       type: integer
+   *                     itemsPerPage:
+   *                       type: integer
+   *       401:
+   *         description: Unauthorized
+   *       403:
+   *         description: Admin access required
+   *       500:
+   *         description: Server error
+   */
+  router.get(
+    "/all",
+    verifyToken,
+    hasPermission("message:admin"), // or role check: (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json(...)
+    messagingController.getAllMessages
+  );
+
+  /**
+   * @swagger
    * /api/messages/group:
    *   post:
    *     summary: Create group conversation
