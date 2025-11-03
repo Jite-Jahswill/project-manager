@@ -19,10 +19,6 @@ module.exports = (sequelize, DataTypes) => {
       reporterId: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        references: {
-          model: "Users",
-          key: "id",
-        },
       },
       report: {
         type: DataTypes.TEXT,
@@ -32,6 +28,20 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      status: {
+        type: DataTypes.ENUM("open", "pending", "closed"),
+        allowNull: false,
+        defaultValue: "open",
+      },
+      closedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      closedBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Users", key: "id" },
+      },
     },
     {
       timestamps: true,
@@ -40,10 +50,8 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   HSEReport.associate = (models) => {
-    HSEReport.belongsTo(models.User, {
-      foreignKey: "reporterId",
-      as: "reporter",
-    });
+    HSEReport.belongsTo(models.User, { foreignKey: "reporterId", as: "reporter" });
+    HSEReport.belongsTo(models.User, { foreignKey: "closedBy", as: "closer" });
   };
 
   return HSEReport;
