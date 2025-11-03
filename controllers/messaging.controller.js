@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { sequelize, Conversation, Message, Participant, User } = require("../models");
+const { sequelize, Conversation, Message, ConversationParticipant, Participant, User } = require("../models");
 
 // ---------------------------------------------------------------------
 // CREATE or GET DIRECT CONVERSATION (1:1 CHAT)
@@ -81,6 +81,59 @@ exports.createOrGetConversation = async (req, res) => {
     await t.rollback();
     console.error("createOrGetConversation error:", err);
     return res.status(500).json({ error: "Failed to create/get conversation" });
+  }
+};
+
+exports.addParticipant = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId)
+      return res.status(400).json({ message: "userId is required" });
+
+    // Fetch conversation
+    const conversation = await Conversation.findByPk(conversationId);
+
+    if (!conversation)
+      return res.status(404).json({ message: "Conversation not found" });
+
+    // Ensure it's a group
+    if (!conversation.isGroup)
+      return res.status(400).json({ message: "Not a group conversation" });
+
+    // Ensure user exists
+    const user = await User.findByPk(userId);
+    if (!user)
+      return res.status(404).json({ message: "User not found" });
+
+    // Check if already participant
+    const existing = await ConversationParticipant.findOne({
+      where: { conversationId, userId },
+    });
+    if (existing)
+      return res.status(400).json({ message: "User already in group" });
+
+    // Add participant
+    await ConversationParticipant.create({
+      conversationId,
+      userId,
+      joinedAt: new Date(),
+    });
+
+    return res.status(200).json({
+      message: "User added to group successfully",
+      data: {
+        conversationId,
+        userId,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error adding participant:", error);
+    return res.status(500).json({
+      message: "Server error adding participant",
+      error: error.message,
+    });
   }
 };
 
