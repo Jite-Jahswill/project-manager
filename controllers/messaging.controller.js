@@ -47,6 +47,65 @@ exports.createOrGetConversation = async (req, res) => {
   }
 };
 
+exports.getAllMessages = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search = "" } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Build where clause for search (optional)
+    const where = search
+      ? {
+          [Op.or]: [
+            { content: { [Op.like]: `%${search}%` } },
+            { "$sender.firstName$": { [Op.like]: `%${search}%` } },
+            { "$sender.lastName$": { [Op.like]: `%${search}%` } },
+            { "$conversation.name$": { [Op.like]: `%${search}%` } },
+          ],
+        }
+      : {};
+
+    const { count, rows: messages } = await Message.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: Conversation,
+          attributes: ["id", "name", "isGroup", "type"],
+          include: [
+            {
+              model: User,
+              as: "participants",
+              attributes: ["id", "firstName", "lastName"],
+              through: { attributes: [] },
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: parseInt(limit),
+      offset,
+      distinct: true, // important for count with includes
+    });
+
+    res.json({
+      messages,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / limit),
+        totalItems: count,
+        itemsPerPage: parseInt(limit),
+      },
+    });
+  } catch (err) {
+    console.error("Get all messages error:", err);
+    res.status(500).json({ error: "Failed to fetch all messages" });
+  }
+};
+
 // Create group conversation
 exports.createGroupConversation = async (req, res) => {
   try {
