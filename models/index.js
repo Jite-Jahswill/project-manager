@@ -1,3 +1,4 @@
+// models/index.js
 const { Sequelize, DataTypes } = require("sequelize");
 const sequelize = require("../config/db.config");
 
@@ -27,28 +28,30 @@ db.Conversation = require("./conversation.model")(sequelize, DataTypes);
 db.Message = require("./message.model")(sequelize, DataTypes);
 db.Participant = require("./participant.model")(sequelize, DataTypes);
 
-// Run associations
+// Run model-defined associations (if any in .associate)
 Object.keys(db).forEach((modelName) => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
   }
 });
 
+// === ASSOCIATIONS ===
 
-// Define associations
+// Project ↔ Client
 db.Project.belongsToMany(db.Client, {
   through: db.ClientProject,
   foreignKey: "projectId",
   otherKey: "clientId",
-  as: "Clients"  
+  as: "Clients",
 });
 db.Client.belongsToMany(db.Project, {
   through: db.ClientProject,
   foreignKey: "clientId",
   otherKey: "projectId",
-  as: "Projects" 
+  as: "Projects",
 });
 
+// User ↔ Team
 db.User.belongsToMany(db.Team, {
   through: db.UserTeam,
   foreignKey: "userId",
@@ -60,11 +63,12 @@ db.Team.belongsToMany(db.User, {
   otherKey: "userId",
 });
 
+// Project ↔ Team
 db.Project.belongsToMany(db.Team, {
   through: db.TeamProject,
   foreignKey: "projectId",
   otherKey: "teamId",
-  as: "Teams"
+  as: "Teams",
 });
 db.Team.belongsToMany(db.Project, {
   through: db.TeamProject,
@@ -72,7 +76,61 @@ db.Team.belongsToMany(db.Project, {
   otherKey: "projectId",
 });
 
+// === MESSAGING ASSOCIATIONS ===
 
+// Conversation ↔ User (via Participant) — ONLY ONCE!
+db.Conversation.belongsToMany(db.User, {
+  through: db.Participant,
+  foreignKey: "conversationId",
+  otherKey: "userId",
+  as: "participants",
+});
+db.User.belongsToMany(db.Conversation, {
+  through: db.Participant,
+  foreignKey: "userId",
+  otherKey: "conversationId",
+  as: "conversations",
+});
+
+// Participant → Conversation & User
+db.Participant.belongsTo(db.Conversation, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+});
+db.Participant.belongsTo(db.User, {
+  foreignKey: "userId",
+  onDelete: "CASCADE",
+});
+
+db.Conversation.hasMany(db.Participant, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+});
+db.User.hasMany(db.Participant, {
+  foreignKey: "userId",
+  onDelete: "CASCADE",
+});
+
+// Conversation → Message
+db.Conversation.hasMany(db.Message, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+});
+db.Message.belongsTo(db.Conversation, {
+  foreignKey: "conversationId",
+});
+
+// Message → User (sender)
+db.Message.belongsTo(db.User, {
+  as: "sender",
+  foreignKey: "senderId",
+});
+db.User.hasMany(db.Message, {
+  as: "messages",
+  foreignKey: "senderId",
+});
+
+// === OTHER ASSOCIATIONS ===
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
 db.Task.belongsTo(db.Project, { foreignKey: "projectId" });
 
@@ -97,20 +155,5 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
-// Messaging associations
-db.Conversation.belongsToMany(db.User, { through: db.Participant, as: "participants" });
-db.User.belongsToMany(db.Conversation, { through: db.Participant, as: "conversations" });
-
-db.Conversation.hasMany(db.Message, { foreignKey: "conversationId" });
-db.Message.belongsTo(db.Conversation, { foreignKey: "conversationId" });
-
-db.Message.belongsTo(db.User, { as: "sender", foreignKey: "senderId" });
-db.User.hasMany(db.Message, { as: "messages", foreignKey: "senderId" });
-
-db.Participant.belongsTo(db.Conversation, { foreignKey: "conversationId" });
-db.Participant.belongsTo(db.User, { foreignKey: "userId" });
-
-// db.Client.hasMany(db.Project, { foreignKey: "clientId" });
-// db.Project.belongsTo(db.Client, { foreignKey: "clientId" });
-
+// === END ===
 module.exports = db;
