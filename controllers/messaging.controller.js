@@ -1,5 +1,5 @@
 // controllers/messaging.controller.js
-const { Conversation, Message, Participant, User } = require("../models");
+const { Conversation, Message, Participant, User, sequelize } = require("../models");
 const { Op } = require("sequelize");
 
 // Create or get 1:1 conversation
