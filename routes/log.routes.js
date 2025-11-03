@@ -9,11 +9,11 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Logs
-   *     description: Work log tracking endpoints
+   *     description: log tracking endpoints
    *
    * components:
    *   schemas:
-   *     Log:
+   *     Logs:
    *       type: object
    *       properties:
    *         id:
@@ -87,7 +87,7 @@ module.exports = (app) => {
    *   post:
    *     summary: Log work for the current user
    *     description: Allows authenticated users (staff, admins, managers) to log work for tasks/projects they are assigned to.
-   *     tags: [Work Logs]
+   *     tags: [Logs]
    *     security:
    *       - bearerAuth: []
    *     requestBody:
@@ -199,7 +199,7 @@ module.exports = (app) => {
    *   get:
    *     summary: Get current user's work logs with optional filters
    *     description: Retrieves work logs for the authenticated user, with optional filters for project, task, or date.
-   *     tags: [Work Logs]
+   *     tags: [Logs]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -310,7 +310,7 @@ module.exports = (app) => {
    *   get:
    *     summary: Get all work logs for a specific project (Admin or Manager only)
    *     description: Retrieves all work logs for a project. Accessible only to admins or managers.
-   *     tags: [Work Logs]
+   *     tags: [Logs]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -426,7 +426,7 @@ module.exports = (app) => {
    *   put:
    *     summary: Update a work log entry
    *     description: Allows staff to update their own work logs and admins/managers to update any work log.
-   *     tags: [Work Logs]
+   *     tags: [Logs]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -532,7 +532,7 @@ module.exports = (app) => {
    *   delete:
    *     summary: Delete a work log entry
    *     description: Allows staff to delete their own work logs and admins/managers to delete any work log.
-   *     tags: [Work Logs]
+   *     tags: [Logs]
    *     security:
    *       - bearerAuth: []
    *     parameters:
