@@ -1,4 +1,3 @@
-// models/index.js
 const { Sequelize, DataTypes } = require("sequelize");
 const sequelize = require("../config/db.config");
 
@@ -79,12 +78,12 @@ db.Team.belongsToMany(db.Project, {
 
 // === MESSAGING ASSOCIATIONS ===
 
-// Conversation ↔ User (via Participant) — ONLY ONCE!
+// Conversation ↔ User (via Participant)
 db.Conversation.belongsToMany(db.User, {
   through: db.Participant,
   foreignKey: "conversationId",
   otherKey: "userId",
-  as: "participants",
+  as: "participants", // ✅ Main alias for users in a conversation
 });
 db.User.belongsToMany(db.Conversation, {
   through: db.Participant,
@@ -108,7 +107,7 @@ db.Participant.belongsTo(db.User, {
 db.Conversation.hasMany(db.Participant, {
   foreignKey: "conversationId",
   onDelete: "CASCADE",
-  as: "participants",
+  as: "participantEntries", 
 });
 db.User.hasMany(db.Participant, {
   foreignKey: "userId",
@@ -120,9 +119,11 @@ db.User.hasMany(db.Participant, {
 db.Conversation.hasMany(db.Message, {
   foreignKey: "conversationId",
   onDelete: "CASCADE",
+  as: "messages",
 });
 db.Message.belongsTo(db.Conversation, {
   foreignKey: "conversationId",
+  as: "conversation",
 });
 
 // Message → User (sender)
@@ -131,7 +132,7 @@ db.Message.belongsTo(db.User, {
   foreignKey: "senderId",
 });
 db.User.hasMany(db.Message, {
-  as: "messages",
+  as: "sentMessages",
   foreignKey: "senderId",
 });
 
