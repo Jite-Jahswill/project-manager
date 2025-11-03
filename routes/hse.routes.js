@@ -12,7 +12,7 @@ module.exports = (app) => {
    * /api/hse/report:
    *   post:
    *     summary: Submit a new HSE incident report
-   *     description: Allows authenticated users to submit a Health, Safety & Environment (HSE) report with optional supporting document.
+   *     description: Allows authenticated users to submit an HSE report. Users can either upload a new file OR reference an existing document via `documentId`.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -44,7 +44,11 @@ module.exports = (app) => {
    *               file:
    *                 type: string
    *                 format: binary
-   *                 description: Optional supporting evidence (photo, PDF, etc.)
+   *                 description: Optional. Upload new evidence (photo, PDF, etc.)
+   *               documentId:
+   *                 type: integer
+   *                 example: 42
+   *                 description: Optional. Reuse an existing document from the Documents table. Cannot be used with `file`.
    *     responses:
    *       201:
    *         description: HSE report submitted successfully
@@ -59,9 +63,11 @@ module.exports = (app) => {
    *                 hseReport:
    *                   $ref: '#/components/schemas/HSEReport'
    *       400:
-   *         description: Missing required fields
+   *         description: Missing required fields or both file and documentId provided
    *       401:
    *         description: Unauthorized - Invalid or missing token
+   *       404:
+   *         description: Document not found (if documentId is invalid)
    *       500:
    *         description: Server error
    */
@@ -183,7 +189,7 @@ module.exports = (app) => {
    * /api/hse/report/{id}:
    *   put:
    *     summary: Update an HSE report (admin only)
-   *     description: Update report details, status, or replace supporting document. Closing a report sets `closedAt` and `closedBy`.
+   *     description: Update report details, status, or replace supporting document. Can use new file upload OR reference an existing document via `documentId`.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -211,7 +217,11 @@ module.exports = (app) => {
    *               file:
    *                 type: string
    *                 format: binary
-   *                 description: Replace supporting document
+   *                 description: Optional. Replace with new uploaded file
+   *               documentId:
+   *                 type: integer
+   *                 example: 45
+   *                 description: Optional. Replace with existing document. Cannot be used with `file`.
    *     responses:
    *       200:
    *         description: HSE report updated successfully
@@ -225,13 +235,13 @@ module.exports = (app) => {
    *                 hseReport:
    *                   $ref: '#/components/schemas/HSEReport'
    *       400:
-   *         description: Invalid status
+   *         description: Invalid input or both file and documentId used
    *       401:
    *         description: Unauthorized
    *       403:
    *         description: Missing hse:update permission
    *       404:
-   *         description: Report not found
+   *         description: Report or document not found
    *       500:
    *         description: Server error
    */
