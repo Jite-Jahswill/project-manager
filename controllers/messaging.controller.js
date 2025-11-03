@@ -7,94 +7,86 @@ const { sequelize, Conversation, Message, ConversationParticipant, Participant, 
 exports.createOrGetConversation = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { userId } = req.params;
-    const currentUserId = req.user.id;
-    const otherUserId = Number(userId);
+    const userId = req.user.id; // authenticated user
+    const recipientId = parseInt(req.params.recipientId, 10);
 
-    // ✅ Validation
-    if (!otherUserId || isNaN(otherUserId)) {
+    if (userId === recipientId) {
       await t.rollback();
-      return res.status(400).json({ error: "Invalid userId parameter" });
+      return res.status(400).json({ error: "Cannot create a conversation with yourself." });
     }
 
-    if (otherUserId === currentUserId) {
-      await t.rollback();
-      return res.status(400).json({ error: "Cannot chat with yourself" });
-    }
-
-    // Step 1: Try to find an existing direct conversation
-     const conversation = await Conversation.findOne({
-      where: { id: conversationId },
-      include: [
-        {
-          model: Message,
-          as: "messages", // ✅ Must match the alias
-          include: [
-            {
-              model: User,
-              as: "sender", // ✅ Because you aliased it in db.Message.belongsTo(db.User, { as: 'sender' })
-              attributes: ["id", "fullName", "email"],
-            },
-          ],
-        },
-        {
-          model: User,
-          as: "participants", // ✅ Must match Conversation.belongsToMany(User, { as: 'participants' })
-          attributes: ["id", "fullName", "email"],
-        },
-      ],
-    });
-
-
-    let finalConversation;
-
-    if (conversation) {
-      finalConversation = conversation;
-    } else {
-      // Step 2: Create a new conversation
-      finalConversation = await Conversation.create(
-        { isGroup: false, type: "direct" },
-        { transaction: t }
-      );
-
-      await Participant.bulkCreate(
-        [
-          { conversationId: finalConversation.id, userId: currentUserId },
-          { conversationId: finalConversation.id, userId: otherUserId },
-        ],
-        { transaction: t }
-      );
-    }
-
-    // ✅ Commit once all DB operations succeed
-    await t.commit();
-
-    // Step 3: Load full conversation outside transaction
-    const fullConv = await Conversation.findByPk(finalConversation.id, {
+    // 1️⃣ Check if a direct conversation already exists between both users
+    const existingConversation = await Conversation.findOne({
+      where: { isGroup: false },
       include: [
         {
           model: User,
           as: "participants",
-          attributes: ["id", "firstName", "lastName", "email"],
+          attributes: ["id"],
           through: { attributes: [] },
+          where: { id: [userId, recipientId] },
+        },
+      ],
+    });
+
+    // 2️⃣ If conversation exists, return it
+    if (existingConversation) {
+      await t.commit();
+      return res.status(200).json(existingConversation);
+    }
+
+    // 3️⃣ Create a new direct conversation
+    const newConversation = await Conversation.create(
+      {
+        name: null,
+        isGroup: false,
+        type: "direct",
+      },
+      { transaction: t }
+    );
+
+    // 4️⃣ Add both users as participants
+    await Participant.bulkCreate(
+      [
+        { conversationId: newConversation.id, userId },
+        { conversationId: newConversation.id, userId: recipientId },
+      ],
+      { transaction: t }
+    );
+
+    await t.commit();
+
+    // 5️⃣ Fetch full conversation details with participants and messages
+    const fullConversation = await Conversation.findByPk(newConversation.id, {
+      include: [
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id", "fullName", "email"],
         },
         {
           model: Message,
-          limit: 50,
-          order: [["createdAt", "DESC"]],
+          as: "messages",
           include: [
-            { model: User, as: "sender", attributes: ["id", "firstName", "lastName"] },
+            {
+              model: User,
+              as: "sender",
+              attributes: ["id", "fullName", "email"],
+            },
           ],
         },
       ],
     });
 
-    return res.status(200).json({ conversation: fullConv });
-  } catch (err) {
-    // ✅ Only rollback if not already committed/rolled back
-    if (t && !t.finished) await t.rollback();
-    console.error("createOrGetConversation error:", err);
-    return res.status(500).json({ error: "Failed to create/get conversation" });
+    return res.status(201).json(fullConversation);
+  } catch (error) {
+    console.error("createOrGetConversation error:", error);
+    try {
+      await t.rollback();
+    } catch (rollbackError) {
+      console.error("Transaction rollback failed:", rollbackError);
+    }
+    return res.status(500).json({ error: "Failed to create or get conversation" });
   }
 };
 
