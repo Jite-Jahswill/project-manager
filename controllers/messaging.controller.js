@@ -1,27 +1,28 @@
-// controllers/messaging.controller.js
-const { Conversation, Message, Participant, User, sequelize } = require("../models");
 const { Op } = require("sequelize");
+const { sequelize, Conversation, Message, Participant, User } = require("../models");
 
+// ---------------------------------------------------------------------
+// CREATE or GET DIRECT CONVERSATION (1:1 CHAT)
+// ---------------------------------------------------------------------
 exports.createOrGetConversation = async (req, res) => {
   const t = await sequelize.transaction();
-  let committed = false; // ← Track state
-
   try {
     const { userId } = req.params;
     const currentUserId = req.user.id;
     const otherUserId = parseInt(userId);
 
     if (otherUserId === currentUserId) {
+      await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // === Find existing 1:1 conversation ===
+    // Find existing direct chat between both users
     const conversation = await Conversation.findOne({
       where: { isGroup: false, name: null },
       include: [
         {
-          model: db.Participant,
-          as: "participants",
+          model: Participant,
+          as: "participantEntries",
           attributes: [],
           where: { userId: { [Op.in]: [currentUserId, otherUserId] } },
         },
@@ -33,7 +34,7 @@ exports.createOrGetConversation = async (req, res) => {
               (SELECT COUNT(*) 
                FROM Participants p 
                WHERE p.conversationId = Conversation.id 
-                 AND p.userId IN (${currentUserId}, ${otherUserId})
+               AND p.userId IN (${currentUserId}, ${otherUserId})
               )
             `),
             "matchCount",
@@ -45,11 +46,9 @@ exports.createOrGetConversation = async (req, res) => {
       transaction: t,
     });
 
-    let finalConversation;
+    let finalConversation = conversation;
 
-    if (conversation) {
-      finalConversation = conversation;
-    } else {
+    if (!finalConversation) {
       finalConversation = await Conversation.create(
         { isGroup: false, type: "direct" },
         { transaction: t }
@@ -64,11 +63,8 @@ exports.createOrGetConversation = async (req, res) => {
       );
     }
 
-    // === Commit only if no error ===
     await t.commit();
-    committed = true;
 
-    // === Load full conversation (outside transaction) ===
     const fullConv = await Conversation.findByPk(finalConversation.id, {
       include: [
         {
@@ -77,272 +73,210 @@ exports.createOrGetConversation = async (req, res) => {
           attributes: ["id", "firstName", "lastName", "email"],
           through: { attributes: [] },
         },
+      ],
+    });
+
+    return res.status(200).json({ conversation: fullConv });
+  } catch (err) {
+    await t.rollback();
+    console.error("createOrGetConversation error:", err);
+    return res.status(500).json({ error: "Failed to create/get conversation" });
+  }
+};
+
+// ---------------------------------------------------------------------
+// CREATE GROUP CONVERSATION
+// ---------------------------------------------------------------------
+exports.createGroupConversation = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { name, userIds = [] } = req.body;
+    const currentUserId = req.user.id;
+
+    if (!name?.trim()) {
+      await t.rollback();
+      return res.status(400).json({ error: "Group name is required" });
+    }
+
+    // Ensure current user is also in participants
+    if (!userIds.includes(currentUserId)) userIds.push(currentUserId);
+
+    const conversation = await Conversation.create(
+      { name: name.trim(), isGroup: true, type: "group" },
+      { transaction: t }
+    );
+
+    const participantsData = userIds.map((uid) => ({
+      conversationId: conversation.id,
+      userId: uid,
+    }));
+
+    await Participant.bulkCreate(participantsData, { transaction: t });
+
+    await t.commit();
+
+    const fullGroup = await Conversation.findByPk(conversation.id, {
+      include: [
         {
-          model: Message,
-          limit: 50,
-          order: [["createdAt", "DESC"]],
-          include: [{ model: User, as: "sender", attributes: ["id", "firstName", "lastName"] }],
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] },
         },
       ],
     });
 
-    res.json({ conversation: fullConv });
+    return res.status(201).json({ group: fullGroup });
   } catch (err) {
-    // === Only rollback if not already committed ===
-    if (!committed) {
-      try {
-        await t.rollback();
-      } catch (rollbackErr) {
-        console.warn("Rollback failed (already committed?):", rollbackErr);
-      }
-    }
-
-    console.error("Create conversation error:", err);
-    if (err.name === "SequelizeUniqueConstraintError") {
-      return res.status(409).json({ error: "Conversation already exists" });
-    }
-    res.status(500).json({ error: "Failed to create/get conversation" });
+    await t.rollback();
+    console.error("createGroupConversation error:", err);
+    return res.status(500).json({ error: "Failed to create group conversation" });
   }
 };
 
-exports.getAllMessages = async (req, res) => {
+// ---------------------------------------------------------------------
+// GET USER'S CONVERSATIONS
+// ---------------------------------------------------------------------
+exports.getUserConversations = async (req, res) => {
   try {
-    const { page = 1, limit = 50, search = "" } = req.query;
-    const offset = (page - 1) * limit;
+    const currentUserId = req.user.id;
 
-    // Build where clause for search (optional)
-    const where = search
-      ? {
-          [Op.or]: [
-            { content: { [Op.like]: `%${search}%` } },
-            { "$sender.firstName$": { [Op.like]: `%${search}%` } },
-            { "$sender.lastName$": { [Op.like]: `%${search}%` } },
-            { "$conversation.name$": { [Op.like]: `%${search}%` } },
-          ],
-        }
-      : {};
+    const conversations = await Conversation.findAll({
+      include: [
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] },
+          where: { id: currentUserId },
+        },
+        {
+          model: Message,
+          as: "messages",
+          limit: 1,
+          order: [["createdAt", "DESC"]],
+          include: [{ model: User, as: "sender", attributes: ["id", "firstName", "lastName"] }],
+        },
+      ],
+      order: [["updatedAt", "DESC"]],
+    });
 
-    const { count, rows: messages } = await Message.findAndCountAll({
-      where,
+    return res.status(200).json({ conversations });
+  } catch (err) {
+    console.error("getUserConversations error:", err);
+    return res.status(500).json({ error: "Failed to fetch conversations" });
+  }
+};
+
+// ---------------------------------------------------------------------
+// GET MESSAGES IN A CONVERSATION
+// ---------------------------------------------------------------------
+exports.getMessages = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const messages = await Message.findAll({
+      where: { conversationId },
       include: [
         {
           model: User,
           as: "sender",
           attributes: ["id", "firstName", "lastName", "email"],
         },
-        {
-          model: Conversation,
-          attributes: ["id", "name", "isGroup", "type"],
-          include: [
-            {
-              model: User,
-              as: "participants",
-              attributes: ["id", "firstName", "lastName"],
-              through: { attributes: [] },
-            },
-          ],
-        },
       ],
-      order: [["createdAt", "DESC"]],
-      limit: parseInt(limit),
-      offset,
-      distinct: true, // important for count with includes
+      order: [["createdAt", "ASC"]],
     });
 
-    res.json({
-      messages,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(count / limit),
-        totalItems: count,
-        itemsPerPage: parseInt(limit),
-      },
-    });
+    return res.status(200).json({ messages });
   } catch (err) {
-    console.error("Get all messages error:", err);
-    res.status(500).json({ error: "Failed to fetch all messages" });
+    console.error("getMessages error:", err);
+    return res.status(500).json({ error: "Failed to fetch messages" });
   }
 };
 
-// Create group conversation
-exports.createGroupConversation = async (req, res) => {
-  try {
-    const { name, userIds } = req.body; // userIds = [1, 2, 3]
-    const currentUserId = req.user.id;
-
-    if (!name || !Array.isArray(userIds) || userIds.length < 2) {
-      return res.status(400).json({ error: "Name and at least 2 user IDs required" });
-    }
-
-    // Create conversation
-    const conversation = await Conversation.create({
-      name: `${name} (${userIds.length + 1} members)`,
-      isGroup: true,
-      type: "group",
-    });
-
-    // Add participants (current user + selected)
-    const participants = [currentUserId, ...userIds].map((userId) => ({
-      conversationId: conversation.id,
-      userId,
-    }));
-
-    await Participant.bulkCreate(participants);
-
-    res.status(201).json({ conversation });
-  } catch (err) {
-    console.error("Create group error:", err);
-    res.status(500).json({ error: "Failed to create group" });
-  }
-};
-
-// Send message
+// ---------------------------------------------------------------------
+// SEND MESSAGE
+// ---------------------------------------------------------------------
 exports.sendMessage = async (req, res) => {
   try {
-    const { conversationId, content, type = "text" } = req.body;
+    const { conversationId } = req.params;
+    const { content, type = "text" } = req.body;
     const senderId = req.user.id;
 
+    if (!content?.trim()) {
+      return res.status(400).json({ error: "Message content is required" });
+    }
+
     const message = await Message.create({
-      content,
-      type,
       conversationId,
       senderId,
+      content: content.trim(),
+      type,
     });
 
-    // Emit real-time (see Socket.IO below)
-    io?.to(`conversation:${conversationId}`).emit("newMessage", {
-      message,
-      sender: { id: senderId, name: req.user.name },
+    const fullMessage = await Message.findByPk(message.id, {
+      include: [
+        {
+          model: User,
+          as: "sender",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+      ],
     });
 
-    res.json({ message });
+    return res.status(201).json({ message: fullMessage });
   } catch (err) {
-    console.error("Send message error:", err);
-    res.status(500).json({ error: "Failed to send message" });
+    console.error("sendMessage error:", err);
+    return res.status(500).json({ error: "Failed to send message" });
   }
 };
 
-// Get messages for conversation
-exports.getMessages = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const { page = 1, limit = 50 } = req.body;
-
-    const messages = await Message.findAll({
-      where: { conversationId },
-      include: [{ model: User, as: "sender", attributes: ["id", "firstName", "lastName"] }],
-      order: [["id", "DESC"]],
-      limit,
-      offset: (page - 1) * limit,
-    });
-
-    res.json({ messages: messages.reverse() }); // reverse to show newest first
-  } catch (err) {
-    console.error("Get messages error:", err);
-    res.status(500).json({ error: "Failed to fetch messages" });
-  }
-};
-
-// Update (edit) message
+// ---------------------------------------------------------------------
+// UPDATE MESSAGE
+// ---------------------------------------------------------------------
 exports.updateMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const { content } = req.body;
-    const senderId = req.user.id;
+    const userId = req.user.id;
 
-    const message = await Message.findOne({
-      where: { id: messageId, senderId },
-    });
+    const message = await Message.findByPk(messageId);
 
-    if (!message) {
-      return res.status(404).json({ error: "Message not found or unauthorized" });
-    }
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    if (message.senderId !== userId)
+      return res.status(403).json({ error: "Cannot edit another user's message" });
 
-    await message.update({ content, isEdited: true });
+    message.content = content;
+    message.isEdited = true;
+    await message.save();
 
-    // Emit real-time
-    io?.to(`conversation:${message.conversationId}`).emit("messageUpdated", {
-      messageId,
-      content,
-      isEdited: true,
-    });
-
-    res.json({ message });
+    return res.status(200).json({ message });
   } catch (err) {
-    console.error("Update message error:", err);
-    res.status(500).json({ error: "Failed to update message" });
+    console.error("updateMessage error:", err);
+    return res.status(500).json({ error: "Failed to update message" });
   }
 };
 
-// Delete message
+// ---------------------------------------------------------------------
+// DELETE MESSAGE
+// ---------------------------------------------------------------------
 exports.deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
-    const senderId = req.user.id;
-
-    const message = await Message.findOne({
-      where: { id: messageId, senderId },
-    });
-
-    if (!message) {
-      return res.status(404).json({ error: "Message not found or unauthorized" });
-    }
-
-    await message.update({ isDeleted: true, content: "[Message deleted]" });
-
-    // Emit real-time
-    io?.to(`conversation:${message.conversationId}`).emit("messageDeleted", {
-      messageId,
-    });
-
-    res.json({ message: "Deleted" });
-  } catch (err) {
-    console.error("Delete message error:", err);
-    res.status(500).json({ error: "Failed to delete message" });
-  }
-};
-
-// Add participant to group
-exports.addParticipant = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const { userId } = req.body;
-
-    await Participant.create({
-      conversationId,
-      userId,
-    });
-
-    // Emit real-time
-    io?.to(`conversation:${conversationId}`).emit("participantAdded", {
-      userId,
-    });
-
-    res.json({ message: "Added" });
-  } catch (err) {
-    console.error("Add participant error:", err);
-    res.status(500).json({ error: "Failed to add participant" });
-  }
-};
-
-// Leave conversation
-exports.leaveConversation = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
     const userId = req.user.id;
 
-    await Participant.destroy({
-      where: { conversationId, userId },
-    });
+    const message = await Message.findByPk(messageId);
 
-    // Emit real-time
-    io?.to(`conversation:${conversationId}`).emit("participantLeft", {
-      userId,
-    });
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    if (message.senderId !== userId)
+      return res.status(403).json({ error: "Cannot delete another user's message" });
 
-    res.json({ message: "Left" });
+    message.isDeleted = true;
+    await message.save();
+
+    return res.status(200).json({ message });
   } catch (err) {
-    console.error("Leave conversation error:", err);
-    res.status(500).json({ error: "Failed to leave" });
+    console.error("deleteMessage error:", err);
+    return res.status(500).json({ error: "Failed to delete message" });
   }
 };
