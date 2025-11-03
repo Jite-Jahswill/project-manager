@@ -36,10 +36,6 @@ module.exports = (sequelize, DataTypes) => {
     },
   });
 
-  Message.associate = (models) => {
-    Message.belongsTo(models.Conversation, { foreignKey: "conversationId" });
-    Message.belongsTo(models.User, { as: "sender", foreignKey: "senderId" });
-  };
 
   return Message;
 };
