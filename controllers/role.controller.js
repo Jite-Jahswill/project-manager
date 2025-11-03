@@ -43,28 +43,36 @@ exports.createRole = async (req, res) => {
       return res.status(409).json({ error: "Role name already exists" });
     }
 
-    // Validate permission names
+    // Validate permission names and retrieve valid permissions
     const validPermissions = await validatePermissionNames(permissionNames, t);
 
     // Create the role
     const role = await Role.create(
       {
         name: name.trim(),
-        permissions: validPermissions, // stored permissions
+        permissions: validPermissions.map(permission => permission.name), // Store the permission names
       },
       { transaction: t }
     );
 
+    // Fetch the full permission objects based on the permission names selected
+    const fullPermissions = await Permission.findAll({
+      where: {
+        name: permissionNames,
+      },
+      transaction: t,
+    });
+
     await t.commit();
 
-    // Return both the role and the exact permissions the user selected
+    // Return both the role and the full permissions associated with it
     return res.status(201).json({
       message: "Role created successfully",
       role: {
         id: role.id,
         name: role.name,
-        permissions: validPermissions, // include validated permissions
-        selectedPermissions: permissionNames, // include what the user selected
+        permissions: fullPermissions, // Include the full permissions
+        selectedPermissions: permissionNames, // Include what the user selected (names)
       },
     });
   } catch (err) {
