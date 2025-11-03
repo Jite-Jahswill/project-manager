@@ -13,20 +13,22 @@ exports.createOrGetConversation = async (req, res) => {
 
     // ✅ Validation
     if (!otherUserId || isNaN(otherUserId)) {
+      await t.rollback();
       return res.status(400).json({ error: "Invalid userId parameter" });
     }
 
     if (otherUserId === currentUserId) {
+      await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // Step 1: Find existing conversation
+    // Step 1: Try to find an existing direct conversation
     const conversation = await Conversation.findOne({
       where: { isGroup: false, name: null },
       include: [
         {
           model: Participant,
-          as: "participantEntries", // ✅ match alias in model
+          as: "participantEntries", // must match your association alias
           attributes: [],
           where: { userId: { [Op.in]: [currentUserId, otherUserId] } },
         },
@@ -55,7 +57,7 @@ exports.createOrGetConversation = async (req, res) => {
     if (conversation) {
       finalConversation = conversation;
     } else {
-      // Step 2: Create new conversation
+      // Step 2: Create a new conversation
       finalConversation = await Conversation.create(
         { isGroup: false, type: "direct" },
         { transaction: t }
@@ -70,9 +72,10 @@ exports.createOrGetConversation = async (req, res) => {
       );
     }
 
+    // ✅ Commit once all DB operations succeed
     await t.commit();
 
-    // Step 3: Load full conversation
+    // Step 3: Load full conversation outside transaction
     const fullConv = await Conversation.findByPk(finalConversation.id, {
       include: [
         {
@@ -92,11 +95,12 @@ exports.createOrGetConversation = async (req, res) => {
       ],
     });
 
-    res.json({ conversation: fullConv });
+    return res.status(200).json({ conversation: fullConv });
   } catch (err) {
-    await t.rollback();
+    // ✅ Only rollback if not already committed/rolled back
+    if (t && !t.finished) await t.rollback();
     console.error("createOrGetConversation error:", err);
-    res.status(500).json({ error: "Failed to create/get conversation" });
+    return res.status(500).json({ error: "Failed to create/get conversation" });
   }
 };
 
