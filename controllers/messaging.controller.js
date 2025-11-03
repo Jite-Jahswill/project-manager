@@ -4,46 +4,80 @@ const { Op } = require("sequelize");
 
 // Create or get 1:1 conversation
 exports.createOrGetConversation = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const { userId } = req.params; // other user ID
+    const { userId } = req.params;
     const currentUserId = req.user.id;
 
-    if (userId == currentUserId) {
+    if (parseInt(userId) === currentUserId) {
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // Check if conversation exists
-    const [conversation] = await Conversation.findOrCreate({
-      where: {
-        isGroup: false,
-        name: null,
-      },
-      defaults: {},
+    // Find existing 1:1 conversation between these two users
+    const existingConversation = await Conversation.findOne({
+      where: { isGroup: false, name: null },
       include: [
-        { model: User, as: "participants", where: { id: [currentUserId, userId] } },
+        {
+          model: User,
+          as: "participants",
+          where: { id: { [Op.in]: [currentUserId, parseInt(userId)] } },
+          through: { attributes: [] },
+        },
       ],
-      logging: false,
+      group: ['Conversation.id'],
+      having: sequelize.literal(`COUNT(DISTINCT "participants"."id") = 2`),
+      transaction: t,
     });
 
-    if (conversation.createdAt) {
-      // New conversation - add participants
-      await Participant.bulkCreate([
-        { conversationId: conversation.id, userId: currentUserId },
-        { conversationId: conversation.id, userId: userId },
-      ]);
+    let conversation;
+
+    if (existingConversation) {
+      conversation = existingConversation;
+    } else {
+      // Create new conversation
+      conversation = await Conversation.create(
+        { isGroup: false, type: "direct" },
+        { transaction: t }
+      );
+
+      // Add both users
+      await Participant.bulkCreate(
+        [
+          { conversationId: conversation.id, userId: currentUserId },
+          { conversationId: conversation.id, userId: parseInt(userId) },
+        ],
+        { transaction: t }
+      );
     }
 
+    await t.commit();
+
+    // Return full conversation with participants and recent messages
     const fullConv = await Conversation.findByPk(conversation.id, {
       include: [
-        { model: User, as: "participants", attributes: ["id", "firstName", "lastName"] },
-        { model: Message, as: "messages", limit: 50, order: [["id", "DESC"]] },
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] },
+        },
+        {
+          model: Message,
+          limit: 50,
+          order: [["createdAt", "DESC"]],
+          include: [{ model: User, as: "sender", attributes: ["id", "firstName", "lastName"] }],
+        },
       ],
     });
 
     res.json({ conversation: fullConv });
   } catch (err) {
+    await t.rollback();
     console.error("Create conversation error:", err);
-    res.status(500).json({ error: "Failed to create conversation" });
+    if (err.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ error: "Conversation already exists" });
+    }
+    res.status(500).json({ error: "Failed to create/get conversation" });
   }
 };
 
