@@ -274,31 +274,38 @@ exports.deleteRole = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // 1️⃣ Find the role
     const role = await Role.findByPk(id, { transaction: t });
     if (!role) {
       await t.rollback();
       return res.status(404).json({ error: "Role not found" });
     }
 
-    const users = await User.findAll({
-      include: [{ model: Role, where: { id }, required: true }],
-      limit: 1,
+    // 2️⃣ Check if any user currently has this role
+    const userWithRole = await User.findOne({
+      where: { roleId: id },
       transaction: t,
     });
 
-    if (users.length > 0) {
+    if (userWithRole) {
       await t.rollback();
-      return res
-        .status(400)
-        .json({ error: "Cannot delete role – it is assigned to one or more users" });
+      return res.status(400).json({
+        error: "Cannot delete role – it is assigned to one or more users",
+      });
     }
 
+    // 3️⃣ Delete the role
     await role.destroy({ transaction: t });
     await t.commit();
+
     return res.json({ message: "Role deleted successfully" });
   } catch (err) {
-    await t.rollback();
     console.error("deleteRole error:", err);
+    try {
+      await t.rollback();
+    } catch (rollbackErr) {
+      console.error("Transaction rollback failed:", rollbackErr);
+    }
     return res.status(500).json({ error: "Failed to delete role" });
   }
 };
