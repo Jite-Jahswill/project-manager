@@ -19,10 +19,16 @@ module.exports = (sequelize, DataTypes) => {
       reporterId: {
         type: DataTypes.INTEGER,
         allowNull: false,
+        references: { model: "Users", key: "id" },
       },
       report: {
         type: DataTypes.TEXT,
         allowNull: false,
+      },
+      firebaseUrls: {
+        type: DataTypes.JSON, // Optional attached files directly under the report
+        allowNull: true,
+        defaultValue: [],
       },
       status: {
         type: DataTypes.ENUM("open", "pending", "closed"),
