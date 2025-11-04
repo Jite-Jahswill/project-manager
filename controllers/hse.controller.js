@@ -97,6 +97,75 @@ exports.createHSEReport = async (req, res) => {
   }
 };
 
+exports.getHSEReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const report = await HSEReport.findOne({
+      where: { id },
+      include: [
+        {
+          model: User,
+          as: "reporter",
+          attributes: ["id", "firstName", "lastName", "email", "role"],
+        },
+        {
+          model: User,
+          as: "closedBy",
+          attributes: ["id", "firstName", "lastName", "email", "role"],
+        },
+        {
+          model: Document,
+          as: "documents",
+          attributes: ["id", "fileName", "fileUrl", "fileType", "uploadedAt"],
+        },
+      ],
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "HSE report not found" });
+    }
+
+    // Format for cleaner frontend output
+    const formatted = {
+      id: report.id,
+      title: report.title,
+      description: report.description,
+      status: report.status,
+      priority: report.priority,
+      location: report.location,
+      createdAt: report.createdAt,
+      updatedAt: report.updatedAt,
+      reporter: report.reporter
+        ? {
+            id: report.reporter.id,
+            fullName: `${report.reporter.firstName || ""} ${
+              report.reporter.lastName || ""
+            }`.trim(),
+            email: report.reporter.email,
+            role: report.reporter.role,
+          }
+        : null,
+      closedBy: report.closedBy
+        ? {
+            id: report.closedBy.id,
+            fullName: `${report.closedBy.firstName || ""} ${
+              report.closedBy.lastName || ""
+            }`.trim(),
+            email: report.closedBy.email,
+            role: report.closedBy.role,
+          }
+        : null,
+      documents: report.documents || [],
+    };
+
+    return res.status(200).json(formatted);
+  } catch (err) {
+    console.error("getHSEReport error:", err);
+    return res.status(500).json({ error: "Server error while fetching report" });
+  }
+};
+
 
 //
 // === READ ALL (Search + Date Filter) ===
