@@ -6,12 +6,14 @@ exports.startDirectChat = async (req, res) => {
   try {
     const userId = req.user.id;
     const { recipientId } = req.params;
+    const { name } = req.body;
 
     if (parseInt(userId) === parseInt(recipientId)) {
       await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
+    // ✅ Check if conversation already exists between both users
     const existing = await Conversation.findOne({
       where: { type: "direct" },
       include: [
@@ -30,8 +32,9 @@ exports.startDirectChat = async (req, res) => {
       return res.json(existing);
     }
 
+    // ✅ Create conversation (with optional name)
     const conversation = await Conversation.create(
-      { type: "direct", createdBy: userId },
+      { type: "direct", name: name || null, createdBy: userId },
       { transaction: t }
     );
 
@@ -47,15 +50,60 @@ exports.startDirectChat = async (req, res) => {
 
     const fullConversation = await Conversation.findByPk(conversation.id, {
       include: [
-        { model: User, as: "participants", attributes: ["id", "fullName", "email"] },
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
       ],
     });
 
-    return res.status(201).json(fullConversation);
+    // ✅ Combine firstName + lastName (if they exist)
+    const formatted = {
+      ...fullConversation.toJSON(),
+      participants: fullConversation.participants.map((u) => ({
+        ...u.toJSON(),
+        fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+      })),
+    };
+
+    return res.status(201).json(formatted);
   } catch (err) {
     await t.rollback();
     console.error("startDirectChat error:", err);
     return res.status(500).json({ error: "Failed to start conversation" });
+  }
+};
+
+exports.getAllConversations = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const conversations = await Conversation.findAll({
+      include: [
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] },
+          where: { id: userId },
+        },
+      ],
+      order: [["updatedAt", "DESC"]],
+    });
+
+    const formatted = conversations.map((conv) => ({
+      ...conv.toJSON(),
+      participants: conv.participants.map((u) => ({
+        ...u.toJSON(),
+        fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+      })),
+    }));
+
+    return res.json(formatted);
+  } catch (err) {
+    console.error("getAllConversations error:", err);
+    return res.status(500).json({ error: "Failed to fetch conversations" });
   }
 };
 
