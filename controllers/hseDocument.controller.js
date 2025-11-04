@@ -1,13 +1,13 @@
 const { Op } = require("sequelize");
 const { HseDocument, User, HSEReport } = require("../models");
 
-// 🟢 Create a new HSE document
+// 🟢 Create new document
 exports.createDocument = async (req, res) => {
   try {
     const { name, firebaseUrls, reportId, type, size } = req.body;
     const uploadedBy = req.user.id;
 
-    if (!name || !firebaseUrls || !reportId || !type || !size) {
+    if (!name || !firebaseUrls || !type || !size) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
@@ -15,7 +15,7 @@ exports.createDocument = async (req, res) => {
       name,
       firebaseUrls,
       uploadedBy,
-      reportId,
+      reportId: reportId || null,
       type,
       size,
     });
@@ -27,7 +27,7 @@ exports.createDocument = async (req, res) => {
   }
 };
 
-// 🟡 Get all HSE documents (supports filters, search & date range)
+// 🟡 Get all documents (filter, search, date range)
 exports.getAllDocuments = async (req, res) => {
   try {
     const { search, type, reportId, startDate, endDate, page = 1, limit = 20 } = req.query;
@@ -37,13 +37,9 @@ exports.getAllDocuments = async (req, res) => {
 
     if (type) where.type = type;
     if (reportId) where.reportId = reportId;
-    if (search)
-      where.name = { [Op.like]: `%${search}%` };
-
+    if (search) where.name = { [Op.like]: `%${search}%` };
     if (startDate && endDate) {
-      where.createdAt = {
-        [Op.between]: [new Date(startDate), new Date(endDate)],
-      };
+      where.createdAt = { [Op.between]: [new Date(startDate), new Date(endDate)] };
     }
 
     const { count, rows } = await HseDocument.findAndCountAll({
@@ -57,7 +53,7 @@ exports.getAllDocuments = async (req, res) => {
         {
           model: HSEReport,
           as: "report",
-          attributes: ["id", "title", "status", "priority"],
+          attributes: ["id", "title", "status"],
         },
       ],
       order: [["createdAt", "DESC"]],
@@ -80,7 +76,7 @@ exports.getAllDocuments = async (req, res) => {
   }
 };
 
-// 🟣 Get single HSE document
+// 🟣 Get single document
 exports.getDocumentById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -88,21 +84,12 @@ exports.getDocumentById = async (req, res) => {
     const document = await HseDocument.findOne({
       where: { id },
       include: [
-        {
-          model: User,
-          as: "uploader",
-          attributes: ["id", "firstName", "lastName", "email"],
-        },
-        {
-          model: HSEReport,
-          as: "report",
-          attributes: ["id", "title", "status"],
-        },
+        { model: User, as: "uploader", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: HSEReport, as: "report", attributes: ["id", "title", "status"] },
       ],
     });
 
     if (!document) return res.status(404).json({ message: "Document not found" });
-
     return res.status(200).json(document);
   } catch (err) {
     console.error("getDocumentById error:", err);
@@ -110,11 +97,11 @@ exports.getDocumentById = async (req, res) => {
   }
 };
 
-// 🟠 Update HSE document
+// 🟠 Update document
 exports.updateDocument = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, firebaseUrls, type, size } = req.body;
+    const { name, firebaseUrls, type, size, reportId } = req.body;
 
     const doc = await HseDocument.findByPk(id);
     if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -124,6 +111,7 @@ exports.updateDocument = async (req, res) => {
       firebaseUrls: firebaseUrls ?? doc.firebaseUrls,
       type: type ?? doc.type,
       size: size ?? doc.size,
+      reportId: reportId ?? doc.reportId,
     });
 
     return res.status(200).json(doc);
@@ -133,11 +121,10 @@ exports.updateDocument = async (req, res) => {
   }
 };
 
-// 🔴 Delete HSE document
+// 🔴 Delete document
 exports.deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
-
     const doc = await HseDocument.findByPk(id);
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
