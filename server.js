@@ -113,7 +113,6 @@ require("./routes/client.routes")(app);
 require("./routes/workLog.routes")(app);
 require("./routes/document.routes")(app);
 require("./routes/role.routes")(app);
-require("./routes/messaging.routes")(app);
 require("./routes/hse.routes")(app);
 // In your main server.js or app.js
 app.use("/uploads", express.static("uploads"));
