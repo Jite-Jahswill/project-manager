@@ -119,6 +119,74 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * /api/messaging/conversations:
+   *   get:
+   *     summary: Get all conversations for the logged-in user
+   *     description: Fetch all conversations (direct and group) that the logged-in user is a participant of.
+   *     tags: [Messaging]
+   *     security:
+   *       - bearerAuth: []
+   *     responses:
+   *       200:
+   *         description: Successfully fetched all conversations
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id:
+   *                     type: integer
+   *                     example: 1
+   *                   type:
+   *                     type: string
+   *                     example: "direct"
+   *                   name:
+   *                     type: string
+   *                     example: "Chat with Oghomena"
+   *                   createdBy:
+   *                     type: integer
+   *                     example: 1
+   *                   createdAt:
+   *                     type: string
+   *                     format: date-time
+   *                   updatedAt:
+   *                     type: string
+   *                     format: date-time
+   *                   participants:
+   *                     type: array
+   *                     items:
+   *                       type: object
+   *                       properties:
+   *                         id:
+   *                           type: integer
+   *                           example: 2
+   *                         firstName:
+   *                           type: string
+   *                           example: "Oghomena"
+   *                         lastName:
+   *                           type: string
+   *                           example: "Mena"
+   *                         fullName:
+   *                           type: string
+   *                           example: "Oghomena Mena"
+   *                         email:
+   *                           type: string
+   *                           example: "oghomenag@gmail.com"
+   *       401:
+   *         description: Unauthorized — Missing or invalid token
+   *       500:
+   *         description: Server error while fetching conversations
+   */
+  router.get(
+    "/conversations",
+    verifyToken,
+    messagingController.getAllConversations
+  );
+
+  /**
+   * @swagger
    * /api/messaging/message/{messageId}:
    *   put:
    *     summary: Edit a message
