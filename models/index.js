@@ -76,18 +76,18 @@ db.Team.belongsToMany(db.Project, {
 // === MESSAGING ASSOCIATIONS ===
 
 // Conversation ↔ User (via Participant)
-db.Conversation.belongsToMany(db.User, {
-  through: db.Participant,
-  foreignKey: "conversationId",
-  otherKey: "userId",
-  as: "participants", // ✅ Main alias for users in a conversation
-});
-db.User.belongsToMany(db.Conversation, {
-  through: db.Participant,
-  foreignKey: "userId",
-  otherKey: "conversationId",
-  as: "conversations",
-});
+// db.Conversation.belongsToMany(db.User, {
+//   through: db.Participant,
+//   foreignKey: "conversationId",
+//   otherKey: "userId",
+//   as: "participants", // ✅ Main alias for users in a conversation
+// });
+// db.User.belongsToMany(db.Conversation, {
+//   through: db.Participant,
+//   foreignKey: "userId",
+//   otherKey: "conversationId",
+//   as: "conversations",
+// });
 
 // // Participant → Conversation & User
 // db.Participant.belongsTo(db.Conversation, {
