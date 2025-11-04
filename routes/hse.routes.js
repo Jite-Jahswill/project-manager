@@ -1,6 +1,6 @@
 const express = require("express");
 const { verifyToken } = require("../middlewares/auth.middleware");
-const hseReportController = require("../controllers/hseReport.controller");
+const hseReportController = require("../controllers/hse.controller");
 
 module.exports = (app) => {
   const router = express.Router();
