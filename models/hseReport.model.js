@@ -24,10 +24,6 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: false,
       },
-      supportingDocUrl: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
       status: {
         type: DataTypes.ENUM("open", "pending", "closed"),
         allowNull: false,
@@ -52,6 +48,7 @@ module.exports = (sequelize, DataTypes) => {
   HSEReport.associate = (models) => {
     HSEReport.belongsTo(models.User, { foreignKey: "reporterId", as: "reporter" });
     HSEReport.belongsTo(models.User, { foreignKey: "closedBy", as: "closer" });
+    HSEReport.hasMany(models.HseDocument, { foreignKey: "reportId", as: "documents" });
   };
 
   return HSEReport;
