@@ -1,7 +1,6 @@
 const express = require("express");
-const hseController = require("../controllers/hse.controller");
-const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
-const { upload } = require("../middlewares/upload.middleware");
+const { verifyToken } = require("../middlewares/auth.middleware");
+const hseReportController = require("../controllers/hseReport.controller");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -9,23 +8,23 @@ module.exports = (app) => {
   /**
    * @swagger
    * tags:
-   *   name: HSE
-   *   description: Health, Safety, and Environment Reports Management
+   *   name: HSE Reports
+   *   description: Manage incident/safety reports with optional file attachments
    */
 
   /**
    * @swagger
    * /api/hse/report:
    *   post:
-   *     summary: Submit a new HSE incident report
-   *     description: Allows authenticated users to submit an HSE report. You can upload multiple evidence files such as images, PDFs, etc.
-   *     tags: [HSE]
+   *     summary: Create a new HSE report
+   *     description: Allows a user to submit a safety/incident report, optionally attaching Firebase file URLs.
+   *     tags: [HSE Reports]
    *     security:
    *       - bearerAuth: []
    *     requestBody:
    *       required: true
    *       content:
-   *         multipart/form-data:
+   *         application/json:
    *           schema:
    *             type: object
    *             required:
@@ -36,23 +35,21 @@ module.exports = (app) => {
    *               dateOfReport:
    *                 type: string
    *                 format: date
-   *                 example: "2025-04-05"
+   *                 example: "2025-11-03"
    *               timeOfReport:
    *                 type: string
-   *                 format: time
-   *                 example: "14:30:00"
+   *                 example: "14:30"
    *               report:
    *                 type: string
-   *                 example: "Worker slipped on a wet floor near the loading bay."
-   *               file:
+   *                 example: "Oil spill detected near the storage tank area."
+   *               firebaseUrls:
    *                 type: array
    *                 items:
    *                   type: string
-   *                   format: binary
-   *                 description: Optional. Upload one or more supporting documents.
+   *                   example: "https://firebase.storage/photo.jpg"
    *     responses:
    *       201:
-   *         description: HSE report created successfully
+   *         description: Report created successfully
    *       400:
    *         description: Missing required fields
    *       401:
@@ -60,38 +57,28 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.post("/report", verifyToken, upload, hseController.createHSEReport);
+  router.post("/", verifyToken, hseReportController.createReport);
 
   /**
    * @swagger
-   * /api/hse/reports:
+   * /api/hse/report:
    *   get:
    *     summary: Get all HSE reports
-   *     description: Retrieves a paginated list of HSE reports. Supports filtering by date, status, and search text.
-   *     tags: [HSE]
+   *     description: Fetch all reports with optional filters for status, search, and date range.
+   *     tags: [HSE Reports]
    *     security:
    *       - bearerAuth: []
    *     parameters:
-   *       - in: query
-   *         name: page
-   *         schema:
-   *           type: integer
-   *           default: 1
-   *       - in: query
-   *         name: limit
-   *         schema:
-   *           type: integer
-   *           default: 20
-   *       - in: query
-   *         name: search
-   *         schema:
-   *           type: string
-   *         description: Search reports by content or reporter name
    *       - in: query
    *         name: status
    *         schema:
    *           type: string
    *           enum: [open, pending, closed]
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         example: "spill"
    *       - in: query
    *         name: startDate
    *         schema:
@@ -102,28 +89,30 @@ module.exports = (app) => {
    *         schema:
    *           type: string
    *           format: date
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
    *     responses:
    *       200:
-   *         description: Paginated list of reports
+   *         description: Reports fetched successfully
    *       401:
    *         description: Unauthorized
    *       500:
    *         description: Server error
    */
-  router.get(
-    "/reports",
-    verifyToken,
-    hasPermission("hse:read"),
-    hseController.getAllHSEReports
-  );
+  router.get("/", verifyToken, hseReportController.getAllReports);
 
   /**
    * @swagger
    * /api/hse/report/{id}:
    *   get:
-   *     summary: Get a specific HSE report
-   *     description: Fetch details of one HSE report including reporter, closer, and attached documents.
-   *     tags: [HSE]
+   *     summary: Get single HSE report by ID
+   *     tags: [HSE Reports]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -132,26 +121,25 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *           example: 5
+   *         example: 7
    *     responses:
    *       200:
-   *         description: HSE report details
-   *       401:
-   *         description: Unauthorized
+   *         description: Report details retrieved
    *       404:
    *         description: Report not found
+   *       401:
+   *         description: Unauthorized
    *       500:
    *         description: Server error
    */
-  router.get("/report/:id", verifyToken, hseController.getHSEReport);
+  router.get("/:id", verifyToken, hseReportController.getReportById);
 
   /**
    * @swagger
    * /api/hse/report/{id}:
    *   put:
-   *     summary: Update an HSE report
-   *     description: Update report details, status, or attach new documents. Supports file upload.
-   *     tags: [HSE]
+   *     summary: Update an existing HSE report
+   *     tags: [HSE Reports]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -160,55 +148,44 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *           example: 5
+   *         example: 3
    *     requestBody:
+   *       required: true
    *       content:
-   *         multipart/form-data:
+   *         application/json:
    *           schema:
    *             type: object
    *             properties:
    *               report:
    *                 type: string
-   *                 example: "Updated report text."
-   *               status:
-   *                 type: string
-   *                 enum: [open, pending, closed]
-   *                 example: "closed"
-   *               file:
+   *                 example: "Updated report description"
+   *               firebaseUrls:
    *                 type: array
    *                 items:
    *                   type: string
-   *                   format: binary
-   *                 description: Optional. Upload additional evidence files.
+   *                   example: "https://firebase.storage/newFile.jpg"
+   *               status:
+   *                 type: string
+   *                 enum: [open, pending, closed]
+   *               closedBy:
+   *                 type: integer
+   *                 example: 2
    *     responses:
    *       200:
    *         description: Report updated successfully
-   *       400:
-   *         description: Invalid input
-   *       401:
-   *         description: Unauthorized
-   *       403:
-   *         description: Missing hse:update permission
    *       404:
    *         description: Report not found
    *       500:
    *         description: Server error
    */
-  router.put(
-    "/report/:id",
-    verifyToken,
-    hasPermission("hse:update"),
-    upload,
-    hseController.updateHSEReport
-  );
+  router.put("/:id", verifyToken, hseReportController.updateReport);
 
   /**
    * @swagger
    * /api/hse/report/{id}:
    *   delete:
-   *     summary: Delete an HSE report and its documents
-   *     description: Permanently removes a report and all its attached documents.
-   *     tags: [HSE]
+   *     summary: Delete an HSE report
+   *     tags: [HSE Reports]
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -217,89 +194,16 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *           example: 5
+   *         example: 4
    *     responses:
    *       200:
    *         description: Report deleted successfully
-   *       401:
-   *         description: Unauthorized
-   *       403:
-   *         description: Missing hse:delete permission
    *       404:
    *         description: Report not found
    *       500:
    *         description: Server error
    */
-  router.delete(
-    "/report/:id",
-    verifyToken,
-    hasPermission("hse:delete"),
-    hseController.deleteHSEReport
-  );
+  router.delete("/:id", verifyToken, hseReportController.deleteReport);
 
-  /**
-   * @swagger
-   * /api/hse/report/{reportId}/documents:
-   *   get:
-   *     summary: Get all documents for an HSE report
-   *     description: Fetch all files attached to a specific HSE report.
-   *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: reportId
-   *         required: true
-   *         schema:
-   *           type: integer
-   *           example: 7
-   *     responses:
-   *       200:
-   *         description: List of documents
-   *       401:
-   *         description: Unauthorized
-   *       404:
-   *         description: No documents found
-   *       500:
-   *         description: Server error
-   */
-  router.get(
-    "/report/:reportId/documents",
-    verifyToken,
-    hseController.getHseDocuments
-  );
-
-  /**
-   * @swagger
-   * /api/hse/document/{id}:
-   *   delete:
-   *     summary: Delete an HSE document
-   *     description: Permanently removes a specific document from storage.
-   *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema:
-   *           type: integer
-   *           example: 9
-   *     responses:
-   *       200:
-   *         description: Document deleted successfully
-   *       401:
-   *         description: Unauthorized
-   *       404:
-   *         description: Document not found
-   *       500:
-   *         description: Server error
-   */
-  router.delete(
-    "/document/:id",
-    verifyToken,
-    hseController.deleteHseDocument
-  );
-
-  app.use("/api/hse", router);
+  app.use("/api/hse/report", router);
 };
