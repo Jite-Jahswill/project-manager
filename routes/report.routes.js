@@ -75,7 +75,7 @@ module.exports = (app) => {
    *           $ref: '#/components/schemas/UserSummary'
    *           description: User who submitted the report
    *         report:
-   *           type: string
+   *           type: text
    *           description: Detailed long-text description of the incident or report
    *         supportingDocUrl:
    *           type: string
@@ -145,7 +145,7 @@ module.exports = (app) => {
    *                 example: "14:30:00"
    *                 description: Time of the incident/report
    *               report:
-   *                 type: string
+   *                 type: text
    *                 description: Detailed description of the incident
    *               supportingDocUrl:
    *                 type: string
@@ -344,7 +344,7 @@ module.exports = (app) => {
    *                 type: string
    *                 format: time
    *               report:
-   *                 type: string
+   *                 type: text
    *               supportingDocUrl:
    *                 type: string
    *                 nullable: true
@@ -416,7 +416,7 @@ module.exports = (app) => {
   /**
    * @swagger
    * /api/reports/{id}/close:
-   *   patch:
+   *   put:
    *     summary: Close a report
    *     description: Marks a report as closed, sets closedAt and closedBy. Only open/pending reports can be closed.
    *     tags: [Reports]
@@ -451,7 +451,7 @@ module.exports = (app) => {
    *       500:
    *         description: Internal server error
    */
-  router.patch("/:id/close", verifyToken, hasPermission("report:close"), reportController.closeReport);
+  router.put("/:id/close", verifyToken, hasPermission("report:update"), reportController.closeReport);
 
   app.use("/api/reports", router);
 };
