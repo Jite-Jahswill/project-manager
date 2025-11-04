@@ -2,26 +2,32 @@ const { HSEReport, HseDocument, User, sequelize } = require("../models");
 const { Op } = require("sequelize");
 
 //
-// === CREATE ===
+// === CREATE REPORT ===
 //
 exports.createHSEReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { dateOfReport, timeOfReport, report, hseDocumentId } = req.body;
+    const { dateOfReport, timeOfReport, report } = req.body;
     const reporterId = req.user.id;
 
-    if (!dateOfReport || !timeOfReport || !report) {
-      return res.status(400).json({
-        message: "dateOfReport, timeOfReport, and report are required",
-      });
-    }
+    if (!dateOfReport || !timeOfReport || !report)
+      return res.status(400).json({ message: "dateOfReport, timeOfReport, and report are required" });
 
-    let supportingDocUrl = null;
+    // 1️⃣ Create the HSE Report first
+    const hseReport = await HSEReport.create(
+      {
+        dateOfReport,
+        timeOfReport,
+        reporterId,
+        report,
+        status: "open",
+      },
+      { transaction: t }
+    );
 
-    // 1️⃣ If user attached new file(s)
-    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
-      // Create document record(s)
-      const createdDocs = await Promise.all(
+    // 2️⃣ Handle uploaded documents (if any)
+    if (req.uploadedFiles?.length > 0) {
+      await Promise.all(
         req.uploadedFiles.map((file) =>
           HseDocument.create(
             {
@@ -30,58 +36,17 @@ exports.createHSEReport = async (req, res) => {
               uploadedBy: reporterId,
               type: file.mimetype,
               size: file.size,
+              reportId: hseReport.id, // link doc to report
             },
             { transaction: t }
           )
         )
       );
-
-      // Set supportingDocUrl from first uploaded file
-      supportingDocUrl = createdDocs[0].firebaseUrls[0];
-    }
-
-    // 2️⃣ If user referenced an existing document instead
-    else if (hseDocumentId) {
-      const existingDoc = await HseDocument.findByPk(hseDocumentId, {
-        transaction: t,
-      });
-      if (!existingDoc)
-        return res.status(404).json({ message: "Referenced document not found" });
-
-      supportingDocUrl = existingDoc.firebaseUrls?.[0] || null;
-    }
-
-    // 3️⃣ Create HSE report
-    const hseReport = await HSEReport.create(
-      {
-        dateOfReport,
-        timeOfReport,
-        reporterId,
-        report,
-        supportingDocUrl,
-        status: "open",
-      },
-      { transaction: t }
-    );
-
-    // Link uploaded docs to this report
-    if (req.uploadedFiles?.length > 0) {
-      await HseDocument.update(
-        { reportId: hseReport.id },
-        {
-          where: {
-            uploadedBy: reporterId,
-            id: {
-              [Op.in]: req.uploadedFiles.map((f) => f.dbId).filter(Boolean),
-            },
-          },
-          transaction: t,
-        }
-      );
     }
 
     await t.commit();
 
+    // Fetch full details
     const full = await HSEReport.findByPk(hseReport.id, {
       include: [
         { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
@@ -89,86 +54,41 @@ exports.createHSEReport = async (req, res) => {
       ],
     });
 
-    res.status(201).json({ message: "HSE report submitted", hseReport: full });
+    res.status(201).json({ message: "HSE report created successfully", hseReport: full });
   } catch (err) {
     await t.rollback();
     console.error("HSE create error:", err);
-    res.status(500).json({ message: "Failed to submit", details: err.message });
-  }
-};
-
-exports.getHSEReport = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const report = await HSEReport.findOne({
-      where: { id },
-      include: [
-        {
-          model: User,
-          as: "reporter",
-          attributes: ["id", "firstName", "lastName", "email", "role"],
-        },
-        {
-          model: User,
-          as: "closedBy",
-          attributes: ["id", "firstName", "lastName", "email", "role"],
-        },
-        {
-          model: Document,
-          as: "documents",
-          attributes: ["id", "fileName", "fileUrl", "fileType", "uploadedAt"],
-        },
-      ],
-    });
-
-    if (!report) {
-      return res.status(404).json({ message: "HSE report not found" });
-    }
-
-    // Format for cleaner frontend output
-    const formatted = {
-      id: report.id,
-      title: report.title,
-      description: report.description,
-      status: report.status,
-      priority: report.priority,
-      location: report.location,
-      createdAt: report.createdAt,
-      updatedAt: report.updatedAt,
-      reporter: report.reporter
-        ? {
-            id: report.reporter.id,
-            fullName: `${report.reporter.firstName || ""} ${
-              report.reporter.lastName || ""
-            }`.trim(),
-            email: report.reporter.email,
-            role: report.reporter.role,
-          }
-        : null,
-      closedBy: report.closedBy
-        ? {
-            id: report.closedBy.id,
-            fullName: `${report.closedBy.firstName || ""} ${
-              report.closedBy.lastName || ""
-            }`.trim(),
-            email: report.closedBy.email,
-            role: report.closedBy.role,
-          }
-        : null,
-      documents: report.documents || [],
-    };
-
-    return res.status(200).json(formatted);
-  } catch (err) {
-    console.error("getHSEReport error:", err);
-    return res.status(500).json({ error: "Server error while fetching report" });
+    res.status(500).json({ message: "Failed to create report", details: err.message });
   }
 };
 
 
 //
-// === READ ALL (Search + Date Filter) ===
+// === GET SINGLE REPORT ===
+//
+exports.getHSEReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const report = await HSEReport.findByPk(id, {
+      include: [
+        { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email", "role"] },
+        { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email", "role"], required: false },
+        { model: HseDocument, as: "documents" },
+      ],
+    });
+
+    if (!report) return res.status(404).json({ message: "Report not found" });
+
+    res.json(report);
+  } catch (err) {
+    console.error("Get HSE report error:", err);
+    res.status(500).json({ message: "Failed to fetch report" });
+  }
+};
+
+
+//
+// === GET ALL REPORTS (filter + pagination) ===
 //
 exports.getAllHSEReports = async (req, res) => {
   try {
@@ -176,7 +96,6 @@ exports.getAllHSEReports = async (req, res) => {
     const offset = (page - 1) * limit;
     const where = {};
 
-    // 🔍 Search by report content or reporter name
     if (search) {
       where[Op.or] = [
         { report: { [Op.like]: `%${search}%` } },
@@ -185,12 +104,8 @@ exports.getAllHSEReports = async (req, res) => {
       ];
     }
 
-    // 🔖 Filter by status
-    if (status && ["open", "pending", "closed"].includes(status)) {
-      where.status = status;
-    }
+    if (status && ["open", "pending", "closed"].includes(status)) where.status = status;
 
-    // 📅 Filter by date range
     if (startDate || endDate) {
       where.dateOfReport = {};
       if (startDate) where.dateOfReport[Op.gte] = new Date(startDate);
@@ -201,7 +116,6 @@ exports.getAllHSEReports = async (req, res) => {
       where,
       include: [
         { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
-        { model: User, as: "closer", attributes: ["id", "firstName", "lastName"], required: false },
         { model: HseDocument, as: "documents" },
       ],
       order: [["dateOfReport", "DESC"], ["timeOfReport", "DESC"]],
@@ -219,41 +133,40 @@ exports.getAllHSEReports = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Get HSE error:", err);
-    res.status(500).json({ error: "Failed to fetch reports" });
+    console.error("Get all HSE reports error:", err);
+    res.status(500).json({ message: "Failed to fetch reports" });
   }
 };
 
 
 //
-// === UPDATE ===
+// === UPDATE REPORT + DOCS ===
 //
 exports.updateHSEReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { report, status, hseDocumentId } = req.body;
-    const hseReport = await HSEReport.findByPk(id, { transaction: t });
+    const { report, status } = req.body;
 
+    const hseReport = await HSEReport.findByPk(id, { transaction: t });
     if (!hseReport) {
       await t.rollback();
       return res.status(404).json({ message: "Report not found" });
     }
 
-    const updates = {};
-
-    if (report) updates.report = report;
+    // Update text or status
+    if (report) hseReport.report = report;
     if (status && ["open", "pending", "closed"].includes(status)) {
-      updates.status = status;
+      hseReport.status = status;
       if (status === "closed") {
-        updates.closedAt = new Date();
-        updates.closedBy = req.user.id;
+        hseReport.closedAt = new Date();
+        hseReport.closedBy = req.user.id;
       }
     }
 
-    // If new file(s) uploaded
+    // New files uploaded
     if (req.uploadedFiles?.length > 0) {
-      const newDocs = await Promise.all(
+      await Promise.all(
         req.uploadedFiles.map((file) =>
           HseDocument.create(
             {
@@ -268,37 +181,29 @@ exports.updateHSEReport = async (req, res) => {
           )
         )
       );
-      updates.supportingDocUrl = newDocs[0].firebaseUrls[0];
     }
 
-    // Or reuse an existing document
-    else if (hseDocumentId) {
-      const doc = await HseDocument.findByPk(hseDocumentId, { transaction: t });
-      if (doc) updates.supportingDocUrl = doc.firebaseUrls?.[0];
-    }
-
-    await hseReport.update(updates, { transaction: t });
+    await hseReport.save({ transaction: t });
     await t.commit();
 
     const updated = await HSEReport.findByPk(id, {
       include: [
         { model: User, as: "reporter", attributes: ["id", "firstName", "lastName"] },
-        { model: User, as: "closer", attributes: ["id", "firstName", "lastName"], required: false },
         { model: HseDocument, as: "documents" },
       ],
     });
 
-    res.json({ message: "Report updated successfully", hseReport: updated });
+    res.json({ message: "HSE report updated successfully", hseReport: updated });
   } catch (err) {
     await t.rollback();
-    console.error("Update HSE error:", err);
-    res.status(500).json({ error: "Failed to update" });
+    console.error("Update HSE report error:", err);
+    res.status(500).json({ message: "Failed to update report" });
   }
 };
 
 
 //
-// === DELETE REPORT & DOCUMENTS ===
+// === DELETE REPORT + DOCUMENTS ===
 //
 exports.deleteHSEReport = async (req, res) => {
   const t = await sequelize.transaction();
@@ -318,17 +223,17 @@ exports.deleteHSEReport = async (req, res) => {
     await report.destroy({ transaction: t });
 
     await t.commit();
-    res.json({ message: "Report and attached documents deleted" });
+    res.json({ message: "Report and all attached documents deleted successfully" });
   } catch (err) {
     await t.rollback();
-    console.error("Delete HSE error:", err);
-    res.status(500).json({ error: "Failed to delete" });
+    console.error("Delete HSE report error:", err);
+    res.status(500).json({ message: "Failed to delete report" });
   }
 };
 
 
 //
-// === DOCUMENT CRUD ===
+// === DOCUMENT MANAGEMENT ===
 //
 exports.getHseDocuments = async (req, res) => {
   try {
@@ -341,7 +246,7 @@ exports.getHseDocuments = async (req, res) => {
     res.json({ documents: docs });
   } catch (err) {
     console.error("Get documents error:", err);
-    res.status(500).json({ error: "Failed to get documents" });
+    res.status(500).json({ error: "Failed to fetch documents" });
   }
 };
 
