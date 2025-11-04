@@ -24,6 +24,9 @@ db.RolePermission = require("./rolePermission.model")(sequelize, DataTypes);
 db.UserRole = require("./userRole.model")(sequelize, DataTypes);
 db.Document = require("./document.model")(sequelize, DataTypes);
 db.HSEReport = require("./hseReport.model")(sequelize, DataTypes);
+db.Conversation = require("./conversation.model")(sequelize, DataTypes);
+db.Message = require("./message.model")(sequelize, DataTypes);
+db.Participant = require("./participant.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
 Object.keys(db).forEach((modelName) => {
@@ -76,62 +79,64 @@ db.Team.belongsToMany(db.Project, {
 // === MESSAGING ASSOCIATIONS ===
 
 // Conversation ↔ User (via Participant)
-// db.Conversation.belongsToMany(db.User, {
-//   through: db.Participant,
-//   foreignKey: "conversationId",
-//   otherKey: "userId",
-//   as: "participants", // ✅ Main alias for users in a conversation
-// });
-// db.User.belongsToMany(db.Conversation, {
-//   through: db.Participant,
-//   foreignKey: "userId",
-//   otherKey: "conversationId",
-//   as: "conversations",
-// });
+db.Conversation.belongsToMany(db.User, {
+  through: db.Participant,
+  foreignKey: "conversationId",
+  otherKey: "userId",
+  as: "participants",
+});
 
-// // Participant → Conversation & User
-// db.Participant.belongsTo(db.Conversation, {
-//   foreignKey: "conversationId",
-//   onDelete: "CASCADE",
-//   as: "conversation",
-// });
-// db.Participant.belongsTo(db.User, {
-//   foreignKey: "userId",
-//   onDelete: "CASCADE",
-//   as: "user",
-// });
+db.User.belongsToMany(db.Conversation, {
+  through: db.Participant,
+  foreignKey: "userId",
+  otherKey: "conversationId",
+  as: "conversations",
+});
 
-// db.Conversation.hasMany(db.Participant, {
-//   foreignKey: "conversationId",
-//   onDelete: "CASCADE",
-//   as: "participantEntries", 
-// });
-// db.User.hasMany(db.Participant, {
-//   foreignKey: "userId",
-//   onDelete: "CASCADE",
-//   as: "participantEntries",
-// });
+// Participant → Conversation & User
+db.Participant.belongsTo(db.Conversation, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+  as: "conversation",
+});
+db.Participant.belongsTo(db.User, {
+  foreignKey: "userId",
+  onDelete: "CASCADE",
+  as: "user",
+});
 
-// // Conversation → Message
-// db.Conversation.hasMany(db.Message, {
-//   foreignKey: "conversationId",
-//   onDelete: "CASCADE",
-//   as: "messages",
-// });
-// db.Message.belongsTo(db.Conversation, {
-//   foreignKey: "conversationId",
-//   as: "conversation",
-// });
+db.Conversation.hasMany(db.Participant, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+  as: "participantEntries",
+});
+db.User.hasMany(db.Participant, {
+  foreignKey: "userId",
+  onDelete: "CASCADE",
+  as: "participantEntries",
+});
 
-// // Message → User (sender)
-// db.Message.belongsTo(db.User, {
-//   as: "sender",
-//   foreignKey: "senderId",
-// });
-// db.User.hasMany(db.Message, {
-//   as: "sentMessages",
-//   foreignKey: "senderId",
-// });
+// Conversation → Message
+db.Conversation.hasMany(db.Message, {
+  foreignKey: "conversationId",
+  onDelete: "CASCADE",
+  as: "messages",
+});
+db.Message.belongsTo(db.Conversation, {
+  foreignKey: "conversationId",
+  as: "conversation",
+});
+
+// Message → User (sender)
+db.Message.belongsTo(db.User, {
+  as: "sender",
+  foreignKey: "senderId",
+});
+db.User.hasMany(db.Message, {
+  as: "sentMessages",
+  foreignKey: "senderId",
+});
+
 
 // === OTHER ASSOCIATIONS ===
 db.Project.hasMany(db.Task, { foreignKey: "projectId", onDelete: "CASCADE" });
