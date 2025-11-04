@@ -10,7 +10,7 @@ module.exports = (app) => {
    * /api/messaging/direct/{recipientId}:
    *   post:
    *     summary: Start or get a direct chat
-   *     description: Creates a new direct conversation between two users or returns an existing one.
+   *     description: Creates a new direct conversation between two users or returns an existing one if it already exists.
    *     tags: [Messaging]
    *     security:
    *       - bearerAuth: []
@@ -20,11 +20,59 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 5
+   *         example: 2
    *         description: ID of the recipient user
+   *     requestBody:
+   *       required: false
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               name:
+   *                 type: string
+   *                 example: "Chat with Oghomena"
+   *                 description: Optional name for the conversation
    *     responses:
    *       201:
-   *         description: Conversation created or fetched
+   *         description: Conversation created or fetched successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 id:
+   *                   type: integer
+   *                   example: 1
+   *                 type:
+   *                   type: string
+   *                   example: "direct"
+   *                 name:
+   *                   type: string
+   *                   example: "Chat with Oghomena"
+   *                 createdBy:
+   *                   type: integer
+   *                   example: 1
+   *                 participants:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                         example: 2
+   *                       firstName:
+   *                         type: string
+   *                         example: "Oghomena"
+   *                       lastName:
+   *                         type: string
+   *                         example: "Mena"
+   *                       fullName:
+   *                         type: string
+   *                         example: "Oghomena Mena"
+   *                       email:
+   *                         type: string
+   *                         example: "oghomenag@gmail.com"
    *       400:
    *         description: Cannot chat with yourself
    *       401:
