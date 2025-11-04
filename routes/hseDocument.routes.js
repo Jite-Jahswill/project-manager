@@ -14,10 +14,10 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/hse/document:
+   * /api/hse/documents:
    *   post:
    *     summary: Upload a new HSE document
-   *     description: Creates a new HSE document record and links it to an HSE report.
+   *     description: Creates a new HSE document record and optionally links it to an HSE report.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -30,7 +30,6 @@ module.exports = (app) => {
    *             required:
    *               - name
    *               - firebaseUrls
-   *               - reportId
    *               - type
    *               - size
    *             properties:
@@ -65,7 +64,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/hse/document:
+   * /api/hse/documents:
    *   get:
    *     summary: Get all HSE documents
    *     description: Fetches all HSE documents, with optional search, filter, and date range.
@@ -123,7 +122,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/hse/document/{id}:
+   * /api/hse/documents/{id}:
    *   get:
    *     summary: Get a single HSE document
    *     description: Fetches details of a specific HSE document by ID.
@@ -152,7 +151,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/hse/document/{id}:
+   * /api/hse/documents/{id}:
    *   put:
    *     summary: Update an HSE document
    *     description: Updates metadata or Firebase URLs of an existing document.
@@ -201,7 +200,7 @@ module.exports = (app) => {
 
   /**
    * @swagger
-   * /api/hse/document/{id}:
+   * /api/hse/documents/{id}:
    *   delete:
    *     summary: Delete an HSE document
    *     description: Permanently deletes a document from the system.
@@ -227,5 +226,5 @@ module.exports = (app) => {
    */
   router.delete("/:id", verifyToken, hseDocumentController.deleteDocument);
 
-  app.use("/api/hse/document", router);
+  app.use("/api/hse/documents", router);
 };
