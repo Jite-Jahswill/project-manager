@@ -13,7 +13,7 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       firebaseUrls: {
-        type: DataTypes.JSON, // store array of URLs
+        type: DataTypes.JSON, // Store an array of file URLs
         allowNull: false,
         defaultValue: [],
       },
@@ -27,28 +27,26 @@ module.exports = (sequelize, DataTypes) => {
       },
       reportId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true, // Optional link to HSE report
         references: {
           model: "HSEReports",
           key: "id",
         },
       },
       type: {
-        type: DataTypes.STRING,
-        allowNull: false, // e.g., "image", "pdf", "docx"
+        type: DataTypes.STRING, // e.g., image, pdf, docx
+        allowNull: false,
       },
       size: {
-        type: DataTypes.INTEGER,
-        allowNull: false, // bytes
+        type: DataTypes.INTEGER, // File size (bytes)
+        allowNull: false,
       },
       createdAt: {
         type: DataTypes.DATE,
-        allowNull: false,
         defaultValue: DataTypes.NOW,
       },
       updatedAt: {
         type: DataTypes.DATE,
-        allowNull: false,
         defaultValue: DataTypes.NOW,
       },
     },
