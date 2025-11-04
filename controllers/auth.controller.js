@@ -169,7 +169,14 @@ exports.getAllUsers = async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const { count, rows } = await User.findAndCountAll({
       where,
-      include: [{ model: Role, where: roleWhere.name ? roleWhere : null, attributes: ["name"] }],
+      include: [
+        {
+          model: Role,
+          as: "role", // ✅ Important: must match alias in association
+          where: Object.keys(roleWhere).length ? roleWhere : undefined,
+          attributes: ["name"],
+        },
+      ],
       attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
       limit: parseInt(limit),
       offset,
@@ -183,7 +190,7 @@ exports.getAllUsers = async (req, res) => {
       lastName: u.lastName,
       email: u.email,
       phoneNumber: u.phoneNumber,
-      role: u.Role?.name || "unknown",
+      role: u.role?.name || "unknown",
     }));
 
     res.json({
@@ -205,7 +212,7 @@ exports.getUserById = async (req, res) => {
     if (!id || isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
 
     const user = await User.findByPk(id, {
-      include: [{ model: Role, attributes: ["name"] }],
+      include: [{ model: Role, as: "role", attributes: ["name"] }], // ✅ include alias
       attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
     });
 
@@ -217,7 +224,7 @@ exports.getUserById = async (req, res) => {
       lastName: user.lastName,
       email: user.email,
       phoneNumber: user.phoneNumber,
-      role: user.Role?.name || "unknown",
+      role: user.role?.name || "unknown",
     });
   } catch (error) {
     console.error("Get user error:", error);
