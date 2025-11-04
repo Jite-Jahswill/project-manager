@@ -9,7 +9,7 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Reports
-   *     description: Report management endpoints
+   *     description: HSE-style incident and safety report management
    *
    * components:
    *   securitySchemes:
@@ -17,69 +17,109 @@ module.exports = (app) => {
    *       type: http
    *       scheme: bearer
    *       bearerFormat: JWT
+   *
    *   schemas:
+   *     UserSummary:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         firstName:
+   *           type: string
+   *           example: "John"
+   *         lastName:
+   *           type: string
+   *           example: "Doe"
+   *         email:
+   *           type: string
+   *           example: "john.doe@example.com"
+   *
+   *     ProjectSummary:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         name:
+   *           type: string
+   *           example: "Site Construction"
+   *
+   *     TeamSummary:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         name:
+   *           type: string
+   *           example: "Safety Team"
+   *
    *     Report:
    *       type: object
    *       properties:
    *         id:
    *           type: integer
    *           example: 1
-   *         title:
+   *         dateOfReport:
    *           type: string
-   *           example: "Weekly Progress Report"
-   *         content:
+   *           format: date
+   *           example: "2025-11-04"
+   *           description: Date when the incident/report was recorded
+   *         timeOfReport:
    *           type: string
-   *           example: "Summary of project milestones achieved this week"
-   *         user:
-   *           type: object
-   *           properties:
-   *             userId:
-   *               type: integer
-   *               example: 1
-   *             firstName:
-   *               type: string
-   *               example: "John"
-   *             lastName:
-   *               type: string
-   *               example: "Doe"
-   *             email:
-   *               type: string
-   *               example: "john.doe@example.com"
-   *         team:
-   *           type: object
+   *           format: time
+   *           example: "14:30:00"
+   *           description: Time when the incident/report was recorded
+   *         reporter:
+   *           $ref: '#/components/schemas/UserSummary'
+   *           description: User who submitted the report
+   *         report:
+   *           type: string
+   *           description: Detailed long-text description of the incident or report
+   *         supportingDocUrl:
+   *           type: string
    *           nullable: true
-   *           properties:
-   *             teamId:
-   *               type: integer
-   *               example: 1
-   *             name:
-   *               type: string
-   *               example: "Development Team"
+   *           example: "https://storage.example.com/docs/report-1.pdf"
+   *           description: Optional URL to supporting document (photo, PDF, etc.)
+   *         status:
+   *           type: string
+   *           enum: [open, pending, closed]
+   *           default: open
+   *           example: "open"
+   *           description: Current status of the report
+   *         closedAt:
+   *           type: string
+   *           format: date-time
+   *           nullable: true
+   *           example: "2025-11-05T10:00:00.000Z"
+   *           description: Timestamp when report was closed
+   *         closer:
+   *           $ref: '#/components/schemas/UserSummary'
+   *           nullable: true
+   *           description: User who closed the report
    *         project:
-   *           type: object
-   *           properties:
-   *             projectId:
-   *               type: integer
-   *               example: 1
-   *             name:
-   *               type: string
-   *               example: "Website Redesign"
+   *           $ref: '#/components/schemas/ProjectSummary'
+   *           nullable: true
+   *         team:
+   *           $ref: '#/components/schemas/TeamSummary'
+   *           nullable: true
    *         createdAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T20:13:00.000Z"
+   *           example: "2025-11-04T14:30:00.000Z"
    *         updatedAt:
    *           type: string
    *           format: date-time
-   *           example: "2025-07-19T20:13:00.000Z"
+   *           example: "2025-11-04T14:30:00.000Z"
    */
 
   /**
    * @swagger
    * /api/reports:
    *   post:
-   *     summary: Create a new report
-   *     description: Creates a new report associated with a project and optionally a team. Accessible to any authenticated user.
+   *     summary: Create a new HSE report
+   *     description: Creates a new HSE incident/safety report. Accessible to any authenticated user.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -90,27 +130,38 @@ module.exports = (app) => {
    *           schema:
    *             type: object
    *             required:
-   *               - title
-   *               - content
-   *               - projectId
+   *               - dateOfReport
+   *               - timeOfReport
+   *               - report
    *             properties:
-   *               title:
+   *               dateOfReport:
    *                 type: string
-   *                 example: "Weekly Progress Report"
-   *                 description: Title of the report
-   *               content:
+   *                 format: date
+   *                 example: "2025-11-04"
+   *                 description: Date of the incident/report
+   *               timeOfReport:
    *                 type: string
-   *                 example: "Summary of project milestones achieved this week"
-   *                 description: Content of the report
+   *                 format: time
+   *                 example: "14:30:00"
+   *                 description: Time of the incident/report
+   *               report:
+   *                 type: string
+   *                 description: Detailed description of the incident
+   *               supportingDocUrl:
+   *                 type: string
+   *                 nullable: true
+   *                 example: "https://storage.example.com/docs/incident-1.jpg"
+   *                 description: Optional link to supporting evidence
+   *               projectId:
+   *                 type: integer
+   *                 example: 1
+   *                 nullable: true
+   *                 description: Associated project ID
    *               teamId:
    *                 type: integer
    *                 example: 1
    *                 nullable: true
-   *                 description: ID of the team associated with the report
-   *               projectId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: ID of the project associated with the report
+   *                 description: Associated team ID
    *     responses:
    *       201:
    *         description: Report created successfully
@@ -133,40 +184,13 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Title is required"
+   *                   example: "dateOfReport, timeOfReport, and report are required"
    *       401:
    *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
    *       404:
-   *         description: User, team, or project not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Project not found"
+   *         description: Project or team not found
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error creating report"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.post("/", verifyToken, hasPermission("report:create"), reportController.createReport);
 
@@ -174,8 +198,8 @@ module.exports = (app) => {
    * @swagger
    * /api/reports:
    *   get:
-   *     summary: Get all reports with optional filters
-   *     description: Retrieves a paginated list of all reports with optional filters for projectId, userName, and projectName. Accessible to any authenticated user.
+   *     summary: Get all reports with filters
+   *     description: Retrieves paginated list of reports with optional filters. Accessible to any authenticated user.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -185,22 +209,23 @@ module.exports = (app) => {
    *         schema:
    *           type: integer
    *         required: false
-   *         description: Filter reports by project ID
+   *         description: Filter by project ID
    *         example: 1
    *       - in: query
-   *         name: userName
+   *         name: status
    *         schema:
    *           type: string
+   *           enum: [open, pending, closed]
    *         required: false
-   *         description: Filter reports by user's first or last name (partial match)
-   *         example: "John"
+   *         description: Filter by report status
+   *         example: open
    *       - in: query
-   *         name: projectName
+   *         name: reporterName
    *         schema:
    *           type: string
    *         required: false
-   *         description: Filter reports by project name (partial match)
-   *         example: "Website"
+   *         description: Filter by reporter's first or last name (partial match)
+   *         example: John
    *       - in: query
    *         name: page
    *         schema:
@@ -208,8 +233,7 @@ module.exports = (app) => {
    *           minimum: 1
    *           default: 1
    *         required: false
-   *         description: Page number for pagination
-   *         example: 1
+   *         description: Page number
    *       - in: query
    *         name: limit
    *         schema:
@@ -217,8 +241,7 @@ module.exports = (app) => {
    *           minimum: 1
    *           default: 20
    *         required: false
-   *         description: Number of items per page
-   *         example: 20
+   *         description: Items per page
    *     responses:
    *       200:
    *         description: List of reports
@@ -247,38 +270,11 @@ module.exports = (app) => {
    *                       type: integer
    *                       example: 20
    *       400:
-   *         description: Invalid page or limit
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Invalid page or limit"
+   *         description: Invalid pagination parameters
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error fetching reports"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.get("/", verifyToken, hasPermission("report:read"), reportController.getAllReports);
 
@@ -287,7 +283,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   get:
    *     summary: Get a report by ID
-   *     description: Retrieves a specific report by ID, including associated user and project details. Accessible to any authenticated user.
+   *     description: Retrieves a single report with full associations.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -310,38 +306,11 @@ module.exports = (app) => {
    *                 report:
    *                   $ref: '#/components/schemas/Report'
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       404:
    *         description: Report not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Report not found"
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error retrieving report"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.get("/:id", verifyToken, hasPermission("report:read"), reportController.getReportById);
 
@@ -350,7 +319,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   put:
    *     summary: Update a report
-   *     description: Updates a report's title and/or content and notifies admins and managers via email. Accessible to any authenticated user.
+   *     description: Updates any field of the report. Status change to 'closed' auto-sets closedAt and closedBy.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -360,7 +329,6 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         description: Report ID
    *         example: 1
    *     requestBody:
    *       required: true
@@ -369,17 +337,26 @@ module.exports = (app) => {
    *           schema:
    *             type: object
    *             properties:
-   *               title:
+   *               dateOfReport:
    *                 type: string
-   *                 example: "Updated Weekly Progress Report"
-   *                 description: New title for the report
-   *               content:
+   *                 format: date
+   *               timeOfReport:
    *                 type: string
-   *                 example: "Updated summary of project milestones"
-   *                 description: New content for the report
+   *                 format: time
+   *               report:
+   *                 type: string
+   *               supportingDocUrl:
+   *                 type: string
+   *                 nullable: true
+   *               status:
+   *                 type: string
+   *                 enum: [open, pending, closed]
+   *               closedBy:
+   *                 type: integer
+   *                 description: Required only if status=closed and different from current user
    *     responses:
    *       200:
-   *         description: Report updated successfully
+   *         description: Report updated
    *         content:
    *           application/json:
    *             schema:
@@ -387,52 +364,16 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Report updated successfully"
    *                 report:
    *                   $ref: '#/components/schemas/Report'
    *       400:
-   *         description: No fields provided for update
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "At least one field (title, content) is required"
+   *         description: No valid fields to update
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       404:
    *         description: Report not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Report not found"
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error updating report"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.put("/:id", verifyToken, hasPermission("report:update"), reportController.updateReport);
 
@@ -441,7 +382,7 @@ module.exports = (app) => {
    * /api/reports/{id}:
    *   delete:
    *     summary: Delete a report
-   *     description: Deletes a report and notifies admins, managers, and the report's creator via email. Accessible to any authenticated user.
+   *     description: Permanently deletes a report and notifies admins and reporter.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
@@ -451,11 +392,10 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         description: Report ID
    *         example: 1
    *     responses:
    *       200:
-   *         description: Report deleted successfully
+   *         description: Report deleted
    *         content:
    *           application/json:
    *             schema:
@@ -465,71 +405,33 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Report deleted successfully"
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       404:
    *         description: Report not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Report not found"
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error deleting report"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.delete("/:id", verifyToken, hasPermission("report:delete"), reportController.deleteReport);
 
   /**
    * @swagger
-   * /api/reports/assign:
-   *   post:
-   *     summary: Assign a report to a user
-   *     description: Assigns a report to a specified user and notifies admins, managers, and the assigned user via email. Accessible to any authenticated user.
+   * /api/reports/{id}/close:
+   *   patch:
+   *     summary: Close a report
+   *     description: Marks a report as closed, sets closedAt and closedBy. Only open/pending reports can be closed.
    *     tags: [Reports]
    *     security:
    *       - bearerAuth: []
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             required:
-   *               - reportId
-   *               - userId
-   *             properties:
-   *               reportId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: ID of the report to assign
-   *               userId:
-   *                 type: integer
-   *                 example: 1
-   *                 description: ID of the user to assign the report to
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         example: 1
    *     responses:
    *       200:
-   *         description: Report assigned successfully
+   *         description: Report closed successfully
    *         content:
    *           application/json:
    *             schema:
@@ -537,54 +439,19 @@ module.exports = (app) => {
    *               properties:
    *                 message:
    *                   type: string
-   *                   example: "Report assigned successfully"
+   *                   example: "Report closed"
    *                 report:
    *                   $ref: '#/components/schemas/Report'
    *       400:
-   *         description: Missing required fields
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "reportId and userId are required"
+   *         description: Report already closed
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       404:
-   *         description: Report or user not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Report not found"
+   *         description: Report not found
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Error assigning report"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
-  router.post("/assign", verifyToken, hasPermission("report:create"), reportController.assignReportToUser);
+  router.patch("/:id/close", verifyToken, hasPermission("report:close"), reportController.closeReport);
 
   app.use("/api/reports", router);
 };
