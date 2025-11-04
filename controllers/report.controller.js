@@ -1,5 +1,6 @@
 const db = require("../models");
 const sendMail = require("../utils/mailer");
+
 const Report = db.Report;
 const User = db.User;
 const Project = db.Project;
@@ -13,9 +14,8 @@ async function notifyAdminsAndManagers(subject, html, transaction = null) {
       attributes: ["email"],
       transaction,
     });
-
     const emailPromises = recipients
-      .map((user) => user.email)
+      .map((u) => u.email)
       .filter(Boolean)
       .map((email) =>
         sendMail({
@@ -24,472 +24,292 @@ async function notifyAdminsAndManagers(subject, html, transaction = null) {
           html,
         })
       );
-
     await Promise.all(emailPromises);
   } catch (error) {
-    console.error(`Error in notifyAdminsAndManagers: ${error.message}`, {
-      stack: error.stack,
-      context: { endpoint: "notifyAdminsAndManagers", subject },
-    });
+    console.error(`notifyAdminsAndManagers error: ${error.message}`);
   }
 }
 
 module.exports = {
-  // Create a new report (open to any authenticated user)
+  // CREATE
   async createReport(req, res) {
-    const transaction = await db.sequelize.transaction();
+    const t = await db.sequelize.transaction();
     try {
-      // Check if required models are defined
-      if (!User || typeof User.findOne !== "function") {
-        throw new Error("User model is undefined or invalid");
-      }
-      if (!Report || typeof Report.create !== "function") {
-        throw new Error("Report model is undefined or invalid");
+      const {
+        dateOfReport,
+        timeOfReport,
+        report,
+        supportingDocUrl,
+        projectId,
+        teamId,
+      } = req.body;
+
+      if (!dateOfReport || !timeOfReport || !report) {
+        await t.rollback();
+        return res.status(400).json({ message: "dateOfReport, timeOfReport, and report are required" });
       }
 
-      const { title, content, teamId, projectId } = req.body;
-
-      // Validate input
-      if (!title) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Title is required" });
-      }
-      if (!content) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Content is required" });
-      }
-      if (!projectId) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Project ID is required" });
+      const reporter = await User.findByPk(req.user.id, { transaction: t });
+      if (!reporter) {
+        await t.rollback();
+        return res.status(404).json({ message: "Reporter not found" });
       }
 
-      // Verify user exists
-      const user = await User.findOne({
-        where: { id: req.user.id },
-        attributes: ["id", "firstName", "lastName", "email"],
-        transaction,
-      });
-      if (!user) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Verify team exists (if provided)
-      let team = null;
-      if (teamId) {
-        if (!Team || typeof Team.findOne !== "function") {
-          throw new Error("Team model is undefined or invalid");
-        }
-        team = await Team.findOne({
-          where: { id: teamId },
-          attributes: ["id", "name"],
-          transaction,
-        });
-        if (!team) {
-          await transaction.rollback();
-          return res.status(404).json({ message: "Team not found" });
-        }
-      }
-
-      // Verify project exists
-      if (!Project || typeof Project.findOne !== "function") {
-        throw new Error("Project model is undefined or invalid");
-      }
-      const project = await Project.findOne({
-        where: { id: projectId },
-        attributes: ["id", "name"],
-        transaction,
-      });
-      if (!project) {
-        await transaction.rollback();
+      const project = projectId
+        ? await Project.findByPk(projectId, { transaction: t })
+        : null;
+      if (projectId && !project) {
+        await t.rollback();
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Create report using Sequelize
-      const report = await Report.create(
+      const team = teamId ? await Team.findByPk(teamId, { transaction: t }) : null;
+      if (teamId && !team) {
+        await t.rollback();
+        return res.status(404).json({ message: "Team not found" });
+      }
+
+      const newReport = await Report.create(
         {
-          title,
-          content,
-          userId: req.user.id,
-          teamId: teamId || null,
-          projectId,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          dateOfReport,
+          timeOfReport,
+          reporterId: req.user.id,
+          report,
+          supportingDocUrl: supportingDocUrl || null,
+          projectId: project?.id || null,
+          teamId: team?.id || null,
         },
-        { transaction }
+        { transaction: t }
       );
 
-      // Format response
-      const reportResponse = {
-        id: report.id,
-        title: report.title,
-        content: report.content,
-        user: {
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-        },
-        team: team ? { teamId: team.id, name: team.name } : null,
-        project: { projectId: project.id, name: project.name },
-        createdAt: report.createdAt,
-        updatedAt: report.updatedAt,
-      };
-
-      await transaction.commit();
-      res.status(201).json({ message: "Report created", report: reportResponse });
-    } catch (err) {
-      await transaction.rollback();
-      console.error(`Error in createReport: ${err.message}`, {
-        stack: err.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "createReport", body: req.body },
+      const response = await Report.findByPk(newReport.id, {
+        include: [
+          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: Project, as: "project", attributes: ["id", "name"] },
+          { model: Team, as: "team", attributes: ["id", "name"] },
+        ],
+        transaction: t,
       });
+
+      await t.commit();
+      res.status(201).json({ message: "Report created", report: response });
+    } catch (err) {
+      await t.rollback();
+      console.error("createReport error:", err);
       res.status(500).json({ message: "Error creating report", details: err.message });
     }
   },
 
-  // Get all reports (all authenticated users see all reports with filters)
+  // READ ALL
   async getAllReports(req, res) {
     try {
-      const { projectId, userName, projectName, page = 1, limit = 20 } = req.query;
+      const { projectId, status, reporterName, page = 1, limit = 20 } = req.query;
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
       if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
         return res.status(400).json({ message: "Invalid page or limit" });
       }
 
-      const whereClause = {};
-      if (projectId) {
-        whereClause.projectId = projectId;
-      }
+      const where = {};
+      if (projectId) where.projectId = projectId;
+      if (status) where.status = status;
 
-      const offset = (pageNum - 1) * limitNum;
+      const include = [
+        {
+          model: User,
+          as: "reporter",
+          attributes: ["id", "firstName", "lastName", "email"],
+          where: reporterName
+            ? {
+                [db.Sequelize.Op.or]: [
+                  { firstName: { [db.Sequelize.Op.like]: `%${reporterName}%` } },
+                  { lastName: { [db.Sequelize.Op.like]: `%${reporterName}%` } },
+                ],
+              }
+            : undefined,
+        },
+        { model: Project, as: "project", attributes: ["id", "name"] },
+        { model: Team, as: "team", attributes: ["id", "name"] },
+      ];
+
       const { count, rows } = await Report.findAndCountAll({
-        where: whereClause,
-        include: [
-          {
-            model: User,
-            attributes: ["id", "firstName", "lastName", "email"],
-            where: userName
-              ? {
-                  [db.Sequelize.Op.or]: [
-                    { firstName: { [db.Sequelize.Op.like]: `%${userName}%` } },
-                    { lastName: { [db.Sequelize.Op.like]: `%${userName}%` } },
-                  ],
-                }
-              : undefined,
-          },
-          {
-            model: Project,
-            attributes: ["id", "name"],
-            where: projectName
-              ? {
-                  name: { [db.Sequelize.Op.like]: `%${projectName}%` },
-                }
-              : undefined,
-          },
-        ],
+        where,
+        include,
         order: [["createdAt", "DESC"]],
         limit: limitNum,
-        offset,
+        offset: (pageNum - 1) * limitNum,
       });
-
-      const totalPages = Math.ceil(count / limitNum);
 
       res.status(200).json({
         reports: rows,
         pagination: {
           currentPage: pageNum,
-          totalPages,
+          totalPages: Math.ceil(count / limitNum),
           totalItems: count,
           itemsPerPage: limitNum,
         },
       });
-    } catch (error) {
-      console.error(`Error in getAllReports: ${error.message}`, {
-        stack: error.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "getAllReports", userId: req.user?.id, role: req.user?.role, query: req.query },
-      });
-      res.status(500).json({ message: "Error fetching reports", details: error.message });
+    } catch (err) {
+      console.error("getAllReports error:", err);
+      res.status(500).json({ message: "Error fetching reports", details: err.message });
     }
   },
 
-  // Get a single report by ID (all authenticated users can view any report)
+  // READ ONE
   async getReportById(req, res) {
     try {
-      const { id } = req.params;
-
-      const report = await Report.findByPk(id, {
+      const report = await Report.findByPk(req.params.id, {
         include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
+          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: Project, as: "project", attributes: ["id", "name"] },
+          { model: Team, as: "team", attributes: ["id", "name"] },
         ],
       });
-
-      if (!report) {
-        return res.status(404).json({ message: "Report not found" });
-      }
-
-      res.status(200).json({ report });
-    } catch (error) {
-      console.error(`Error in getReportById: ${error.message}`, {
-        stack: error.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "getReportById", userId: req.user?.id, role: req.user?.role, reportId: req.params.id },
-      });
-      res.status(500).json({ message: "Error retrieving report", details: error.message });
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      res.json({ report });
+    } catch (err) {
+      console.error("getReportById error:", err);
+      res.status(500).json({ message: "Error retrieving report", details: err.message });
     }
   },
 
-  // Update a report (all authenticated users can update any report)
+  // UPDATE
   async updateReport(req, res) {
-    const transaction = await db.sequelize.transaction();
+    const t = await db.sequelize.transaction();
     try {
       const { id } = req.params;
-      const { title, content } = req.body;
+      const {
+        dateOfReport,
+        timeOfReport,
+        report,
+        supportingDocUrl,
+        status,
+        closedBy,
+      } = req.body;
 
-      // Validate input
-      if (!title && !content) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "At least one field (title, content) is required" });
-      }
-
-      const report = await Report.findByPk(id, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
-        transaction,
-      });
-
-      if (!report) {
-        await transaction.rollback();
+      const reportInst = await Report.findByPk(id, { transaction: t });
+      if (!reportInst) {
+        await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
 
-      // Build raw SQL query
-      const updates = [];
-      const replacements = [];
-      if (title) {
-        updates.push("title = ?");
-        replacements.push(title);
-      }
-      if (content) {
-        updates.push("content = ?");
-        replacements.push(content);
-      }
-      updates.push("updatedAt = NOW()");
-
-      if (updates.length > 1 || (updates.length === 1 && !updates.includes("updatedAt = NOW()"))) {
-        await db.sequelize.query(
-          `
-          UPDATE Reports
-          SET ${updates.join(", ")}
-          WHERE id = ?
-          `,
-          {
-            replacements: [...replacements, parseInt(id)],
-            type: db.sequelize.QueryTypes.UPDATE,
-            transaction,
-          }
-        );
+      const updates = {};
+      if (dateOfReport) updates.dateOfReport = dateOfReport;
+      if (timeOfReport) updates.timeOfReport = timeOfReport;
+      if (report) updates.report = report;
+      if (supportingDocUrl !== undefined) updates.supportingDocUrl = supportingDocUrl;
+      if (status) {
+        updates.status = status;
+        if (status === "closed") {
+          updates.closedAt = new Date();
+          updates.closedBy = closedBy || req.user.id;
+        }
       }
 
-      // Fetch updated report
-      const updatedReport = await Report.findByPk(id, {
+      await reportInst.update(updates, { transaction: t });
+
+      const updated = await Report.findByPk(id, {
         include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
+          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: Project, as: "project", attributes: ["id", "name"] },
+          { model: Team, as: "team", attributes: ["id", "name"] },
         ],
-        transaction,
+        transaction: t,
       });
 
-      // Send update notification
       const html = `
         <h3>Report Updated</h3>
-        <p><strong>Title:</strong> ${updatedReport.title}</p>
-        <p><strong>Content:</strong> ${updatedReport.content}</p>
-        <p><strong>Project:</strong> ${updatedReport.Project?.name || "N/A"}</p>
-        <p><strong>By:</strong> ${updatedReport.User.firstName} ${updatedReport.User.lastName} (${updatedReport.User.email})</p>
+        <p><strong>Date:</strong> ${updated.dateOfReport} ${updated.timeOfReport}</p>
+        <p><strong>Status:</strong> ${updated.status}</p>
+        <p><strong>Reporter:</strong> ${updated.reporter.firstName} ${updated.reporter.lastName}</p>
+        <p><strong>Updated by:</strong> ${req.user.firstName} ${req.user.lastName}</p>
       `;
+      await notifyAdminsAndManagers("Report Updated", html, t);
 
-      await notifyAdminsAndManagers("Report Updated", html, transaction);
-
-      await transaction.commit();
-      res.status(200).json({
-        message: "Report updated successfully",
-        report: updatedReport,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error(`Error in updateReport: ${error.message}`, {
-        stack: error.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "updateReport", userId: req.user?.id, role: req.user?.role, reportId: req.params.id, body: req.body },
-      });
-      res.status(500).json({ message: "Error updating report", details: error.message });
+      await t.commit();
+      res.json({ message: "Report updated", report: updated });
+    } catch (err) {
+      await t.rollback();
+      console.error("updateReport error:", err);
+      res.status(500).json({ message: "Error updating report", details: err.message });
     }
   },
 
-  // Delete a report (all authenticated users can delete any report)
+  // DELETE
   async deleteReport(req, res) {
-    const transaction = await db.sequelize.transaction();
+    const t = await db.sequelize.transaction();
     try {
-      const { id } = req.params;
-
-      const report = await Report.findByPk(id, {
+      const report = await Report.findByPk(req.params.id, {
         include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
+          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
         ],
-        transaction,
+        transaction: t,
       });
-
       if (!report) {
-        await transaction.rollback();
+        await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
 
-      // Send deletion notification
       const html = `
         <h3>Report Deleted</h3>
-        <p><strong>Title:</strong> ${report.title}</p>
-        <p><strong>Project:</strong> ${report.Project?.name || "N/A"}</p>
-        <p><strong>By:</strong> ${report.User.firstName} ${report.User.lastName} (${report.User.email})</p>
-        <p>Deleted by: ${req.user.firstName} ${req.user.lastName} (${req.user.email})</p>
+        <p><strong>Date:</strong> ${report.dateOfReport} ${report.timeOfReport}</p>
+        <p><strong>Reporter:</strong> ${report.reporter.firstName} ${report.reporter.lastName}</p>
+        <p>Deleted by: ${req.user.firstName} ${req.user.lastName}</p>
       `;
 
-      // Notify admins/managers and the report's creator (if different from deleter)
-      const recipients = [{ email: report.User.email, role: "staff" }].filter(
-        (recipient) => recipient.email !== req.user.email // Avoid notifying the deleter
-      );
-      const adminManagerEmails = await User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-        transaction,
-      }).then((users) => users.map((u) => u.email).filter(Boolean));
-
-      const allRecipients = [...recipients.map((r) => r.email), ...adminManagerEmails];
-      if (allRecipients.length > 0) {
-        await sendMail({
-          to: allRecipients,
-          subject: "Report Deleted",
-          html,
-        });
-      }
-
-      await report.destroy({ transaction });
-
-      await transaction.commit();
-      res.status(200).json({ message: "Report deleted successfully" });
-    } catch (error) {
-      await transaction.rollback();
-      console.error(`Error in deleteReport: ${error.message}`, {
-        stack: error.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "deleteReport", userId: req.user?.id, role: req.user?.role, reportId: req.params.id },
-      });
-      res.status(500).json({ message: "Error deleting report", details: error.message });
+      await notifyAdminsAndManagers("Report Deleted", html, t);
+      await report.destroy({ transaction: t });
+      await t.commit();
+      res.json({ message: "Report deleted successfully" });
+    } catch (err) {
+      await t.rollback();
+      console.error("deleteReport error:", err);
+      res.status(500).json({ message: "Error deleting report", details: err.message });
     }
   },
 
-  // Assign a report to a user (open to any authenticated user)
-  async assignReportToUser(req, res) {
-    const transaction = await db.sequelize.transaction();
+  // CLOSE REPORT (extra endpoint – optional)
+  async closeReport(req, res) {
+    const t = await db.sequelize.transaction();
     try {
-      const { reportId, userId } = req.body;
-
-      // Validate input
-      if (!reportId || !userId) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "reportId and userId are required" });
-      }
-
-      // Check if report exists
-      const report = await Report.findByPk(reportId, {
-        include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
-        ],
-        transaction,
-      });
+      const report = await Report.findByPk(req.params.id, { transaction: t });
       if (!report) {
-        await transaction.rollback();
+        await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
-
-      // Check if user exists
-      const user = await User.findByPk(userId, {
-        attributes: ["id", "firstName", "lastName", "email"],
-        transaction,
-      });
-      if (!user) {
-        await transaction.rollback();
-        return res.status(404).json({ message: "User not found" });
+      if (report.status === "closed") {
+        await t.rollback();
+        return res.status(400).json({ message: "Report already closed" });
       }
 
-      // Update report's userId using raw SQL
-      await db.sequelize.query(
-        `
-        UPDATE Reports
-        SET userId = ?, updatedAt = NOW()
-        WHERE id = ?
-        `,
-        {
-          replacements: [parseInt(userId), parseInt(reportId)],
-          type: db.sequelize.QueryTypes.UPDATE,
-          transaction,
-        }
+      await report.update(
+        { status: "closed", closedAt: new Date(), closedBy: req.user.id },
+        { transaction: t }
       );
 
-      // Fetch updated report
-      const updatedReport = await Report.findByPk(reportId, {
+      const updated = await Report.findByPk(req.params.id, {
         include: [
-          { model: User, attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, attributes: ["id", "name"] },
+          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
         ],
-        transaction,
+        transaction: t,
       });
 
-      // Notify admins, managers, and the assigned user
       const html = `
-        <h3>Report Assigned</h3>
-        <p><strong>Title:</strong> ${updatedReport.title}</p>
-        <p><strong>Project:</strong> ${updatedReport.Project?.name || "N/A"}</p>
-        <p><strong>Assigned to:</strong> ${updatedReport.User.firstName} ${updatedReport.User.lastName} (${updatedReport.User.email})</p>
-        <p><strong>Assigned by:</strong> ${req.user.firstName} ${req.user.lastName} (${req.user.email})</p>
+        <h3>Report Closed</h3>
+        <p><strong>Date:</strong> ${updated.dateOfReport} ${updated.timeOfReport}</p>
+        <p><strong>Closed by:</strong> ${updated.closer.firstName} ${updated.closer.lastName}</p>
       `;
+      await notifyAdminsAndManagers("Report Closed", html, t);
 
-      const adminManagerEmails = await User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-        transaction,
-      }).then((users) => users.map((u) => u.email).filter(Boolean));
-
-      const allRecipients = [user.email, ...adminManagerEmails].filter(Boolean);
-      if (allRecipients.length > 0) {
-        await sendMail({
-          to: allRecipients,
-          subject: "Report Assigned to User",
-          html,
-        });
-      }
-
-      await transaction.commit();
-      res.status(200).json({
-        message: "Report assigned successfully",
-        report: updatedReport,
-      });
-    } catch (error) {
-      await transaction.rollback();
-      console.error(`Error in assignReportToUser: ${error.message}`, {
-        stack: error.stack,
-        userId: req.user?.id || null,
-        context: { endpoint: "assignReportToUser", userId: req.user?.id, reportId: req.body.reportId, assignedUserId: req.body.userId },
-      });
-      res.status(500).json({ message: "Error assigning report", details: error.message });
+      await t.commit();
+      res.json({ message: "Report closed", report: updated });
+    } catch (err) {
+      await t.rollback();
+      console.error("closeReport error:", err);
+      res.status(500).json({ message: "Error closing report", details: err.message });
     }
   },
 };
