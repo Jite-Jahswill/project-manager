@@ -1,4 +1,3 @@
-// routes/hse.routes.js
 const express = require("express");
 const hseController = require("../controllers/hse.controller");
 const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
@@ -9,10 +8,17 @@ module.exports = (app) => {
 
   /**
    * @swagger
+   * tags:
+   *   name: HSE
+   *   description: Health, Safety, and Environment Reports Management
+   */
+
+  /**
+   * @swagger
    * /api/hse/report:
    *   post:
    *     summary: Submit a new HSE incident report
-   *     description: Allows authenticated users to submit an HSE report. You can upload new evidence file(s) or reference an existing document by `hseDocumentId`.
+   *     description: Allows authenticated users to submit an HSE report. You can upload multiple evidence files such as images, PDFs, etc.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -31,33 +37,26 @@ module.exports = (app) => {
    *                 type: string
    *                 format: date
    *                 example: "2025-04-05"
-   *                 description: Date when the incident occurred
    *               timeOfReport:
    *                 type: string
    *                 format: time
    *                 example: "14:30:00"
-   *                 description: Time when the incident occurred
    *               report:
    *                 type: string
    *                 example: "Worker slipped on a wet floor near the loading bay."
-   *                 description: Description of the incident
    *               file:
-   *                 type: string
-   *                 format: binary
-   *                 description: Optional. Upload one or more evidence files (images, PDFs, etc.)
-   *               hseDocumentId:
-   *                 type: integer
-   *                 example: 12
-   *                 description: Optional. Reference an existing document by ID instead of uploading a new one
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                   format: binary
+   *                 description: Optional. Upload one or more supporting documents.
    *     responses:
    *       201:
-   *         description: HSE report submitted successfully
+   *         description: HSE report created successfully
    *       400:
-   *         description: Missing required fields or invalid input
+   *         description: Missing required fields
    *       401:
    *         description: Unauthorized
-   *       404:
-   *         description: Referenced document not found
    *       500:
    *         description: Server error
    */
@@ -67,8 +66,8 @@ module.exports = (app) => {
    * @swagger
    * /api/hse/reports:
    *   get:
-   *     summary: Get all HSE reports (admin access)
-   *     description: Retrieves a paginated list of all HSE reports. Supports filtering by date range, status, and search.
+   *     summary: Get all HSE reports
+   *     description: Retrieves a paginated list of HSE reports. Supports filtering by date, status, and search text.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -78,43 +77,36 @@ module.exports = (app) => {
    *         schema:
    *           type: integer
    *           default: 1
-   *         description: Page number for pagination
    *       - in: query
    *         name: limit
    *         schema:
    *           type: integer
    *           default: 20
-   *         description: Number of reports per page
    *       - in: query
    *         name: search
    *         schema:
    *           type: string
-   *         description: Search reports by text or reporter name
+   *         description: Search reports by content or reporter name
    *       - in: query
    *         name: status
    *         schema:
    *           type: string
    *           enum: [open, pending, closed]
-   *         description: Filter reports by status
    *       - in: query
    *         name: startDate
    *         schema:
    *           type: string
    *           format: date
-   *         description: Filter reports from this start date
    *       - in: query
    *         name: endDate
    *         schema:
    *           type: string
    *           format: date
-   *         description: Filter reports until this end date
    *     responses:
    *       200:
-   *         description: Paginated list of HSE reports
+   *         description: Paginated list of reports
    *       401:
    *         description: Unauthorized
-   *       403:
-   *         description: Missing hse:read permission
    *       500:
    *         description: Server error
    */
@@ -129,8 +121,8 @@ module.exports = (app) => {
    * @swagger
    * /api/hse/report/{id}:
    *   get:
-   *     summary: Get a single HSE report by ID
-   *     description: Fetches details of one HSE report, including reporter, closer, and attached documents.
+   *     summary: Get a specific HSE report
+   *     description: Fetch details of one HSE report including reporter, closer, and attached documents.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -140,8 +132,7 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 5
-   *         description: ID of the HSE report
+   *           example: 5
    *     responses:
    *       200:
    *         description: HSE report details
@@ -158,8 +149,8 @@ module.exports = (app) => {
    * @swagger
    * /api/hse/report/{id}:
    *   put:
-   *     summary: Update an HSE report (admin only)
-   *     description: Allows updating of report text, status, or document. Can upload new evidence file(s) or link an existing document using `hseDocumentId`.
+   *     summary: Update an HSE report
+   *     description: Update report details, status, or attach new documents. Supports file upload.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -169,9 +160,8 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 5
+   *           example: 5
    *     requestBody:
-   *       required: true
    *       content:
    *         multipart/form-data:
    *           schema:
@@ -179,30 +169,28 @@ module.exports = (app) => {
    *             properties:
    *               report:
    *                 type: string
-   *                 example: "Updated incident report text."
+   *                 example: "Updated report text."
    *               status:
    *                 type: string
    *                 enum: [open, pending, closed]
    *                 example: "closed"
    *               file:
-   *                 type: string
-   *                 format: binary
-   *                 description: Upload new evidence file(s)
-   *               hseDocumentId:
-   *                 type: integer
-   *                 example: 10
-   *                 description: Reference an existing document instead of uploading
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                   format: binary
+   *                 description: Optional. Upload additional evidence files.
    *     responses:
    *       200:
    *         description: Report updated successfully
    *       400:
-   *         description: Invalid input or both file and hseDocumentId used
+   *         description: Invalid input
    *       401:
    *         description: Unauthorized
    *       403:
    *         description: Missing hse:update permission
    *       404:
-   *         description: Report or document not found
+   *         description: Report not found
    *       500:
    *         description: Server error
    */
@@ -218,8 +206,8 @@ module.exports = (app) => {
    * @swagger
    * /api/hse/report/{id}:
    *   delete:
-   *     summary: Delete an HSE report and its documents (admin only)
-   *     description: Permanently removes an HSE report and all attached HSE documents.
+   *     summary: Delete an HSE report and its documents
+   *     description: Permanently removes a report and all its attached documents.
    *     tags: [HSE]
    *     security:
    *       - bearerAuth: []
@@ -229,10 +217,10 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 5
+   *           example: 5
    *     responses:
    *       200:
-   *         description: Report and attached documents deleted successfully
+   *         description: Report deleted successfully
    *       401:
    *         description: Unauthorized
    *       403:
@@ -253,8 +241,8 @@ module.exports = (app) => {
    * @swagger
    * /api/hse/report/{reportId}/documents:
    *   get:
-   *     summary: Get all documents attached to an HSE report
-   *     description: Fetch all files linked to a specific HSE report.
+   *     summary: Get all documents for an HSE report
+   *     description: Fetch all files attached to a specific HSE report.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -264,10 +252,10 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 7
+   *           example: 7
    *     responses:
    *       200:
-   *         description: List of documents for this report
+   *         description: List of documents
    *       401:
    *         description: Unauthorized
    *       404:
@@ -275,14 +263,18 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.get("/report/:reportId/documents", verifyToken, hseController.getHseDocuments);
+  router.get(
+    "/report/:reportId/documents",
+    verifyToken,
+    hseController.getHseDocuments
+  );
 
   /**
    * @swagger
    * /api/hse/document/{id}:
    *   delete:
-   *     summary: Delete a single HSE document
-   *     description: Permanently removes a specific HSE document.
+   *     summary: Delete an HSE document
+   *     description: Permanently removes a specific document from storage.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -292,7 +284,7 @@ module.exports = (app) => {
    *         required: true
    *         schema:
    *           type: integer
-   *         example: 9
+   *           example: 9
    *     responses:
    *       200:
    *         description: Document deleted successfully
@@ -303,7 +295,11 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.delete("/document/:id", verifyToken, hseController.deleteHseDocument);
+  router.delete(
+    "/document/:id",
+    verifyToken,
+    hseController.deleteHseDocument
+  );
 
   app.use("/api/hse", router);
 };
