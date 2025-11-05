@@ -4,14 +4,15 @@ const { HSEReport, HseDocument, User } = require("../models");
 // 🟢 Create new HSE report
 exports.createReport = async (req, res) => {
   try {
-    const { dateOfReport, timeOfReport, report, firebaseUrls, attachedDocs } = req.body;
+    const { title, dateOfReport, timeOfReport, report, firebaseUrls, attachedDocs } = req.body;
     const reporterId = req.user.id;
 
-    if (!dateOfReport || !timeOfReport || !report)
+    if (!title || !dateOfReport || !timeOfReport || !report)
       return res.status(400).json({ error: "Missing required fields" });
 
     // ✅ Create report
     const newReport = await HSEReport.create({
+      title,
       dateOfReport,
       timeOfReport,
       report,
@@ -20,7 +21,7 @@ exports.createReport = async (req, res) => {
       attachedDocs: attachedDocs || [],
     });
 
-    // ✅ If attached existing docs by ID, link them
+    // ✅ Link existing docs by ID
     if (attachedDocs && attachedDocs.length > 0) {
       await HseDocument.update(
         { reportId: newReport.id },
@@ -28,7 +29,7 @@ exports.createReport = async (req, res) => {
       );
     }
 
-    // ✅ If firebaseUrls exist but not attached docs, create new docs
+    // ✅ Create new docs if firebaseUrls provided
     if (firebaseUrls && firebaseUrls.length > 0) {
       const docsToCreate = firebaseUrls.map((url) => ({
         name: "Uploaded File",
@@ -55,15 +56,16 @@ exports.createReport = async (req, res) => {
 exports.updateReport = async (req, res) => {
   try {
     const { id } = req.params;
-    const { dateOfReport, timeOfReport, report, firebaseUrls, attachedDocs, status, closedBy } = req.body;
+    const { title, dateOfReport, timeOfReport, report, firebaseUrls, attachedDocs, status, closedBy } = req.body;
     const userId = req.user.id;
 
     const existing = await HSEReport.findByPk(id);
     if (!existing)
       return res.status(404).json({ message: "Report not found" });
 
-    // ✅ Update report base fields
+    // ✅ Update base fields
     await existing.update({
+      title: title ?? existing.title,
       dateOfReport: dateOfReport ?? existing.dateOfReport,
       timeOfReport: timeOfReport ?? existing.timeOfReport,
       report: report ?? existing.report,
@@ -82,7 +84,7 @@ exports.updateReport = async (req, res) => {
       );
     }
 
-    // ✅ If firebaseUrls newly added, create new docs for them
+    // ✅ Add new firebaseUrls as docs
     if (firebaseUrls && firebaseUrls.length > 0) {
       const docsToCreate = firebaseUrls.map((url) => ({
         name: "Updated File",
@@ -105,7 +107,7 @@ exports.updateReport = async (req, res) => {
   }
 };
 
-// 🔴 Delete HSE report (and unlink related docs)
+// 🔴 Delete report
 exports.deleteReport = async (req, res) => {
   try {
     const { id } = req.params;
@@ -114,9 +116,7 @@ exports.deleteReport = async (req, res) => {
     if (!report)
       return res.status(404).json({ message: "Report not found" });
 
-    // ✅ Unlink documents from this report (keep documents for history)
     await HseDocument.update({ reportId: null }, { where: { reportId: id } });
-
     await report.destroy();
 
     return res.status(200).json({ message: "Report deleted successfully" });
@@ -126,7 +126,7 @@ exports.deleteReport = async (req, res) => {
   }
 };
 
-// 🔵 Get HSEReport by Document ID
+// 🔵 Get report by document ID
 exports.getReportByDocumentId = async (req, res) => {
   try {
     const { documentId } = req.params;
@@ -153,7 +153,7 @@ exports.getReportByDocumentId = async (req, res) => {
   }
 };
 
-// 🔵 Get Documents by Report ID
+// 🔵 Get documents by report ID
 exports.getDocumentsByReportId = async (req, res) => {
   try {
     const { reportId } = req.params;
