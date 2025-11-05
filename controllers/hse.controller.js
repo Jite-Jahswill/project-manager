@@ -75,6 +75,8 @@ exports.updateReport = async (req, res) => {
     const existing = await HSEReport.findByPk(id, { transaction: t });
     if (!existing) return res.status(404).json({ message: "Report not found" });
 
+    req.body._previousData = existing.toJSON();
+
     const updates = {};
     if (title) updates.title = title;
     if (dateOfReport) updates.dateOfReport = dateOfReport;
@@ -128,9 +130,6 @@ exports.updateReport = async (req, res) => {
       transaction: t,
     });
 
-    const previous = await Model.findByPk(id);
-    req.body._previousData = previous.toJSON();
-
     await t.commit();
     return res.status(200).json({ message: "Report updated", report: updated });
   } catch (err) {
@@ -148,10 +147,10 @@ exports.deleteReport = async (req, res) => {
     const report = await HSEReport.findByPk(id, { transaction: t });
     if (!report) return res.status(404).json({ message: "Report not found" });
 
+    req.body._deletedData = report.toJSON();
+
     await HseDocument.update({ reportId: null }, { where: { reportId: id }, transaction: t });
     await report.destroy({ transaction: t });
-
-    req.body._deletedData = report.toJSON();
     
     await t.commit();
     return res.status(200).json({ message: "Report deleted" });
@@ -218,6 +217,8 @@ exports.updateReportStatus = async (req, res) => {
     if (!report) {
       return res.status(404).json({ message: "Report not found" });
     }
+
+    req.body._previousData = report.toJSON();
 
     const updates = { status };
 
