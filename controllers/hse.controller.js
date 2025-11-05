@@ -191,3 +191,61 @@ exports.getDocumentsByReportId = async (req, res) => {
     return res.status(500).json({ error: "Server error" });
   }
 };
+
+// UPDATE REPORT STATUS (open, pending, closed)
+exports.updateReportStatus = async (req, res) => {
+  const t = await req.db.transaction();
+  try {
+    const { id } = req.params;
+    const { status, closedBy } = req.body;
+    const userId = req.user.id;
+
+    // Validate status
+    const validStatuses = ["open", "pending", "closed"];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Invalid status. Must be 'open', 'pending', or 'closed'",
+      });
+    }
+
+    const report = await HSEReport.findByPk(id, { transaction: t });
+    if (!report) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    const updates = { status };
+
+    // Only set closedAt/closedBy when transitioning to "closed"
+    if (status === "closed" && report.status !== "closed") {
+      updates.closedAt = new Date();
+      updates.closedBy = closedBy || userId;
+    }
+
+    // If reopening from closed, clear closedAt/closedBy
+    if (status !== "closed" && report.status === "closed") {
+      updates.closedAt = null;
+      updates.closedBy = null;
+    }
+
+    await report.update(updates, { transaction: t });
+
+    const updatedReport = await HSEReport.findByPk(id, {
+      include: [
+        { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: HseDocument, as: "documents" },
+      ],
+      transaction: t,
+    });
+
+    await t.commit();
+    return res.status(200).json({
+      message: `Report status updated to "${status}"`,
+      report: updatedReport,
+    });
+  } catch (err) {
+    await t.rollback();
+    console.error("updateReportStatus error:", err);
+    return res.status(500).json({ error: "Failed to update report status" });
+  }
+};
