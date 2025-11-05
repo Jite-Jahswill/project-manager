@@ -184,6 +184,8 @@ exports.updateRole = async (req, res) => {
       return res.status(404).json({ error: "Role not found" });
     }
 
+    req.body._previousData = roleExists.toJSON();
+
     // 2. Validate new name (if provided) – uniqueness
     if (name && name.trim() !== roleExists.name) {
       const [duplicate] = await sequelize.query(
@@ -280,6 +282,8 @@ exports.deleteRole = async (req, res) => {
       await t.rollback();
       return res.status(404).json({ error: "Role not found" });
     }
+
+    req.body._deletedData = document.toJSON();
 
     // 2️⃣ Check if any user currently has this role
     const userWithRole = await User.findOne({
