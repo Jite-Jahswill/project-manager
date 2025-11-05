@@ -208,6 +208,8 @@ module.exports = {
         return res.status(404).json({ message: "User not found" });
       }
 
+      req.body._previousData = user.toJSON();
+
       const { firstName, lastName, email, phoneNumber } = req.body;
 
       if (email && email !== user.email) {
@@ -296,6 +298,8 @@ module.exports = {
         await transaction.rollback();
         return res.status(404).json({ message: "User not found" });
       }
+
+      req.body._deletedData = user.toJSON();
 
       await User.destroy({ where: { id }, transaction });
 
