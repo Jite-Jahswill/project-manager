@@ -1,10 +1,10 @@
 // controllers/hseReport.controller.js
-const { Op } = require("sequelize");
+const { Op, sequelize } = require("sequelize");
 const { HSEReport, HseDocument, User } = require("../models");
 
 // CREATE REPORT + UPLOAD FILES
 exports.createReport = async (req, res) => {
-  const t = await req.db.transaction();
+  const t = await sequelize.transaction();
   try {
     const { title, dateOfReport, timeOfReport, report, attachedDocIds } = req.body;
     const reporterId = req.user.id;
