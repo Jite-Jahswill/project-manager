@@ -116,38 +116,59 @@ module.exports = {
   },
 
   // UPDATE REPORT
-  async updateReport(req, res) {
+async updateReport(req, res) {
     const t = await sequelize.transaction();
     try {
       const { id } = req.params;
       const { title, dateOfReport, timeOfReport, report, status, closedBy } = req.body;
 
-      const existing = await Report.findByPk(id, { transaction: t });
+      // 1. FETCH CURRENT DATA (for audit)
+      const [existing] = await sequelize.query(
+        `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
+        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+      );
+
       if (!existing) {
         await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
 
-      req.body._previousData = existing.toJSON();
+      // AUDIT: SET OLD VALUES
+      req.body._previousData = existing;
 
-      const updates = {};
-      if (title) updates.title = title;
-      if (dateOfReport) updates.dateOfReport = dateOfReport;
-      if (timeOfReport) updates.timeOfReport = timeOfReport;
-      if (report) updates.report = report;
-      if (status) {
-        updates.status = status;
+      // 2. BUILD UPDATE FIELDS
+      const updates = [];
+      const replacements = { id };
+
+      if (title !== undefined) { updates.push("title = :title"); replacements.title = title; }
+      if (dateOfReport !== undefined) { updates.push("dateOfReport = :dateOfReport"); replacements.dateOfReport = dateOfReport; }
+      if (timeOfReport !== undefined) { updates.push("timeOfReport = :timeOfReport"); replacements.timeOfReport = timeOfReport; }
+      if (report !== undefined) { updates.push("report = :report"); replacements.report = report; }
+      if (status !== undefined) {
+        updates.push("status = :status");
+        replacements.status = status;
         if (status === "closed") {
-          updates.closedAt = new Date();
-          updates.closedBy = closedBy || req.user.id;
+          updates.push("closedAt = NOW()", "closedBy = :closedBy");
+          replacements.closedBy = closedBy || req.user.id;
         }
       }
 
-      await existing.update(updates, { transaction: t });
+      if (updates.length === 0 && (!req.uploadedFiles || req.uploadedFiles.length === 0)) {
+        await t.rollback();
+        return res.status(400).json({ message: "No fields to update" });
+      }
 
-      // Handle new uploaded files
+      // 3. UPDATE REPORT
+      if (updates.length > 0) {
+        await sequelize.query(
+          `UPDATE Reports SET ${updates.join(", ")}, updatedAt = NOW() WHERE id = :id`,
+          { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
+        );
+      }
+
+      // 4. UPLOAD NEW DOCUMENTS
       if (req.uploadedFiles && req.uploadedFiles.length > 0) {
-        const docs = req.uploadedFiles.map((file) => ({
+        const docs = req.uploadedFiles.map(file => ({
           name: file.originalname,
           firebaseUrl: file.firebaseUrl,
           projectId: existing.projectId,
@@ -155,21 +176,30 @@ module.exports = {
           type: file.mimetype,
           size: file.size,
           uploadedBy: req.user.id,
+          status: "pending",
+          createdAt: new Date(),
+          updatedAt: new Date(),
         }));
         await Document.bulkCreate(docs, { transaction: t });
       }
 
-      const updated = await Report.findByPk(id, {
-        include: [
-          { model: User, as: "reporter" },
-          { model: User, as: "closer" },
-          { model: Project, as: "project" },
-          { model: Team, as: "team" },
-          { model: Document, as: "documents" },
-        ],
-        transaction: t,
-      });
+      // 5. FETCH UPDATED REPORT
+      const [updated] = await sequelize.query(
+        `SELECT r.*, 
+                reporter.firstName AS 'reporter.firstName', reporter.lastName AS 'reporter.lastName',
+                closer.firstName AS 'closer.firstName', closer.lastName AS 'closer.lastName',
+                p.name AS 'project.name',
+                t.name AS 'team.name'
+         FROM Reports r
+         LEFT JOIN Users reporter ON r.reporterId = reporter.id
+         LEFT JOIN Users closer ON r.closedBy = closer.id
+         LEFT JOIN Projects p ON r.projectId = p.id
+         LEFT JOIN Teams t ON r.teamId = t.id
+         WHERE r.id = :id`,
+        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+      );
 
+      // 6. NOTIFY
       const html = `
         <h3>Report Updated</h3>
         <p><strong>Title:</strong> ${updated.title}</p>
@@ -283,43 +313,61 @@ module.exports = {
   },
 
   // CLOSE REPORT
-  async closeReport(req, res) {
+async closeReport(req, res) {
     const t = await sequelize.transaction();
     try {
-      const report = await Report.findByPk(req.params.id, { transaction: t });
+      const { id } = req.params;
+
+      // 1. FETCH CURRENT
+      const [report] = await sequelize.query(
+        `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
+        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+      );
+
       if (!report) {
         await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
-      req.body._previousData = document.toJSON();
-      
+
       if (report.status === "closed") {
         await t.rollback();
         return res.status(400).json({ message: "Already closed" });
       }
 
-      await report.update(
-        { status: "closed", closedAt: new Date(), closedBy: req.user.id },
-        { transaction: t }
+      // AUDIT: SET OLD VALUES
+      req.body._previousData = report;
+
+      // 2. CLOSE REPORT
+      await sequelize.query(
+        `UPDATE Reports 
+         SET status = 'closed', closedAt = NOW(), closedBy = :closedBy, updatedAt = NOW()
+         WHERE id = :id`,
+        { replacements: { id, closedBy: req.user.id }, type: sequelize.QueryTypes.UPDATE, transaction: t }
       );
 
-      const updated = await Report.findByPk(req.params.id, {
-        include: [
-          { model: User, as: "reporter" },
-          { model: User, as: "closer" },
-          { model: Document, as: "documents" },
-        ],
-        transaction: t,
-      });
+      // 3. FETCH UPDATED
+      const [updated] = await sequelize.query(
+        `SELECT r.*, 
+                closer.firstName AS 'closer.firstName', closer.lastName AS 'closer.lastName'
+         FROM Reports r
+         LEFT JOIN Users closer ON r.closedBy = closer.id
+         WHERE r.id = :id`,
+        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+      );
 
-      const html = `<h3>Report Closed</h3><p>Title: ${updated.title}</p><p>Closed by: ${updated.closer.firstName}</p>`;
+      // 4. NOTIFY
+      const html = `
+        <h3>Report Closed</h3>
+        <p><strong>Title:</strong> ${updated.title}</p>
+        <p><strong>Closed by:</strong> ${updated['closer.firstName']} ${updated['closer.lastName']}</p>
+      `;
       await notifyAdminsAndManagers("Project Report Closed", html, t);
 
       await t.commit();
       return res.status(200).json({ message: "Report closed", report: updated });
     } catch (err) {
       await t.rollback();
-      console.error(err);
+      console.error("closeReport error:", err);
       return res.status(500).json({ error: "Failed to close report" });
     }
   },
