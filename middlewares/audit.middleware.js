@@ -1,5 +1,6 @@
 // middlewares/audit.middleware.js
 const { Audit } = require("../models");
+const { Op } = require("sequelize");
 
 const auditActions = async (req, res, next) => {
   const originalSend = res.json;
@@ -7,13 +8,12 @@ const auditActions = async (req, res, next) => {
   res.json = function (data) {
     const responseData = data;
 
-    // Only log on success (2xx)
     if (res.statusCode >= 200 && res.statusCode < 300) {
-      const route = req.route?.path;
       const method = req.method;
+      const fullPath = req.baseUrl + (req.route?.path || ""); // FULL PATH
       const userId = req.user?.id || null;
       const ip = req.ip || req.connection.remoteAddress;
-      const ua = req.get("User-Agent");
+      const ua = req.get("User-Agent") || "unknown";
 
       let action = null;
       let model = null;
@@ -21,69 +21,61 @@ const auditActions = async (req, res, next) => {
       let oldValues = null;
       let newValues = null;
 
-      // === 1. CUSTOM OVERRIDE (e.g. LOGIN) — SAFE CHECK ===
-      if (req.body && typeof req.body === 'object' && req.body._auditAction) {
+      // === 1. CUSTOM ACTION (LOGIN, etc.) ===
+      if (req.body && req.body._auditAction) {
         action = req.body._auditAction;
         model = req.body._auditModel || "User";
         recordId = req.body._auditRecordId || userId;
         newValues = responseData;
       }
-      // === 2. ROUTE-BASED MAPPING (CRUD) ===
+      // === 2. ROUTE MAPPING USING FULL PATH ===
       else {
-        const routeToModel = {
+        const routeMap = {
           "/api/reports": "Report",
+          "/api/hse/reports": "HSEReport",
           "/api/documents": "Document",
           "/api/clients": "Client",
           "/api/projects": "Project",
-          "/api/teams": "Team",
-          "/api/tasks": "Task",
-          "/api/leaves": "Leave",
-          "/api/hse/reports": "HSEReport",
-          "/api/hse/documents": "HseDocument",
           "/api/users": "User",
-          "/api/roles": "Role",
         };
 
-        const basePath = Object.keys(routeToModel).find((path) =>
-          route?.startsWith(path.replace(/:\w+/g, "").replace("*", ""))
+        const matched = Object.keys(routeMap).find(base =>
+          fullPath.startsWith(base) || fullPath.startsWith(base + "/")
         );
 
-        if (basePath) {
-          model = routeToModel[basePath];
+        if (matched) {
+          model = routeMap[matched];
 
           if (method === "POST") {
             action = "CREATE";
-            recordId = responseData?.report?.id || responseData?.document?.id || responseData?.id || responseData?.user?.id;
-            newValues = responseData?.report || responseData?.document || responseData?.user || responseData;
+            recordId = responseData?.report?.id || responseData?.id;
+            newValues = responseData;
           }
-
           if (method === "PUT" || method === "PATCH") {
             action = "UPDATE";
-            recordId = req.params.id || req.params.documentId || req.params.reportId || req.params.userId;
+            recordId = req.params.id || req.params.reportId;
             oldValues = req.body?._previousData;
-            newValues = responseData?.report || responseData?.document || responseData?.user || responseData;
+            newValues = responseData;
           }
-
           if (method === "DELETE") {
             action = "DELETE";
-            recordId = req.params.id || req.params.documentId || req.params.userId;
+            recordId = req.params.id;
             oldValues = req.body?._deletedData;
           }
         }
       }
 
-      // === 3. FALLBACK: LOGIN/LOGOUT ===
-      if (!action && route) {
-        if (route === "/api/auth/login") action = "LOGIN";
-        if (route === "/api/auth/logout") action = "LOGOUT";
-        if (action) {
-          model = "User";
-          recordId = userId;
-        }
+      // === 3. LOGIN FALLBACK ===
+      if (!action && req.originalUrl === "/api/auth/login") {
+        action = "LOGIN";
+        model = "User";
+        recordId = userId;
       }
 
-      // === 4. LOG TO DB (only if valid) ===
+      // === 4. LOG AUDIT ===
       if (action && model) {
+        console.log("AUDIT →", { action, model, recordId, userId }); // DEBUG
+
         Audit.create({
           userId,
           action,
@@ -93,7 +85,7 @@ const auditActions = async (req, res, next) => {
           newValues: newValues ? JSON.stringify(newValues) : null,
           ipAddress: ip,
           userAgent: ua,
-        }).catch((err) => console.error("Audit log failed:", err));
+        }).catch(err => console.error("Audit save failed:", err));
       }
     }
 
