@@ -330,6 +330,8 @@ exports.updateLog = async (req, res) => {
 
     if (!log) return res.status(404).json({ message: "Work log not found" });
 
+    req.body._previousData = log.toJSON();
+
     // Build update query
     const updateFields = [];
     const updateReplacements = [];
@@ -466,6 +468,8 @@ exports.deleteLog = async (req, res) => {
     );
 
     if (!log) return res.status(404).json({ message: "Work log not found" });
+
+    req.body._deletedData = log.toJSON();
 
     // Fetch project and task for notification
     const project = await Project.findByPk(log.projectId, { attributes: ["name"] });
