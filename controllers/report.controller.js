@@ -121,6 +121,8 @@ async updateReport(req, res) {
     try {
       const { id } = req.params;
       const { title, dateOfReport, timeOfReport, report, status, closedBy } = req.body;
+      // ENSURE req.body exists
+      if (!req.body) req.body = {};
 
       // 1. FETCH CURRENT DATA (for audit)
       const [existing] = await sequelize.query(
@@ -314,61 +316,64 @@ async updateReport(req, res) {
 
   // CLOSE REPORT
 async closeReport(req, res) {
-    const t = await sequelize.transaction();
-    try {
-      const { id } = req.params;
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
 
-      // 1. FETCH CURRENT
-      const [report] = await sequelize.query(
-        `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
-        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
+    // ENSURE req.body exists
+    if (!req.body) req.body = {};
 
-      if (!report) {
-        await t.rollback();
-        return res.status(404).json({ message: "Report not found" });
-      }
+    // 1. FETCH CURRENT
+    const [report] = await sequelize.query(
+      `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
 
-      if (report.status === "closed") {
-        await t.rollback();
-        return res.status(400).json({ message: "Already closed" });
-      }
-
-      // AUDIT: SET OLD VALUES
-      req.body._previousData = report;
-
-      // 2. CLOSE REPORT
-      await sequelize.query(
-        `UPDATE Reports 
-         SET status = 'closed', closedAt = NOW(), closedBy = :closedBy, updatedAt = NOW()
-         WHERE id = :id`,
-        { replacements: { id, closedBy: req.user.id }, type: sequelize.QueryTypes.UPDATE, transaction: t }
-      );
-
-      // 3. FETCH UPDATED
-      const [updated] = await sequelize.query(
-        `SELECT r.*, 
-                closer.firstName AS 'closer.firstName', closer.lastName AS 'closer.lastName'
-         FROM Reports r
-         LEFT JOIN Users closer ON r.closedBy = closer.id
-         WHERE r.id = :id`,
-        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
-
-      // 4. NOTIFY
-      const html = `
-        <h3>Report Closed</h3>
-        <p><strong>Title:</strong> ${updated.title}</p>
-        <p><strong>Closed by:</strong> ${updated['closer.firstName']} ${updated['closer.lastName']}</p>
-      `;
-      await notifyAdminsAndManagers("Project Report Closed", html, t);
-
-      await t.commit();
-      return res.status(200).json({ message: "Report closed", report: updated });
-    } catch (err) {
+    if (!report) {
       await t.rollback();
-      console.error("closeReport error:", err);
-      return res.status(500).json({ error: "Failed to close report" });
+      return res.status(404).json({ message: "Report not found" });
     }
-  },
+
+    if (report.status === "closed") {
+      await t.rollback();
+      return res.status(400).json({ message: "Already closed" });
+    }
+
+    // AUDIT: SET OLD VALUES
+    req.body._previousData = report;
+
+    // 2. CLOSE REPORT
+    await sequelize.query(
+      `UPDATE Reports 
+       SET status = 'closed', closedAt = NOW(), closedBy = :closedBy, updatedAt = NOW()
+       WHERE id = :id`,
+      { replacements: { id, closedBy: req.user.id }, type: sequelize.QueryTypes.UPDATE, transaction: t }
+    );
+
+    // 3. FETCH UPDATED
+    const [updated] = await sequelize.query(
+      `SELECT r.*, 
+              closer.firstName AS 'closer.firstName', closer.lastName AS 'closer.lastName'
+       FROM Reports r
+       LEFT JOIN Users closer ON r.closedBy = closer.id
+       WHERE r.id = :id`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    // 4. NOTIFY
+    const html = `
+      <h3>Report Closed</h3>
+      <p><strong>Title:</strong> ${updated.title}</p>
+      <p><strong>Closed by:</strong> ${updated['closer.firstName']} ${updated['closer.lastName']}</p>
+    `;
+    await notifyAdminsAndManagers("Project Report Closed", html, t);
+
+    await t.commit();
+    return res.status(200).json({ message: "Report closed", report: updated });
+  } catch (err) {
+    await t.rollback();
+    console.error("closeReport error:", err);
+    return res.status(500).json({ error: "Failed to close report" });
+  }
+},
 };
