@@ -1,4 +1,4 @@
-// models/hseReport.model.js
+// 📁 models/hseReport.model.js
 module.exports = (sequelize, DataTypes) => {
   const HSEReport = sequelize.define(
     "HSEReport",
@@ -7,6 +7,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
+      },
+      title: {
+        type: DataTypes.STRING,
+        allowNull: false,
       },
       dateOfReport: {
         type: DataTypes.DATEONLY,
