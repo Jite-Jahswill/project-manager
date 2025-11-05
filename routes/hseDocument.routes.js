@@ -8,8 +8,85 @@ module.exports = (app) => {
   /**
    * @swagger
    * tags:
-   *   name: HSE Documents
-   *   description: Manage uploaded HSE files and attachments
+   *   - name: HSE Documents
+   *     description: Manage uploaded HSE files (images, PDFs, etc.) and link them to reports
+   *
+   * components:
+   *   securitySchemes:
+   *     bearerAuth:
+   *       type: http
+   *       scheme: bearer
+   *       bearerFormat: JWT
+   *
+   *   schemas:
+   *     UserSummary:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 1
+   *         firstName:
+   *           type: string
+   *           example: "John"
+   *         lastName:
+   *           type: string
+   *           example: "Doe"
+   *         email:
+   *           type: string
+   *           example: "john.doe@company.com"
+   *
+   *     HSEReportSummary:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 4
+   *         title:
+   *           type: string
+   *           example: "Near Miss - Slip Hazard"
+   *         status:
+   *           type: string
+   *           enum: [open, pending, closed]
+   *           example: "open"
+   *
+   *     HseDocument:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *           example: 5
+   *         name:
+   *           type: string
+   *           example: "Incident Photo - Wet Floor"
+   *         firebaseUrls:
+   *           type: array
+   *           items:
+   *             type: string
+   *           example: ["https://storage.googleapis.com/.../photo1.jpg"]
+   *         type:
+   *           type: string
+   *           example: "image/jpeg"
+   *         size:
+   *           type: integer
+   *           example: 245760
+   *         uploadedBy:
+   *           type: integer
+   *           example: 1
+   *         reportId:
+   *           type: integer
+   *           nullable: true
+   *           example: 4
+   *         uploader:
+   *           $ref: '#/components/schemas/UserSummary'
+   *         report:
+   *           $ref: '#/components/schemas/HSEReportSummary'
+   *           nullable: true
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
    */
 
   /**
@@ -17,7 +94,9 @@ module.exports = (app) => {
    * /api/hse/documents:
    *   post:
    *     summary: Upload a new HSE document
-   *     description: Creates a new HSE document record and optionally links it to an HSE report.
+   *     description: |
+   *       Creates a standalone HSE document. Can be linked to a report later via `reportId` or `update`.
+   *       Use this when uploading files **without** creating a report.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -35,26 +114,40 @@ module.exports = (app) => {
    *             properties:
    *               name:
    *                 type: string
-   *                 example: "Safety Report Photo"
+   *                 example: "Safety Incident Photo"
    *               firebaseUrls:
    *                 type: array
    *                 items:
    *                   type: string
-   *                   example: "https://firebase.storage/doc1.jpg"
-   *               reportId:
-   *                 type: integer
-   *                 example: 4
+   *                 example: ["https://storage.googleapis.com/.../photo1.jpg"]
    *               type:
    *                 type: string
    *                 example: "image/jpeg"
    *               size:
    *                 type: integer
    *                 example: 245000
+   *               reportId:
+   *                 type: integer
+   *                 nullable: true
+   *                 example: 4
+   *                 description: Optional. Link to existing HSE report
    *     responses:
    *       201:
-   *         description: Document uploaded successfully
+   *         description: Document created successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/HseDocument'
    *       400:
    *         description: Missing required fields
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Missing required fields"
    *       401:
    *         description: Unauthorized
    *       500:
@@ -67,7 +160,10 @@ module.exports = (app) => {
    * /api/hse/documents:
    *   get:
    *     summary: Get all HSE documents
-   *     description: Fetches all HSE documents, with optional search, filter, and date range.
+   *     description: |
+   *       Retrieve paginated list of documents with optional filters.
+   *       - Use `reportId=null` to get **unattached** documents
+   *       - Use `reportId=5` to get **documents for report #5**
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -76,43 +172,72 @@ module.exports = (app) => {
    *         name: search
    *         schema:
    *           type: string
+   *         description: Search by document name (partial match)
    *         example: "fire"
-   *         description: Search documents by name
    *       - in: query
    *         name: type
    *         schema:
    *           type: string
+   *         description: Filter by MIME type
    *         example: "image/jpeg"
    *       - in: query
    *         name: reportId
    *         schema:
-   *           type: integer
-   *         example: 2
+   *           type: string
+   *         description: Filter by report ID. Use `null` for unattached.
+   *         example: "null"
    *       - in: query
    *         name: startDate
    *         schema:
    *           type: string
    *           format: date
+   *         description: Filter by upload date (inclusive)
    *         example: "2025-11-01"
    *       - in: query
    *         name: endDate
    *         schema:
    *           type: string
    *           format: date
+   *         description: Filter by upload date (inclusive)
    *         example: "2025-11-03"
    *       - in: query
    *         name: page
    *         schema:
    *           type: integer
+   *           minimum: 1
+   *           default: 1
    *         example: 1
    *       - in: query
    *         name: limit
    *         schema:
    *           type: integer
+   *           minimum: 1
+   *           maximum: 100
+   *           default: 20
    *         example: 20
    *     responses:
    *       200:
-   *         description: List of HSE documents with pagination
+   *         description: Paginated list of documents
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 documents:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/HseDocument'
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     totalItems:
+   *                       type: integer
+   *                     currentPage:
+   *                       type: integer
+   *                     totalPages:
+   *                       type: integer
+   *                     itemsPerPage:
+   *                       type: integer
    *       401:
    *         description: Unauthorized
    *       500:
@@ -125,7 +250,7 @@ module.exports = (app) => {
    * /api/hse/documents/{id}:
    *   get:
    *     summary: Get a single HSE document
-   *     description: Fetches details of a specific HSE document by ID.
+   *     description: Retrieve full details of a document including uploader and linked report.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -136,14 +261,18 @@ module.exports = (app) => {
    *         schema:
    *           type: integer
    *         example: 5
-   *         description: ID of the HSE document
+   *         description: Document ID
    *     responses:
    *       200:
-   *         description: Document details retrieved successfully
-   *       401:
-   *         description: Unauthorized
+   *         description: Document retrieved
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/HseDocument'
    *       404:
    *         description: Document not found
+   *       401:
+   *         description: Unauthorized
    *       500:
    *         description: Server error
    */
@@ -154,7 +283,10 @@ module.exports = (app) => {
    * /api/hse/documents/{id}:
    *   put:
    *     summary: Update an HSE document
-   *     description: Updates metadata or Firebase URLs of an existing document.
+   *     description: |
+   *       Update metadata, URLs, or link to a different report.
+   *       - Use `reportId: null` to **detach** from current report
+   *       - Use `reportId: 10` to **attach** to a new report
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -179,20 +311,29 @@ module.exports = (app) => {
    *                 type: array
    *                 items:
    *                   type: string
-   *                   example: "https://firebase.storage/newphoto.png"
+   *                 example: ["https://storage.googleapis.com/.../newphoto.png"]
    *               type:
    *                 type: string
    *                 example: "image/png"
    *               size:
    *                 type: integer
    *                 example: 312000
+   *               reportId:
+   *                 type: integer
+   *                 nullable: true
+   *                 example: 10
+   *                 description: Change or remove report link
    *     responses:
    *       200:
-   *         description: Document updated successfully
-   *       401:
-   *         description: Unauthorized
+   *         description: Document updated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/HseDocument'
    *       404:
    *         description: Document not found
+   *       401:
+   *         description: Unauthorized
    *       500:
    *         description: Server error
    */
@@ -203,7 +344,7 @@ module.exports = (app) => {
    * /api/hse/documents/{id}:
    *   delete:
    *     summary: Delete an HSE document
-   *     description: Permanently deletes a document from the system.
+   *     description: Permanently removes the document. Does **not** affect linked reports.
    *     tags: [HSE Documents]
    *     security:
    *       - bearerAuth: []
@@ -216,11 +357,19 @@ module.exports = (app) => {
    *         example: 8
    *     responses:
    *       200:
-   *         description: Document deleted successfully
-   *       401:
-   *         description: Unauthorized
+   *         description: Document deleted
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Document deleted successfully"
    *       404:
    *         description: Document not found
+   *       401:
+   *         description: Unauthorized
    *       500:
    *         description: Server error
    */
