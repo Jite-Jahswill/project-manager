@@ -128,6 +128,9 @@ exports.updateReport = async (req, res) => {
       transaction: t,
     });
 
+    const previous = await Model.findByPk(id);
+    req.body._previousData = previous.toJSON();
+
     await t.commit();
     return res.status(200).json({ message: "Report updated", report: updated });
   } catch (err) {
@@ -148,6 +151,8 @@ exports.deleteReport = async (req, res) => {
     await HseDocument.update({ reportId: null }, { where: { reportId: id }, transaction: t });
     await report.destroy({ transaction: t });
 
+    req.body._deletedData = report.toJSON();
+    
     await t.commit();
     return res.status(200).json({ message: "Report deleted" });
   } catch (err) {
@@ -239,6 +244,9 @@ exports.updateReportStatus = async (req, res) => {
       transaction: t,
     });
 
+    const previous = await Model.findByPk(id);
+    req.body._previousData = previous.toJSON();
+    
     await t.commit();
     return res.status(200).json({
       message: `Report status updated to "${status}"`,
