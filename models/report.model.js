@@ -8,6 +8,10 @@ module.exports = (sequelize, DataTypes) => {
         primaryKey: true,
         autoIncrement: true,
       },
+      title: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
       dateOfReport: {
         type: DataTypes.DATEONLY,
         allowNull: false,
@@ -21,12 +25,8 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       report: {
-        type: DataTypes.TEXT, // long text
+        type: DataTypes.TEXT,
         allowNull: false,
-      },
-      supportingDocUrl: {
-        type: DataTypes.STRING,
-        allowNull: true,
       },
       status: {
         type: DataTypes.ENUM("open", "pending", "closed"),
@@ -42,6 +42,16 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         references: { model: "Users", key: "id" },
       },
+      projectId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Projects", key: "id" },
+      },
+      teamId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "Teams", key: "id" },
+      },
     },
     {
       timestamps: true,
@@ -52,9 +62,9 @@ module.exports = (sequelize, DataTypes) => {
   Report.associate = (models) => {
     Report.belongsTo(models.User, { foreignKey: "reporterId", as: "reporter" });
     Report.belongsTo(models.User, { foreignKey: "closedBy", as: "closer" });
-    // Keep project/team if you still need them
     Report.belongsTo(models.Project, { foreignKey: "projectId", as: "project" });
     Report.belongsTo(models.Team, { foreignKey: "teamId", as: "team" });
+    Report.hasMany(models.Document, { foreignKey: "reportId", as: "documents" });
   };
 
   return Report;
