@@ -273,6 +273,8 @@ module.exports = {
         return res.status(404).json({ message: "Leave not found" });
       }
 
+      req.body._previousData = leave.toJSON();
+
       // Prevent updates if status is not pending
       if (leave.status !== "pending") {
         return res.status(400).json({ message: "Cannot update a leave that is not pending" });
@@ -366,6 +368,8 @@ module.exports = {
         return res.status(404).json({ message: "Leave not found" });
       }
 
+      req.body._previousData = leave.toJSON();
+
       await Leave.update({ status, updatedAt: new Date() }, { where: { id } });
 
       const user = leave.User;
@@ -424,6 +428,8 @@ module.exports = {
         return res.status(404).json({ message: "Leave not found" });
       }
 
+      req.body._deletedData = leave.toJSON();
+      
       await leave.destroy();
 
       await sendMail({
