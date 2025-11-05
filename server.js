@@ -7,6 +7,7 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerSpec = require("./swagger");
 const cron = require("node-cron");
 const { sendWeeklySummary } = require("./cron/weeklySummary");
+const { auditActions } = require("./middlewares/audit.middleware");
 
 // server.js
 const http = require("http");
@@ -18,6 +19,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+app.use(auditActions);
 
 const server = http.createServer(app);
 initSocket(server);  // ← Add this
