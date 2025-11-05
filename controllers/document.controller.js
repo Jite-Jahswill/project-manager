@@ -1,7 +1,7 @@
 const { sequelize, Document, Project, Client, Team, User, ClientProject, TeamProject } = require("../models");
 const { Op } = require("sequelize");
 const admin = require("firebase-admin");
-console.log("Firebase Key starts with:", process.env.FIREBASE_PRIVATE_KEY?.slice(0, 20));
+
 
 
 module.exports = {
@@ -10,43 +10,50 @@ module.exports = {
     const transaction = await sequelize.transaction();
     try {
       const { projectId } = req.params;
+      const { reportId } = req.body; // Optional
       const uploadedFiles = req.uploadedFiles || [];
 
       if (!projectId) {
         await transaction.rollback();
         return res.status(400).json({ message: "projectId is required" });
       }
-
       if (uploadedFiles.length === 0) {
         await transaction.rollback();
         return res.status(400).json({ message: "At least one file must be uploaded" });
       }
 
-      // Verify project exists
-      const [project] = await sequelize.query(
-        `SELECT id FROM Projects WHERE id = :projectId`,
-        {
-          replacements: { projectId },
-          type: sequelize.QueryTypes.SELECT,
-          transaction,
-        }
-      );
+      // Validate project
+      const project = await Project.findByPk(projectId, { transaction });
       if (!project) {
         await transaction.rollback();
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Create documents using raw MySQL
+      // Validate reportId if provided
+      if (reportId) {
+        const report = await sequelize.models.Report.findByPk(reportId, { transaction });
+        if (!report) {
+          await transaction.rollback();
+          return res.status(404).json({ message: "Report not found" });
+        }
+        if (report.projectId !== parseInt(projectId)) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "Report does not belong to this project" });
+        }
+      }
+
       const documents = [];
       for (const file of uploadedFiles) {
         const [result] = await sequelize.query(
-          `INSERT INTO Documents (name, firebaseUrl, projectId, type, size, uploadedBy, status, createdAt, updatedAt)
-           VALUES (:name, :firebaseUrl, :projectId, :type, :size, :uploadedBy, :status, NOW(), NOW())`,
+          `INSERT INTO Documents 
+           (name, firebaseUrl, projectId, reportId, type, size, uploadedBy, status, createdAt, updatedAt)
+           VALUES (:name, :firebaseUrl, :projectId, :reportId, :type, :size, :uploadedBy, :status, NOW(), NOW())`,
           {
             replacements: {
               name: file.originalname,
               firebaseUrl: file.firebaseUrl,
               projectId,
+              reportId: reportId || null,
               type: file.mimetype.split("/")[1] || "unknown",
               size: file.size,
               uploadedBy: req.user.id,
@@ -56,11 +63,12 @@ module.exports = {
             transaction,
           }
         );
-        const [insertedDocument] = await sequelize.query(
+
+        const [doc] = await sequelize.query(
           `SELECT * FROM Documents WHERE id = LAST_INSERT_ID()`,
           { type: sequelize.QueryTypes.SELECT, transaction }
         );
-        documents.push(insertedDocument);
+        documents.push(doc);
       }
 
       await transaction.commit();
@@ -69,182 +77,144 @@ module.exports = {
         documents,
       });
     } catch (err) {
-      await transaction.rollback();
-      console.error("Create document error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        projectId: req.params.projectId,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to upload documents", details: err.message });
-    }
-  },
+        await transaction.rollback();
+        console.error("Create document error:", {
+          message: err.message,
+          stack: err.stack,
+          userId: req.user?.id,
+          projectId: req.params.projectId,
+          reportId: req.body?.reportId,
+          timestamp: new Date().toISOString(),
+        });
+        res.status(500).json({ message: "Failed to upload documents", details: err.message });
+      }
+    },
   
   async getAllDocuments(req, res) {
     try {
-      const { page = 1, limit = 20, search, status } = req.query;
+      const { page = 1, limit = 20, search, status, projectId, reportId } = req.query;
+      const where = {};
 
-      const whereClause = {};
+      if (status) where.status = status;
+      if (projectId) where.projectId = projectId;
+      if (reportId) where.reportId = reportId === "null" ? null : reportId;
+
       const searchConditions = [];
-
-      // Optional filters
-      if (status) {
-        whereClause.status = status;
-      }
-
-      // Build dynamic search filters
       if (search) {
-        const likeQuery = `%${search}%`;
-        searchConditions.push(
-          { name: { [Op.like]: likeQuery } } // match document name
-        );
+        const like = `%${search}%`;
+        searchConditions.push({ name: { [Op.like]: like } });
       }
 
-      // Fetch all documents
       const { count, rows } = await Document.findAndCountAll({
         where: {
-          ...whereClause,
+          ...where,
           ...(searchConditions.length > 0 ? { [Op.or]: searchConditions } : {}),
         },
         include: [
-          {
-            model: Project,
-            as: "Project", // Use uppercase 'Project' to match default association
-            attributes: ["id", "name", "description"],
-          },
-          {
-            model: User,
-            as: "uploader",
-            attributes: ["id", "firstName", "lastName", "email"],
-          },
+          { model: Project, as: "Project", attributes: ["id", "name"] },
+          { model: User, as: "uploader", attributes: ["id", "firstName", "lastName", "email"] },
+          { model: sequelize.models.Report, as: "report", attributes: ["id", "title"], required: false },
         ],
         order: [["createdAt", "DESC"]],
         limit: parseInt(limit),
         offset: (parseInt(page) - 1) * parseInt(limit),
       });
 
-      const totalPages = Math.ceil(count / limit);
-
       res.status(200).json({
         documents: rows,
         pagination: {
           currentPage: parseInt(page),
-          totalPages,
+          totalPages: Math.ceil(count / limit),
           totalItems: count,
           itemsPerPage: parseInt(limit),
         },
       });
     } catch (err) {
-      console.error("Get all documents error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        query: req.query,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to fetch all documents", details: err.message });
-    }
-  },
-
-  // Get documents by projectId
-  async getDocumentsByProject(req, res) {
-    try {
-      const { projectId } = req.params;
-      const { page = 1, limit = 20, name } = req.query;
-
-      if (!projectId) {
-        return res.status(400).json({ message: "projectId is required" });
-      }
-
-      // Verify project exists
-      const [project] = await sequelize.query(
-        `SELECT id FROM Projects WHERE id = :projectId`,
-        {
-          replacements: { projectId },
-          type: sequelize.QueryTypes.SELECT,
-        }
-      );
-      if (!project) {
-        return res.status(404).json({ message: "Project not found" });
-      }
-
-      const searchCriteria = { projectId };
-      if (name) {
-        searchCriteria.name = { [Op.like]: `%${name}%` };
-      }
-
-      const { count, rows } = await Document.findAndCountAll({
-        where: searchCriteria,
-        include: [
-          {
-            model: User,
-            as: "uploader",
-            attributes: ["id", "firstName", "lastName", "email"],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
-      });
-
-      const totalPages = Math.ceil(count / limit);
-
-      res.status(200).json({
-        documents: rows,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages,
-          totalItems: count,
-          itemsPerPage: parseInt(limit),
-        },
-      });
-    } catch (err) {
-      console.error("Get documents error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        projectId: req.params.projectId,
-        query: req.query,
-        timestamp: new Date().toISOString(),
-      });
+      console.error("Get all documents error:", err);
       res.status(500).json({ message: "Failed to fetch documents", details: err.message });
     }
   },
 
-  // Update a document (name or file, not status)
+async getDocumentsByProject(req, res) {
+    try {
+      const { projectId } = req.params;
+      const { page = 1, limit = 20, name, reportId } = req.query;
+
+      if (!projectId) return res.status(400).json({ message: "projectId is required" });
+
+      const project = await Project.findByPk(projectId);
+      if (!project) return res.status(404).json({ message: "Project not found" });
+
+      const where = { projectId };
+      if (name) where.name = { [Op.like]: `%${name}%` };
+      if (reportId) where.reportId = reportId === "null" ? null : reportId;
+
+      const { count, rows } = await Document.findAndCountAll({
+        where,
+        include: [
+          { model: User, as: "uploader", attributes: ["id", "firstName", "lastName"] },
+          { model: sequelize.models.Report, as: "report", attributes: ["id", "title"], required: false },
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit),
+      });
+
+      res.status(200).json({
+        documents: rows,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / limit),
+          totalItems: count,
+          itemsPerPage: parseInt(limit),
+        },
+      });
+    } catch (err) {
+      console.error("Get documents by project error:", err);
+      res.status(500).json({ message: "Failed to fetch documents", details: err.message });
+    }
+  },
+
+  // UPDATE: Change name, file, or reportId
   async updateDocument(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { documentId } = req.params;
-      const { name } = req.body;
-      const newFile = req.uploadedFiles && req.uploadedFiles[0];
+      const { name, reportId } = req.body;
+      const newFile = req.uploadedFiles?.[0];
 
       if (!documentId) {
         await transaction.rollback();
         return res.status(400).json({ message: "documentId is required" });
       }
-
-      if (!name && !newFile) {
+      if (!name && !newFile && reportId === undefined) {
         await transaction.rollback();
-        return res.status(400).json({ message: "At least one field (name or file) is required" });
+        return res.status(400).json({ message: "At least one field (name, file, reportId) is required" });
       }
 
-      // Verify document exists
-      const [document] = await sequelize.query(
-        `SELECT * FROM Documents WHERE id = :documentId`,
-        {
-          replacements: { documentId },
-          type: sequelize.QueryTypes.SELECT,
-          transaction,
-        }
-      );
+      const document = await Document.findByPk(documentId, { transaction });
       if (!document) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Prepare updates
+      // Validate reportId if changing
+      if (reportId !== undefined) {
+        if (reportId === null) {
+          // Allow detach
+        } else {
+          const report = await sequelize.models.Report.findByPk(reportId, { transaction });
+          if (!report) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "Report not found" });
+          }
+          if (report.projectId !== document.projectId) {
+            await transaction.rollback();
+            return res.status(400).json({ message: "Report must belong to the same project" });
+          }
+        }
+      }
+
       const updates = {};
       if (name) updates.name = name;
       if (newFile) {
@@ -252,24 +222,24 @@ module.exports = {
         updates.type = newFile.mimetype.split("/")[1] || "unknown";
         updates.size = newFile.size;
 
-        // Delete old file from Firebase
+        // Delete old file
         const oldFileName = document.firebaseUrl.split("/").pop();
-        await admin.storage().bucket().file(`Uploads/${oldFileName}`).delete().catch((err) => {
-          console.error(`Failed to delete old file: ${err.message}`);
-        });
+        await admin.storage().bucket().file(`Uploads/${oldFileName}`).delete().catch(() => {});
       }
+      if (reportId !== undefined) updates.reportId = reportId;
 
-      // Update document using raw MySQL
       await sequelize.query(
-        `UPDATE Documents
-         SET name = :name, firebaseUrl = :firebaseUrl, type = :type, size = :size, updatedAt = NOW()
+        `UPDATE Documents SET 
+         name = :name, firebaseUrl = :firebaseUrl, type = :type, size = :size, 
+         reportId = :reportId, updatedAt = NOW()
          WHERE id = :documentId`,
         {
           replacements: {
-            name: updates.name || document.name,
-            firebaseUrl: updates.firebaseUrl || document.firebaseUrl,
-            type: updates.type || document.type,
-            size: updates.size || document.size,
+            name: updates.name ?? document.name,
+            firebaseUrl: updates.firebaseUrl ?? document.firebaseUrl,
+            type: updates.type ?? document.type,
+            size: updates.size ?? document.size,
+            reportId: updates.reportId ?? document.reportId,
             documentId,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -277,28 +247,16 @@ module.exports = {
         }
       );
 
-      // Fetch updated document
-      const [updatedDocument] = await sequelize.query(
+      const [updated] = await sequelize.query(
         `SELECT * FROM Documents WHERE id = :documentId`,
-        {
-          replacements: { documentId },
-          type: sequelize.QueryTypes.SELECT,
-          transaction,
-        }
+        { replacements: { documentId }, type: sequelize.QueryTypes.SELECT, transaction }
       );
 
       await transaction.commit();
-      res.status(200).json({ message: "Document updated successfully", document: updatedDocument });
+      res.status(200).json({ message: "Document updated", document: updated });
     } catch (err) {
       await transaction.rollback();
-      console.error("Update document error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        documentId: req.params.documentId,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
+      console.error("Update document error:", err);
       res.status(500).json({ message: "Failed to update document", details: err.message });
     }
   },
@@ -377,58 +335,39 @@ module.exports = {
     }
   },
 
-  // Delete a document
+// DELETE: Safe (unlinks from report)
   async deleteDocument(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { documentId } = req.params;
-
       if (!documentId) {
         await transaction.rollback();
         return res.status(400).json({ message: "documentId is required" });
       }
 
-      // Verify document exists
       const [document] = await sequelize.query(
         `SELECT * FROM Documents WHERE id = :documentId`,
-        {
-          replacements: { documentId },
-          type: sequelize.QueryTypes.SELECT,
-          transaction,
-        }
+        { replacements: { documentId }, type: sequelize.QueryTypes.SELECT, transaction }
       );
       if (!document) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Delete file from Firebase
+      // Delete from Firebase
       const fileName = document.firebaseUrl.split("/").pop();
-      await admin.storage().bucket().file(`Uploads/${fileName}`).delete().catch((err) => {
-        console.error(`Failed to delete file: ${err.message}`);
-      });
+      await admin.storage().bucket().file(`Uploads/${fileName}`).delete().catch(() => {});
 
-      // Delete document using raw MySQL
       await sequelize.query(
         `DELETE FROM Documents WHERE id = :documentId`,
-        {
-          replacements: { documentId },
-          type: sequelize.QueryTypes.DELETE,
-          transaction,
-        }
+        { replacements: { documentId }, type: sequelize.QueryTypes.DELETE, transaction }
       );
 
       await transaction.commit();
       res.status(200).json({ message: "Document deleted successfully" });
     } catch (err) {
       await transaction.rollback();
-      console.error("Delete document error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        documentId: req.params.documentId,
-        timestamp: new Date().toISOString(),
-      });
+      console.error("Delete document error:", err);
       res.status(500).json({ message: "Failed to delete document", details: err.message });
     }
   },
