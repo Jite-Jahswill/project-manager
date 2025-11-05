@@ -105,6 +105,8 @@ module.exports = {
         return res.status(404).json({ message: "Report not found" });
       }
 
+      req.body._previousData = existing.toJSON();
+
       const updates = {};
       if (title) updates.title = title;
       if (dateOfReport) updates.dateOfReport = dateOfReport;
@@ -171,6 +173,8 @@ module.exports = {
         await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
+
+      req.body._deletedData = report.toJSON();
 
       await Document.update(
         { reportId: null },
@@ -264,6 +268,8 @@ module.exports = {
         await t.rollback();
         return res.status(404).json({ message: "Report not found" });
       }
+      req.body._previousData = document.toJSON();
+      
       if (report.status === "closed") {
         await t.rollback();
         return res.status(400).json({ message: "Already closed" });
