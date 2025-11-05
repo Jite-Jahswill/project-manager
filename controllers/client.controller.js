@@ -15,120 +15,85 @@ const generateOTP = () => {
 };
 
 module.exports = {
-  // Get current client's details
-  async getCurrentClient(req, res) {
+  // CREATE CLIENT → AUDIT: CREATE
+  async createClient(req, res) {
+    let transaction = null;
     try {
-      const client = await Client.findByPk(req.user.id, {
-        attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
-        include: [
-          {
-            model: Project,
-            as: "Projects",
-            include: [
-              {
-                model: Team,
-                as: "Teams",
-                attributes: ["id", "name"],
-                include: [
-                  {
-                    model: User,
-                    attributes: ["id", "firstName", "lastName", "email"],
-                    through: { attributes: ["role", "note"] },
-                  },
-                ],
-              },
-              {
-                model: Task,
-                as: "Tasks",
-                attributes: ["id", "title", "description", "status", "dueDate"],
-                include: [
-                  {
-                    model: User,
-                    as: "assignee",
-                    attributes: ["id", "firstName", "lastName", "email"],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      });
+      transaction = await sequelize.transaction();
 
-      if (!client) {
-        return res.status(404).json({ message: "Client not found" });
+      const {
+        firstName, lastName, email, phoneNumber, address, city, state, country,
+        bankName, accountNumber, accountName,
+      } = req.body;
+
+      const files = req.uploadedFiles || [];
+      const cacCertificate = files.find(f => f.originalname?.toLowerCase().includes("cac"))?.firebaseUrl || null;
+      const tin = files.find(f => f.originalname?.toLowerCase().includes("tin"))?.firebaseUrl || null;
+      const taxClearance = files.find(f => f.originalname?.toLowerCase().includes("tax"))?.firebaseUrl || null;
+      const corporateProfile = files.find(f => f.originalname?.toLowerCase().includes("profile"))?.firebaseUrl || null;
+      const image = files.find(f => ["image/jpeg", "image/png", "image/webp"].includes(f.mimetype))?.firebaseUrl || null;
+
+      if (!firstName || !lastName || !email) {
+        if (transaction) await transaction.rollback();
+        return res.status(400).json({ message: "firstName, lastName, and email are required" });
       }
 
-      const formattedClient = {
-        id: client.id,
-        firstName: client.firstName,
-        lastName: client.lastName,
-        email: client.email,
-        image: client.image,
-        phoneNumber: client.phoneNumber,
-        address: client.address,
-        city: client.city,
-        state: client.state,
-        country: client.country,
-        bankName: client.bankName,
-        accountNumber: client.accountNumber,
-        accountName: client.accountName,
-        approvalStatus: client.approvalStatus,
-        projects: client.Projects.map((project) => {
-          const teams = (project.Teams || []).map((team) => ({
-            teamId: team.id,
-            teamName: team.name,
-            members: (team.Users || []).map((user) => ({
-              userId: user.id,
-              firstName: user.firstName,
-              lastName: user.lastName,
-              email: user.email,
-              role: user.UserTeam?.role,
-              note: user.UserTeam?.note,
-            })),
-          }));
-        
-          return {
-            id: project.id,
-            name: project.name,
-            description: project.description,
-            startDate: project.startDate,
-            endDate: project.endDate,
-            status: project.status,
-        
-            // derive one "team" (first)
-            team: teams.length > 0 ? teams[0] : null,
-        
-            // include all "teams"
-            teams,
-        
-            tasks: (project.Tasks || []).map((task) => ({
-              id: task.id,
-              title: task.title,
-              description: task.description,
-              status: task.status,
-              dueDate: task.dueDate,
-              assignee: task.assignee
-                ? {
-                    userId: task.assignee.id,
-                    firstName: task.assignee.firstName,
-                    lastName: task.assignee.lastName,
-                    email: task.assignee.email,
-                  }
-                : null,
-            })),
-          };
-        }),
-      };
+      const exists = await Client.findOne({ where: { email }, transaction });
+      if (exists) {
+        if (transaction) await transaction.rollback();
+        return res.status(409).json({ message: "Client with this email already exists" });
+      }
 
-      res.status(200).json({ client: formattedClient });
-    } catch (err) {
-      console.error("Get current client error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        timestamp: new Date().toISOString(),
+      const autoPassword = crypto.randomBytes(8).toString("hex");
+      const hashedPassword = await bcrypt.hash(autoPassword, 10);
+      const otp = generateOTP();
+      const hashedOTP = await bcrypt.hash(otp, 10);
+      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      const client = await Client.create(
+        {
+          firstName, lastName, email, password: hashedPassword, image,
+          emailVerified: false, otp: hashedOTP, otpExpiresAt, phoneNumber,
+          cacCertificate, tin, taxClearance, corporateProfile,
+          address, city, state, country, bankName, accountNumber, accountName,
+          approvalStatus: "approved",
+        },
+        { transaction }
+      );
+
+      await transaction.commit();
+      transaction = null;
+
+      // SEND EMAIL (fire-and-forget)
+      sendMail({
+        to: client.email,
+        subject: "Welcome! Verify Your Client Account",
+        html: `
+          <p>Hello ${client.firstName},</p>
+          <p>Your client account has been created.</p>
+          <p><strong>Email:</strong> ${client.email}</p>
+          <p><strong>Password:</strong> ${autoPassword}</p>
+          <p><strong>OTP:</strong> ${otp}</p>
+          <p>Best,<br>Team</p>
+        `,
+      }).catch(err => console.error("Email failed:", err.message));
+
+      // AUDIT: CREATE → responseData has client.id
+      return res.status(201).json({
+        message: "Client created",
+        client: {
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          email: client.email,
+          image: client.image,
+          approvalStatus: client.approvalStatus,
+        },
       });
-      res.status(500).json({ message: "Failed to fetch client", details: err.message });
+    } catch (err) {
+      if (transaction) await transaction.rollback();
+      console.error("Create client error:", err);
+      return res.status(500).json({ message: "Failed to create client", details: err.message });
     }
   },
 
@@ -412,7 +377,7 @@ module.exports = {
     }
   },
 
-  // Upload company information
+// UPDATE COMPANY INFO → AUDIT: UPDATE
   async uploadCompanyInfo(req, res) {
     const transaction = await sequelize.transaction();
     try {
@@ -423,28 +388,36 @@ module.exports = {
         return res.status(404).json({ message: "Client not found" });
       }
 
+      // CAPTURE OLD DATA FOR AUDIT
+      req.body._previousData = client.toJSON();
+
       const files = req.uploadedFiles || [];
-      const cacCertificate = files.find(f => f.originalname.toLowerCase().includes('cac'))?.firebaseUrl || client.cacCertificate;
-      const tin = files.find(f => f.originalname.toLowerCase().includes('tin'))?.firebaseUrl || client.tin;
-      const taxClearance = files.find(f => f.originalname.toLowerCase().includes('tax'))?.firebaseUrl || client.taxClearance;
-      const corporateProfile = files.find(f => f.originalname.toLowerCase().includes('profile'))?.firebaseUrl || client.corporateProfile;
+      const cacCertificate =
+        files.find((f) => f.originalname.toLowerCase().includes("cac"))
+          ?.firebaseUrl || client.cacCertificate;
+      const tin =
+        files.find((f) => f.originalname.toLowerCase().includes("tin"))
+          ?.firebaseUrl || client.tin;
+      const taxClearance =
+        files.find((f) => f.originalname.toLowerCase().includes("tax"))
+          ?.firebaseUrl || client.taxClearance;
+      const corporateProfile =
+        files.find((f) => f.originalname.toLowerCase().includes("profile"))
+          ?.firebaseUrl || client.corporateProfile;
 
       if (!cacCertificate || !tin || !taxClearance || !corporateProfile) {
         await transaction.rollback();
-        return res.status(400).json({ message: "CAC Certificate, TIN, Tax Clearance, and Corporate Profile are required" });
+        return res.status(400).json({ message: "All documents required" });
       }
 
       await sequelize.query(
-        `UPDATE Clients 
-         SET cacCertificate = :cacCertificate, tin = :tin, taxClearance = :taxClearance, corporateProfile = :corporateProfile, approvalStatus = :approvalStatus, updatedAt = NOW()
-         WHERE id = :id`,
+        `UPDATE Clients SET cacCertificate = :cacCertificate, tin = :tin, taxClearance = :taxClearance, corporateProfile = :corporateProfile, approvalStatus = 'pending' WHERE id = :id`,
         {
           replacements: {
             cacCertificate,
             tin,
             taxClearance,
             corporateProfile,
-            approvalStatus: "pending",
             id,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -454,39 +427,40 @@ module.exports = {
 
       await sendMail({
         to: client.email,
-        subject: "Company Information Updated",
-        html: `
-          <p>Hello ${client.firstName},</p>
-          <p>Your company information has been updated successfully and is pending approval.</p>
-          <p>Best,<br>Team</p>
-        `,
+        subject: "Company Info Updated",
+        html: `<p>Pending approval.</p>`,
       });
 
       const updatedClient = await Client.findByPk(id, {
         attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
         transaction,
       });
+
       await transaction.commit();
-      res.status(200).json({ message: "Company information updated successfully", client: updatedClient });
+      return res
+        .status(200)
+        .json({ message: "Company info updated", client: updatedClient });
     } catch (err) {
       await transaction.rollback();
-      console.error("Upload company info error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        clientId: req.params.id,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to upload company information", details: err.message });
+      console.error("Upload company info error:", err);
+      return res.status(500).json({ message: "Failed", details: err.message });
     }
   },
 
-  // Update registration form with contact and banking details
+// UPDATE REGISTRATION → AUDIT: UPDATE
   async updateRegistration(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
-      const { address, city, state, country, bankName, accountNumber, accountName } = req.body;
+      const {
+        address,
+        city,
+        state,
+        country,
+        bankName,
+        accountNumber,
+        accountName,
+      } = req.body;
 
       const client = await Client.findByPk(id, { transaction });
       if (!client) {
@@ -494,12 +468,10 @@ module.exports = {
         return res.status(404).json({ message: "Client not found" });
       }
 
+      req.body._previousData = client.toJSON(); // AUDIT
+
       await sequelize.query(
-        `UPDATE Clients 
-         SET address = :address, city = :city, state = :state, country = :country, 
-             bankName = :bankName, accountNumber = :accountNumber, accountName = :accountName, 
-             approvalStatus = :approvalStatus, updatedAt = NOW()
-         WHERE id = :id`,
+        `UPDATE Clients SET address = :address, city = :city, state = :state, country = :country, bankName = :bankName, accountNumber = :accountNumber, accountName = :accountName, approvalStatus = 'pending' WHERE id = :id`,
         {
           replacements: {
             address: address || client.address,
@@ -509,7 +481,6 @@ module.exports = {
             bankName: bankName || client.bankName,
             accountNumber: accountNumber || client.accountNumber,
             accountName: accountName || client.accountName,
-            approvalStatus: "pending",
             id,
           },
           type: sequelize.QueryTypes.UPDATE,
@@ -519,12 +490,8 @@ module.exports = {
 
       await sendMail({
         to: client.email,
-        subject: "Registration Details Updated",
-        html: `
-          <p>Hello ${client.firstName},</p>
-          <p>Your contact and banking details have been updated successfully and are pending approval.</p>
-          <p>Best,<br>Team</p>
-        `,
+        subject: "Registration Updated",
+        html: `<p>Pending approval.</p>`,
       });
 
       const updatedClient = await Client.findByPk(id, {
@@ -532,22 +499,14 @@ module.exports = {
         transaction,
       });
 
-      const previous = await Model.findByPk(id);
-      req.body._previousData = previous.toJSON();
-      
       await transaction.commit();
-      res.status(200).json({ message: "Registration details updated successfully", client: updatedClient });
+      return res
+        .status(200)
+        .json({ message: "Registration updated", client: updatedClient });
     } catch (err) {
       await transaction.rollback();
-      console.error("Update registration error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        clientId: req.params.id,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to update registration details", details: err.message });
+      console.error("Update registration error:", err);
+      return res.status(500).json({ message: "Failed", details: err.message });
     }
   },
 
@@ -574,7 +533,7 @@ module.exports = {
     }
   },
 
-  // Approve or reject client registration
+// APPROVE CLIENT → AUDIT: UPDATE
   async approveClient(req, res) {
     const transaction = await sequelize.transaction();
     try {
@@ -583,7 +542,7 @@ module.exports = {
 
       if (!["approved", "rejected"].includes(approvalStatus)) {
         await transaction.rollback();
-        return res.status(400).json({ message: "Invalid approval status. Must be 'approved' or 'rejected'" });
+        return res.status(400).json({ message: "Invalid status" });
       }
 
       const client = await Client.findByPk(id, { transaction });
@@ -592,74 +551,49 @@ module.exports = {
         return res.status(404).json({ message: "Client not found" });
       }
 
+      req.body._previousData = client.toJSON(); // AUDIT
+
       await sequelize.query(
-        `UPDATE Clients 
-         SET approvalStatus = :approvalStatus, updatedAt = NOW()
-         WHERE id = :id`,
-        {
-          replacements: { approvalStatus, id },
-          type: sequelize.QueryTypes.UPDATE,
-          transaction,
-        }
+        `UPDATE Clients SET approvalStatus = :approvalStatus WHERE id = :id`,
+        { replacements: { approvalStatus, id }, type: sequelize.QueryTypes.UPDATE, transaction }
       );
 
       await sendMail({
         to: client.email,
-        subject: `Client Registration ${approvalStatus === "approved" ? "Approved" : "Rejected"}`,
-        html: `
-          <p>Hello ${client.firstName},</p>
-          <p>Your client registration has been ${approvalStatus}.</p>
-          ${approvalStatus === "approved" ? `<p>You can now access your project dashboard at <a href="http://<your-app-url>/dashboard">Dashboard</a>.</p>` : `<p>Please contact support for further details.</p>`}
-          <p>Best,<br>Team</p>
-        `,
+        subject: `Registration ${approvalStatus}`,
+        html: `<p>Your registration has been ${approvalStatus}.</p>`,
       });
 
-      const updatedClient = await Client.findByPk(id, {
-        attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
-        transaction,
-      });
+      const updatedClient = await Client.findByPk(id, { attributes: { exclude: ["password", "otp", "otpExpiresAt"] }, transaction });
+
       await transaction.commit();
-      res.status(200).json({ message: `Client registration ${approvalStatus}`, client: updatedClient });
+      return res.status(200).json({ message: `Client ${approvalStatus}`, client: updatedClient });
     } catch (err) {
       await transaction.rollback();
-      console.error("Approve client error:", {
-        message: err.message,
-        stack: err.stack,
-        userId: req.user?.id,
-        clientId: req.params.id,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to approve/reject client", details: err.message });
+      console.error("Approve client error:", err);
+      return res.status(500).json({ message: "Failed", details: err.message });
     }
   },
-
-  // Login client
+  
+  // CLIENT LOGIN → AUDIT: LOGIN
   async loginClient(req, res) {
     try {
       const { email, password } = req.body;
-
-      if (!email || !password) {
-        return res.status(400).json({ message: "email and password are required" });
-      }
+      if (!email || !password)
+        return res.status(400).json({ message: "Email and password required" });
 
       const client = await Client.findOne({ where: { email } });
-      if (!client) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
+      if (!client)
+        return res.status(401).json({ message: "Invalid credentials" });
 
       const isMatch = await bcrypt.compare(password, client.password);
-      if (!isMatch) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
+      if (!isMatch)
+        return res.status(401).json({ message: "Invalid credentials" });
 
-      if (!client.emailVerified) {
+      if (!client.emailVerified)
         return res.status(403).json({ message: "Email not verified" });
-      }
-
-      if (client.approvalStatus !== "approved") {
-        return res.status(403).json({ message: "Client registration not approved" });
-      }
+      if (client.approvalStatus !== "approved")
+        return res.status(403).json({ message: "Not approved" });
 
       const token = jwt.sign(
         { id: client.id, role: "client" },
@@ -667,8 +601,13 @@ module.exports = {
         { expiresIn: "7d" }
       );
 
-      res.status(200).json({
-        message: "Client logged in successfully",
+      // AUDIT: LOGIN
+      req.body._auditAction = "LOGIN";
+      req.body._auditModel = "Client";
+      req.body._auditRecordId = client.id;
+
+      return res.status(200).json({
+        message: "Logged in",
         token,
         client: {
           id: client.id,
@@ -680,13 +619,8 @@ module.exports = {
         },
       });
     } catch (err) {
-      console.error("Client login error:", {
-        message: err.message,
-        stack: err.stack,
-        body: req.body,
-        timestamp: new Date().toISOString(),
-      });
-      res.status(500).json({ message: "Failed to login client", details: err.message });
+      console.error("Client login error:", err);
+      return res.status(500).json({ message: "Failed", details: err.message });
     }
   },
 
@@ -706,6 +640,8 @@ module.exports = {
         await transaction.rollback();
         return res.status(404).json({ message: "Client not found" });
       }
+
+      req.body._previousData = client.toJSON();
 
       if (client.emailVerified) {
         await transaction.rollback();
@@ -1055,6 +991,7 @@ module.exports = {
         await transaction.rollback();
         return res.status(404).json({ message: "Client not found" });
       }
+      req.body._previousData = client.toJSON(); // AUDIT
 
       const { firstName, lastName, email, phoneNumber } = req.body;
       const image = req.uploadedFiles && req.uploadedFiles[0]?.firebaseUrl ? req.uploadedFiles[0].firebaseUrl : client.image;
@@ -1119,6 +1056,7 @@ module.exports = {
         await transaction.rollback();
         return res.status(404).json({ message: "Client not found" });
       }
+      req.body._deletedData = client.toJSON();
 
       if (client.image) {
         const filePath = `Uploads/profiles/${path.basename(client.image)}`;
