@@ -26,7 +26,12 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       firebaseUrls: {
-        type: DataTypes.JSON, // Optional attached files directly under the report
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
+      },
+      attachedDocs: {
+        type: DataTypes.JSON, // Array of document IDs attached to this report
         allowNull: true,
         defaultValue: [],
       },
