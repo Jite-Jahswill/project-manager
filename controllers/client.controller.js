@@ -531,6 +531,10 @@ module.exports = {
         attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
         transaction,
       });
+
+      const previous = await Model.findByPk(id);
+      req.body._previousData = previous.toJSON();
+      
       await transaction.commit();
       res.status(200).json({ message: "Registration details updated successfully", client: updatedClient });
     } catch (err) {
@@ -889,6 +893,9 @@ module.exports = {
         `,
       });
 
+      const previous = await Model.findByPk(id);
+      req.body._previousData = previous.toJSON();
+
       await transaction.commit();
       res.status(200).json({ message: "Password reset successfully" });
     } catch (err) {
@@ -1082,6 +1089,10 @@ module.exports = {
         attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
         transaction,
       });
+
+      const previous = await Model.findByPk(id);
+      req.body._previousData = previous.toJSON();
+      
       await transaction.commit();
       res.json({ message: "Client updated", client: updatedClient });
     } catch (err) {
@@ -1119,6 +1130,8 @@ module.exports = {
       }
 
       await Client.destroy({ where: { id }, transaction });
+
+      req.body._deletedData = report.toJSON();
 
       await transaction.commit();
       res.json({ message: "Client deleted" });
