@@ -13,41 +13,27 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       firebaseUrls: {
-        type: DataTypes.JSON, // Store an array of file URLs
+        type: DataTypes.JSON,
         allowNull: false,
         defaultValue: [],
       },
       uploadedBy: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        references: {
-          model: "Users",
-          key: "id",
-        },
+        references: { model: "Users", key: "id" },
       },
       reportId: {
         type: DataTypes.INTEGER,
-        allowNull: true, // Optional link to HSE report
-        references: {
-          model: "HSEReports",
-          key: "id",
-        },
+        allowNull: true,
+        references: { model: "HSEReports", key: "id" },
       },
       type: {
-        type: DataTypes.STRING, // e.g., image, pdf, docx
+        type: DataTypes.STRING,
         allowNull: false,
       },
       size: {
-        type: DataTypes.INTEGER, // File size (bytes)
+        type: DataTypes.INTEGER,
         allowNull: false,
-      },
-      createdAt: {
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW,
-      },
-      updatedAt: {
-        type: DataTypes.DATE,
-        defaultValue: DataTypes.NOW,
       },
     },
     {
