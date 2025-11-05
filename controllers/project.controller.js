@@ -326,7 +326,7 @@ module.exports = {
   // Get all projects (No role restrictions)
   async getAllProjects(req, res) {
     try {
-      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const { projectName, status, startDate, endDate, page = 1, limit = 20 } = req.query;
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
 
@@ -338,6 +338,7 @@ module.exports = {
       if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
       if (status) where.status = status;
       if (startDate) where.startDate = startDate;
+      if (endDate) where.endDate = endDate;
 
       const count = await db.Project.count({ where });
 
@@ -451,7 +452,7 @@ module.exports = {
   async getClientProjects(req, res) {
     try {
       const { clientId } = req.params;
-      const { projectName, status, startDate, page = 1, limit = 20 } = req.query;
+      const { projectName, status, startDate, endDate, page = 1, limit = 20 } = req.query;
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
       if (!clientId) {
@@ -476,6 +477,8 @@ module.exports = {
       if (projectName) where.name = { [db.Sequelize.Op.like]: `%${projectName}%` };
       if (status) where.status = status;
       if (startDate) where.startDate = startDate;
+      if (endDate) where.endDate = endDate;
+      
 
       const count = await db.Project.count({ where });
 
@@ -721,6 +724,7 @@ module.exports = {
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
+      req.body._deletedData = project.toJSON();
 
       const teams = await db.Team.findAll({
         where: { id: teamIds },
@@ -910,6 +914,8 @@ module.exports = {
         return res.status(404).json({ message: "Project not found" });
       }
 
+      req.body._previousData = project.toJSON();
+
       await db.sequelize.query(
         `UPDATE Projects SET status = :status, updatedAt = NOW() WHERE id = :projectId`,
         {
@@ -967,7 +973,7 @@ module.exports = {
       });
 
       const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
+        where: { role: ["superadmin", "admin"] },
         attributes: ["email", "firstName", "phoneNumber"],
       });
 
@@ -1070,6 +1076,8 @@ module.exports = {
       if (!project) {
         return res.status(404).json({ message: "Project not found" });
       }
+
+      req.body._previousData = project.toJSON();
 
       if (teamIds && Array.isArray(teamIds)) {
         const teams = await db.Team.findAll({ where: { id: teamIds } });
@@ -1390,6 +1398,8 @@ module.exports = {
           return res.status(404).json({ message: "Project not found" });
         }
 
+        req.body._deletedData = project.toJSON();
+
         const teamIds = (
           await db.sequelize.query(
             `SELECT teamId FROM TeamProjects WHERE projectId = :projectId`,
@@ -1557,6 +1567,8 @@ module.exports = {
           await transaction.rollback();
           return res.status(404).json({ message: "Project not found" });
         }
+
+        req.body._deletedData = project.toJSON();
 
         const association = await db.ClientProject.findOne({
           where: { clientId, projectId },
