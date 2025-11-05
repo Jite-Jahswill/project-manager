@@ -1,6 +1,7 @@
 // controllers/hseReport.controller.js
-const { Op, sequelize } = require("sequelize");
-const { HSEReport, HseDocument, User } = require("../models");
+const { Op } = require("sequelize");
+const db = require("../models");
+const { HSEReport, HseDocument, User, sequelize } = db;
 
 // CREATE REPORT + UPLOAD FILES
 exports.createReport = async (req, res) => {
@@ -13,7 +14,7 @@ exports.createReport = async (req, res) => {
       return res.status(400).json({ error: "title, dateOfReport, timeOfReport, and report are required" });
     }
 
-    // 1. Create Report
+    // Create the report
     const newReport = await HSEReport.create(
       {
         title,
@@ -25,8 +26,8 @@ exports.createReport = async (req, res) => {
       { transaction: t }
     );
 
-    // 2. Handle uploaded files from Firebase middleware
-    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+    // Handle uploaded files
+    if (req.uploadedFiles?.length > 0) {
       const docsToCreate = req.uploadedFiles.map((file) => ({
         name: file.originalname,
         firebaseUrls: [file.firebaseUrl],
@@ -38,8 +39,8 @@ exports.createReport = async (req, res) => {
       await HseDocument.bulkCreate(docsToCreate, { transaction: t });
     }
 
-    // 3. Attach existing documents
-    if (attachedDocIds && Array.isArray(attachedDocIds) && attachedDocIds.length > 0) {
+    // Attach existing docs
+    if (attachedDocIds?.length > 0) {
       await HseDocument.update(
         { reportId: newReport.id },
         { where: { id: attachedDocIds }, transaction: t }
