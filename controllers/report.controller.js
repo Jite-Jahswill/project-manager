@@ -6,17 +6,40 @@ const { Report, Document, User, Project, Team, sequelize } = db;
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
   try {
     const recipients = await User.findAll({
-      where: { role: ["superadmin", "admin"] },
       attributes: ["email"],
+      include: [
+        {
+          model: Role,
+          as: "role",
+          where: { name: "superadmin" }, // Only superadmins
+          attributes: [],
+        },
+      ],
       transaction,
     });
+
+    if (recipients.length === 0) {
+      console.log("No superadmins found to notify.");
+      return;
+    }
+
     const emails = recipients
       .map((u) => u.email)
       .filter(Boolean)
-      .map((email) => sendMail({ to: email, subject, html }));
+      .map((email) =>
+        sendMail({
+          to: email,
+          subject,
+          html,
+        }).catch((err) =>
+          console.error(`Failed to send email to ${email}:`, err.message)
+        )
+      );
+
     await Promise.all(emails);
+    console.log(`Notified ${emails.length} superadmin(s)`);
   } catch (error) {
-    console.error(`notifyAdminsAndManagers error: ${error.message}`);
+        console.error("notifyAdminsAndManagers error:", error.message);
   }
 }
 
