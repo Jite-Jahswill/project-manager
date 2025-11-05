@@ -412,5 +412,70 @@ module.exports = (app) => {
     hseReportController.getDocumentsByReportId
   );
 
+  /**
+   * @swagger
+   * /api/hse-reports/{id}/status:
+   *   patch:
+   *     summary: Update HSE report status
+   *     description: |
+   *       Changes report status to `open`, `pending`, or `closed`.
+   *       - When status → `closed`: auto-sets `closedAt` and `closedBy`
+   *       - When reopened: clears `closedAt` and `closedBy`
+   *     tags: [HSE Reports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         example: 3
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - status
+   *             properties:
+   *               status:
+   *                 type: string
+   *                 enum: [open, pending, closed]
+   *                 example: "closed"
+   *               closedBy:
+   *                 type: integer
+   *                 description: Optional. User ID who closed the report. Defaults to current user.
+   *                 example: 2
+   *     responses:
+   *       200:
+   *         description: Status updated
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "Report status updated to \"closed\""
+   *                 report:
+   *                   $ref: '#/components/schemas/HSEReport'
+   *       400:
+   *         description: Invalid status
+   *       404:
+   *         description: Report not found
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.patch(
+    "/:id/status",
+    verifyToken,
+    hasPermission("hse:update"), // or "hse:close" if you want stricter control
+    hseReportController.updateReportStatus
+  );
+
   app.use("/api/hse-reports", router);
 };
