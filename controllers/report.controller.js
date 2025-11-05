@@ -1,7 +1,7 @@
 // controllers/report.controller.js
 const db = require("../models");
 const sendMail = require("../utils/mailer");
-const { Report, Document, User, Project, Team, sequelize } = db;
+const { Report, Document, User, Project, Team, sequelize, Role } = db;
 
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
   try {
