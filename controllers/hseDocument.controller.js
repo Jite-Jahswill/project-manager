@@ -106,6 +106,8 @@ exports.updateDocument = async (req, res) => {
     const doc = await HseDocument.findByPk(id);
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
+    req.body._previousData = doc.toJSON();
+
     await doc.update({
       name: name ?? doc.name,
       firebaseUrls: firebaseUrls ?? doc.firebaseUrls,
@@ -127,6 +129,7 @@ exports.deleteDocument = async (req, res) => {
     const { id } = req.params;
     const doc = await HseDocument.findByPk(id);
     if (!doc) return res.status(404).json({ message: "Document not found" });
+    req.body._deletedData = doc.toJSON();
 
     await doc.destroy();
     return res.status(200).json({ message: "Document deleted successfully" });
