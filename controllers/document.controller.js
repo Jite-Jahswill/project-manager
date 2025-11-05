@@ -282,6 +282,8 @@ async getDocumentsByProject(req, res) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
+
+      req.body._previousData = document.toJSON();
       
 
       // Update document status using raw MySQL
