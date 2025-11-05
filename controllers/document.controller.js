@@ -252,6 +252,9 @@ async getDocumentsByProject(req, res) {
         { replacements: { documentId }, type: sequelize.QueryTypes.SELECT, transaction }
       );
 
+      const previous = await Model.findByPk(id);
+      req.body._previousData = previous.toJSON();
+
       await transaction.commit();
       res.status(200).json({ message: "Document updated", document: updated });
     } catch (err) {
@@ -319,6 +322,9 @@ async getDocumentsByProject(req, res) {
         }
       );
 
+      const previous = await Model.findByPk(id);
+      req.body._previousData = previous.toJSON();
+
       await transaction.commit();
       res.status(200).json({ message: "Document status updated successfully", document: updatedDocument });
     } catch (err) {
@@ -362,6 +368,8 @@ async getDocumentsByProject(req, res) {
         `DELETE FROM Documents WHERE id = :documentId`,
         { replacements: { documentId }, type: sequelize.QueryTypes.DELETE, transaction }
       );
+      
+      req.body._deletedData = report.toJSON();
 
       await transaction.commit();
       res.status(200).json({ message: "Document deleted successfully" });
