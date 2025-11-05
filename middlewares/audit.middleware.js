@@ -6,7 +6,6 @@ const auditActions = async (req, res, next) => {
   const originalSend = res.json;
 
   res.json = function (data) {
-    // Capture response
     const responseData = data;
 
     // Only log on success (2xx)
@@ -17,54 +16,74 @@ const auditActions = async (req, res, next) => {
       const ip = req.ip || req.connection.remoteAddress;
       const ua = req.get("User-Agent");
 
-      let action, model, recordId, oldValues, newValues;
+      let action = null;
+      let model = null;
+      let recordId = null;
+      let oldValues = null;
+      let newValues = null;
 
-      // === MAP ROUTES TO MODELS ===
-      const routeToModel = {
-        "/api/reports": "Report",
-        "/api/documents": "Document",
-        "/api/clients": "Client",
-        "/api/projects": "Project",
-        "/api/teams": "Team",
-        "/api/tasks": "Task",
-        "/api/leaves": "Leave",
-        "/api/hse/reports": "HSEReport",
-        "/api/hse/documents": "HseDocument",
-        "/api/users": "User",
-        "/api/roles": "Role",
-      };
+      // === 1. CUSTOM OVERRIDE (e.g. LOGIN) ===
+      if (req.body._auditAction) {
+        action = req.body._auditAction;
+        model = req.body._auditModel || "User";
+        recordId = req.body._auditRecordId || userId;
+        newValues = responseData;
+      }
+      // === 2. ROUTE-BASED MAPPING (CRUD) ===
+      else {
+        const routeToModel = {
+          "/api/reports": "Report",
+          "/api/documents": "Document",
+          "/api/clients": "Client",
+          "/api/projects": "Project",
+          "/api/teams": "Team",
+          "/api/tasks": "Task",
+          "/api/leaves": "Leave",
+          "/api/hse/reports": "HSEReport",
+          "/api/hse/documents": "HseDocument",
+          "/api/users": "User",
+          "/api/roles": "Role",
+        };
 
-      const basePath = Object.keys(routeToModel).find((path) =>
-        route?.startsWith(path.replace(":id", "").replace("*", ""))
-      );
+        const basePath = Object.keys(routeToModel).find((path) =>
+          route?.startsWith(path.replace(/:\w+/g, "").replace("*", ""))
+        );
 
-      if (basePath) {
-        model = routeToModel[basePath];
+        if (basePath) {
+          model = routeToModel[basePath];
 
-        if (method === "POST") {
-          action = "CREATE";
-          recordId = responseData?.report?.id || responseData?.document?.id || responseData?.id;
-          newValues = responseData?.report || responseData?.document || responseData;
-        }
+          if (method === "POST") {
+            action = "CREATE";
+            recordId = responseData?.report?.id || responseData?.document?.id || responseData?.id || responseData?.user?.id;
+            newValues = responseData?.report || responseData?.document || responseData?.user || responseData;
+          }
 
-        if (method === "PUT" || method === "PATCH") {
-          action = "UPDATE";
-          recordId = req.params.id || req.params.documentId || req.params.reportId;
-          oldValues = req.body._previousData; // Set by controller
-          newValues = responseData?.report || responseData?.document || responseData;
-        }
+          if (method === "PUT" || method === "PATCH") {
+            action = "UPDATE";
+            recordId = req.params.id || req.params.documentId || req.params.reportId || req.params.userId;
+            oldValues = req.body._previousData;
+            newValues = responseData?.report || responseData?.document || responseData?.user || responseData;
+          }
 
-        if (method === "DELETE") {
-          action = "DELETE";
-          recordId = req.params.id || req.params.documentId;
-          oldValues = req.body._deletedData; // Set by controller
+          if (method === "DELETE") {
+            action = "DELETE";
+            recordId = req.params.id || req.params.documentId || req.params.userId;
+            oldValues = req.body._deletedData;
+          }
         }
       }
 
-      // === LOGIN / LOGOUT (via auth routes) ===
-      if (route === "/api/auth/login") action = "LOGIN";
-      if (route === "/api/auth/logout") action = "LOGOUT";
+      // === 3. FALLBACK: LOGIN/LOGOUT (legacy) ===
+      if (!action) {
+        if (route === "/api/auth/login") action = "LOGIN";
+        if (route === "/api/auth/logout") action = "LOGOUT";
+        if (action) {
+          model = "User";
+          recordId = userId;
+        }
+      }
 
+      // === 4. LOG TO DB ===
       if (action && model) {
         Audit.create({
           userId,
