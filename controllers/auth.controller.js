@@ -9,12 +9,12 @@ const crypto = require("crypto");
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 // ---------------------------------------------------------------------
-// REGISTER USER
+// REGISTER USER (CREATE → audit auto-handled by middleware)
 // ---------------------------------------------------------------------
 exports.register = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { firstName, lastName, email, roleName = "staff", phoneNumber } = req.body;
+    const { firstName, lastName, email, roleName = "customer", phoneNumber } = req.body;
     const image = req.uploadedFiles?.[0]?.firebaseUrl;
 
     if (!firstName || !lastName || !email || !phoneNumber || !image) {
@@ -22,14 +22,12 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
     }
 
-    // Find role by name
     const role = await Role.findOne({ where: { name: roleName }, transaction: t });
     if (!role) {
       await t.rollback();
       return res.status(400).json({ message: `Role '${roleName}' not found` });
     }
 
-    // Check uniqueness
     const existingEmail = await User.findOne({ where: { email }, transaction: t });
     if (existingEmail) {
       await t.rollback();
@@ -42,7 +40,6 @@ exports.register = async (req, res) => {
       return res.status(409).json({ message: "Phone number already in use" });
     }
 
-    // Auto-generate password + OTP
     const autoPassword = crypto.randomBytes(8).toString("hex");
     const hashedPassword = await bcrypt.hash(autoPassword, 10);
     const otp = generateOTP();
@@ -79,7 +76,6 @@ exports.register = async (req, res) => {
     });
 
     await t.commit();
-
     res.status(201).json({
       message: "User registered. OTP and password sent.",
       user: {
@@ -90,7 +86,6 @@ exports.register = async (req, res) => {
         phoneNumber: user.phoneNumber,
         image: user.image,
         role: role.name,
-        rolePermissions: user.role.permissions,
       },
     });
   } catch (error) {
@@ -101,20 +96,18 @@ exports.register = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------
-// LOGIN USER (inject permissions into JWT)
+// LOGIN (AUDIT: "LOGIN" action)
 // ---------------------------------------------------------------------
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
-    // Include role so we can return role name in response
     const user = await User.findOne({
       where: { email },
-      include: [{ model: Role, as: "role" }], // ensure alias matches model
+      include: [{ model: Role, as: "role" }],
     });
 
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -122,12 +115,16 @@ exports.login = async (req, res) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-    // JWT only carries user ID (and optionally role name)
     const token = jwt.sign(
       { id: user.id, role: user.role?.name || "unknown" },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // SET FOR AUDIT MIDDLEWARE
+    req.body._auditAction = "LOGIN";
+    req.body._auditModel = "User";
+    req.body._auditRecordId = user.id;
 
     res.json({
       message: "Login successful",
@@ -142,13 +139,8 @@ exports.login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Login error:", {
-      message: error.message,
-      stack: error.stack,
-      body: req.body,
-      timestamp: new Date().toISOString(),
-    });
-    res.status(500).json({ error: "Failed to login", details: error.message });
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Failed to login" });
   }
 };
 
@@ -233,7 +225,7 @@ exports.getUserById = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------
-// UPDATE USER (raw SQL)
+// UPDATE USER (raw SQL → manual old data)
 // ---------------------------------------------------------------------
 exports.updateUser = async (req, res) => {
   const t = await sequelize.transaction();
@@ -247,6 +239,9 @@ exports.updateUser = async (req, res) => {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
+
+    // CAPTURE OLD DATA FOR AUDIT
+    req.body._previousData = user.toJSON();
 
     // Uniqueness checks
     if (email && email !== user.email) {
@@ -265,11 +260,11 @@ exports.updateUser = async (req, res) => {
     }
 
     await sequelize.query(
-      `UPDATE Users 
-       SET firstName = :firstName, 
-           lastName = :lastName, 
-           email = :email, 
-           phoneNumber = :phoneNumber, 
+      `UPDATE Users
+       SET firstName = :firstName,
+           lastName = :lastName,
+           email = :email,
+           phoneNumber = :phoneNumber,
            image = COALESCE(:image, image)
        WHERE id = :id`,
       {
@@ -292,11 +287,7 @@ exports.updateUser = async (req, res) => {
       transaction: t,
     });
 
-    const previous = await Model.findByPk(id);
-    req.body._previousData = previous.toJSON();
-
     await t.commit();
-
     res.json({
       message: "User updated",
       user: {
@@ -317,14 +308,13 @@ exports.updateUser = async (req, res) => {
 };
 
 // ---------------------------------------------------------------------
-// UPDATE USER ROLE (by role name)
+// UPDATE USER ROLE
 // ---------------------------------------------------------------------
 exports.updateUserRole = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
     const { role: roleName } = req.body;
-
     if (!roleName) return res.status(400).json({ error: "Role name required" });
 
     const role = await Role.findOne({ where: { name: roleName }, transaction: t });
@@ -338,6 +328,9 @@ exports.updateUserRole = async (req, res) => {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
+
+    // CAPTURE OLD DATA
+    req.body._previousData = user.toJSON();
 
     await sequelize.query(
       `UPDATE Users SET roleId = :roleId WHERE id = :id`,
@@ -359,11 +352,7 @@ exports.updateUserRole = async (req, res) => {
       transaction: t,
     });
 
-    const previous = await Model.findByPk(id);
-    req.body._previousData = previous.toJSON();
-
     await t.commit();
-
     res.json({
       message: "Role updated",
       user: {
@@ -394,8 +383,10 @@ exports.deleteUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // CAPTURE FOR AUDIT
+    req.body._deletedData = user.toJSON();
+
     await user.destroy({ transaction: t });
-    req.body._deletedData = report.toJSON();
     await t.commit();
     res.json({ message: "User deleted" });
   } catch (error) {
