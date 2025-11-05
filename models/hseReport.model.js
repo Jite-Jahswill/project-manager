@@ -1,4 +1,4 @@
-// 📁 models/hseReport.model.js
+// models/hseReport.model.js
 module.exports = (sequelize, DataTypes) => {
   const HSEReport = sequelize.define(
     "HSEReport",
@@ -28,16 +28,6 @@ module.exports = (sequelize, DataTypes) => {
       report: {
         type: DataTypes.TEXT,
         allowNull: false,
-      },
-      firebaseUrls: {
-        type: DataTypes.JSON,
-        allowNull: true,
-        defaultValue: [],
-      },
-      attachedDocs: {
-        type: DataTypes.JSON, // Array of document IDs attached to this report
-        allowNull: true,
-        defaultValue: [],
       },
       status: {
         type: DataTypes.ENUM("open", "pending", "closed"),
