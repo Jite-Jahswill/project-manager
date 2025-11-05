@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -118,6 +119,7 @@ require("./routes/role.routes")(app);
 require("./routes/hse.routes")(app);
 require("./routes/hseDocument.routes")(app);
 require("./routes/messaging.routes")(app);
+require("./routes/audit.routes")(app);
 // In your main server.js or app.js
 app.use("/uploads", express.static("uploads"));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
