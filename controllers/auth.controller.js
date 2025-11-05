@@ -292,6 +292,9 @@ exports.updateUser = async (req, res) => {
       transaction: t,
     });
 
+    const previous = await Model.findByPk(id);
+    req.body._previousData = previous.toJSON();
+
     await t.commit();
 
     res.json({
@@ -356,6 +359,9 @@ exports.updateUserRole = async (req, res) => {
       transaction: t,
     });
 
+    const previous = await Model.findByPk(id);
+    req.body._previousData = previous.toJSON();
+
     await t.commit();
 
     res.json({
@@ -389,6 +395,7 @@ exports.deleteUser = async (req, res) => {
     }
 
     await user.destroy({ transaction: t });
+    req.body._deletedData = report.toJSON();
     await t.commit();
     res.json({ message: "User deleted" });
   } catch (error) {
