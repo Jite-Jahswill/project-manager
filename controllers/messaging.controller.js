@@ -181,6 +181,8 @@ exports.editMessage = async (req, res) => {
     if (!message)
       return res.status(404).json({ error: "Message not found" });
 
+    req.body._previousData = message.toJSON();
+
     if (message.senderId !== userId)
       return res.status(403).json({ error: "You can only edit your messages" });
 
@@ -207,6 +209,8 @@ exports.deleteMessage = async (req, res) => {
     const message = await Message.findByPk(messageId);
     if (!message)
       return res.status(404).json({ error: "Message not found" });
+
+    req.body._deletedData = message.toJSON();
 
     if (message.senderId !== userId)
       return res.status(403).json({ error: "You can only delete your messages" });
@@ -253,6 +257,8 @@ exports.leaveConversation = async (req, res) => {
     const participant = await Participant.findOne({ where: { conversationId, userId } });
     if (!participant)
       return res.status(404).json({ error: "Not in conversation" });
+
+    req.body._deletedData = participant.toJSON();
 
     await participant.destroy();
     return res.status(200).json({ message: "Left conversation successfully" });
