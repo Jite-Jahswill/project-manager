@@ -5,47 +5,37 @@ console.log("Firebase Key starts with:", process.env.FIREBASE_PRIVATE_KEY?.slice
 
 
 module.exports = {
-  // Create one or more documents for a project
+  // CREATE DOCUMENTS → AUDIT: CREATE
   async createDocument(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { projectId } = req.params;
-      const { reportId } = req.body; // Optional
+      const { reportId } = req.body;
       const uploadedFiles = req.uploadedFiles || [];
 
-      if (!projectId) {
+      if (!projectId || uploadedFiles.length === 0) {
         await transaction.rollback();
-        return res.status(400).json({ message: "projectId is required" });
-      }
-      if (uploadedFiles.length === 0) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "At least one file must be uploaded" });
+        return res.status(400).json({ message: "projectId and at least one file required" });
       }
 
-      // Validate project
       const project = await Project.findByPk(projectId, { transaction });
       if (!project) {
         await transaction.rollback();
         return res.status(404).json({ message: "Project not found" });
       }
 
-      // Validate reportId if provided
       if (reportId) {
         const report = await sequelize.models.Report.findByPk(reportId, { transaction });
-        if (!report) {
+        if (!report || report.projectId !== parseInt(projectId)) {
           await transaction.rollback();
-          return res.status(404).json({ message: "Report not found" });
-        }
-        if (report.projectId !== parseInt(projectId)) {
-          await transaction.rollback();
-          return res.status(400).json({ message: "Report does not belong to this project" });
+          return res.status(400).json({ message: "Invalid report" });
         }
       }
 
       const documents = [];
       for (const file of uploadedFiles) {
-        const [result] = await sequelize.query(
-          `INSERT INTO Documents 
+        await sequelize.query(
+          `INSERT INTO Documents
            (name, firebaseUrl, projectId, reportId, type, size, uploadedBy, status, createdAt, updatedAt)
            VALUES (:name, :firebaseUrl, :projectId, :reportId, :type, :size, :uploadedBy, :status, NOW(), NOW())`,
           {
@@ -72,23 +62,16 @@ module.exports = {
       }
 
       await transaction.commit();
-      res.status(201).json({
-        message: "Documents uploaded successfully",
+      return res.status(201).json({
+        message: "Documents uploaded",
         documents,
       });
     } catch (err) {
-        await transaction.rollback();
-        console.error("Create document error:", {
-          message: err.message,
-          stack: err.stack,
-          userId: req.user?.id,
-          projectId: req.params.projectId,
-          reportId: req.body?.reportId,
-          timestamp: new Date().toISOString(),
-        });
-        res.status(500).json({ message: "Failed to upload documents", details: err.message });
-      }
-    },
+      await transaction.rollback();
+      console.error("Create document error:", err);
+      return res.status(500).json({ message: "Failed", details: err.message });
+    }
+  },
   
   async getAllDocuments(req, res) {
     try {
@@ -187,6 +170,7 @@ async getDocumentsByProject(req, res) {
         await transaction.rollback();
         return res.status(400).json({ message: "documentId is required" });
       }
+      
       if (!name && !newFile && reportId === undefined) {
         await transaction.rollback();
         return res.status(400).json({ message: "At least one field (name, file, reportId) is required" });
@@ -197,6 +181,8 @@ async getDocumentsByProject(req, res) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
+
+      req.body._previousData = document.toJSON();
 
       // Validate reportId if changing
       if (reportId !== undefined) {
@@ -252,9 +238,6 @@ async getDocumentsByProject(req, res) {
         { replacements: { documentId }, type: sequelize.QueryTypes.SELECT, transaction }
       );
 
-      const previous = await Model.findByPk(id);
-      req.body._previousData = previous.toJSON();
-
       await transaction.commit();
       res.status(200).json({ message: "Document updated", document: updated });
     } catch (err) {
@@ -299,6 +282,7 @@ async getDocumentsByProject(req, res) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
+      
 
       // Update document status using raw MySQL
       await sequelize.query(
@@ -359,6 +343,9 @@ async getDocumentsByProject(req, res) {
         await transaction.rollback();
         return res.status(404).json({ message: "Document not found" });
       }
+
+      // CAPTURE FOR AUDIT
+      req.body._deletedData = document.toJSON();
 
       // Delete from Firebase
       const fileName = document.firebaseUrl.split("/").pop();
