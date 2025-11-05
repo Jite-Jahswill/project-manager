@@ -66,7 +66,7 @@ exports.createReport = async (req, res) => {
 
 // UPDATE REPORT
 exports.updateReport = async (req, res) => {
-  const t = await req.db.transaction();
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
     const { title, dateOfReport, timeOfReport, report, status, closedBy, attachedDocIds, detachDocIds } = req.body;
@@ -138,7 +138,7 @@ exports.updateReport = async (req, res) => {
 
 // DELETE REPORT
 exports.deleteReport = async (req, res) => {
-  const t = await req.db.transaction();
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
     const report = await HSEReport.findByPk(id, { transaction: t });
@@ -194,7 +194,7 @@ exports.getDocumentsByReportId = async (req, res) => {
 
 // UPDATE REPORT STATUS (open, pending, closed)
 exports.updateReportStatus = async (req, res) => {
-  const t = await req.db.transaction();
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
     const { status, closedBy } = req.body;
