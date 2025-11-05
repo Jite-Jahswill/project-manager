@@ -1,6 +1,5 @@
 // middlewares/audit.middleware.js
 const { Audit } = require("../models");
-const { Op } = require("sequelize");
 
 const auditActions = async (req, res, next) => {
   const originalSend = res.json;
@@ -22,8 +21,8 @@ const auditActions = async (req, res, next) => {
       let oldValues = null;
       let newValues = null;
 
-      // === 1. CUSTOM OVERRIDE (e.g. LOGIN) ===
-      if (req.body._auditAction) {
+      // === 1. CUSTOM OVERRIDE (e.g. LOGIN) — SAFE CHECK ===
+      if (req.body && typeof req.body === 'object' && req.body._auditAction) {
         action = req.body._auditAction;
         model = req.body._auditModel || "User";
         recordId = req.body._auditRecordId || userId;
@@ -61,20 +60,20 @@ const auditActions = async (req, res, next) => {
           if (method === "PUT" || method === "PATCH") {
             action = "UPDATE";
             recordId = req.params.id || req.params.documentId || req.params.reportId || req.params.userId;
-            oldValues = req.body._previousData;
+            oldValues = req.body?._previousData;
             newValues = responseData?.report || responseData?.document || responseData?.user || responseData;
           }
 
           if (method === "DELETE") {
             action = "DELETE";
             recordId = req.params.id || req.params.documentId || req.params.userId;
-            oldValues = req.body._deletedData;
+            oldValues = req.body?._deletedData;
           }
         }
       }
 
-      // === 3. FALLBACK: LOGIN/LOGOUT (legacy) ===
-      if (!action) {
+      // === 3. FALLBACK: LOGIN/LOGOUT ===
+      if (!action && route) {
         if (route === "/api/auth/login") action = "LOGIN";
         if (route === "/api/auth/logout") action = "LOGOUT";
         if (action) {
@@ -83,7 +82,7 @@ const auditActions = async (req, res, next) => {
         }
       }
 
-      // === 4. LOG TO DB ===
+      // === 4. LOG TO DB (only if valid) ===
       if (action && model) {
         Audit.create({
           userId,
