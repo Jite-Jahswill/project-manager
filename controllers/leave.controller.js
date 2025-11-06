@@ -416,6 +416,7 @@ module.exports = {
   async deleteLeave(req, res) {
     try {
       const { id } = req.params;
+      if (!req.body) req.body = {};
 
       const leave = await Leave.findByPk(id, {
         include: {
