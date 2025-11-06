@@ -136,7 +136,7 @@ async getDocumentsByProject(req, res) {
         where,
         include: [
           { model: User, as: "uploader", attributes: ["id", "firstName", "lastName"] },
-          { model: sequelize.models.Report, as: "report", attributes: ["id", "title"], required: false },
+          { model: sequelize.models.Report, as: "Report", attributes: ["id", "title"], required: false },
         ],
         order: [["createdAt", "DESC"]],
         limit: parseInt(limit),
