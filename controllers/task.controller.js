@@ -1,40 +1,88 @@
 const db = require("../models");
 const sendMail = require("../utils/mailer");
+const { User, Role } = require("../models");
+
+async function notifyAdminsAndManagers(subject, html, transaction = null) {
+  try {
+    const recipients = await User.findAll({
+      attributes: ["email"],
+      include: [
+        {
+          model: Role,
+          as: "role",
+          where: { name: "superadmin" }, // Only superadmins
+          attributes: [],
+        },
+      ],
+      transaction,
+    });
+
+    if (recipients.length === 0) {
+      console.log("No superadmins found to notify.");
+      return;
+    }
+
+    const emails = recipients
+      .map((u) => u.email)
+      .filter(Boolean)
+      .map((email) =>
+        sendMail({
+          to: email,
+          subject,
+          html,
+        }).catch((err) =>
+          console.error(`Failed to send email to ${email}:`, err.message)
+        )
+      );
+
+    await Promise.all(emails);
+    console.log(`Notified ${emails.length} superadmin(s)`);
+  } catch (error) {
+        console.error("notifyAdminsAndManagers error:", error.message);
+  }
+}
 
 module.exports = {
   // Create a new task (open to any authenticated user)
   async createTask(req, res) {
+    const t = await db.sequelize.transaction();
     try {
       const { title, description, dueDate, projectId, assignedTo, status } = req.body;
-
+  
       // Validate input
       if (!title || !projectId || !assignedTo) {
+        await t.rollback();
         return res.status(400).json({ message: "title, projectId, and assignedTo are required" });
       }
-
+  
       const allowedStatuses = ["To Do", "In Progress", "Review", "Done"];
       if (status && !allowedStatuses.includes(status)) {
+        await t.rollback();
         return res.status(400).json({
           message: "Invalid status. Must be one of: To Do, In Progress, Review, Done",
         });
       }
-
+  
       // Check if project exists
       const project = await db.Project.findByPk(projectId, {
         attributes: ["id", "name"],
+        transaction: t,
       });
       if (!project) {
+        await t.rollback();
         return res.status(404).json({ message: "Project not found" });
       }
-
+  
       // Check if assigned user exists
       const user = await db.User.findByPk(assignedTo, {
         attributes: ["id", "firstName", "lastName", "email"],
+        transaction: t,
       });
       if (!user) {
+        await t.rollback();
         return res.status(404).json({ message: "Assigned user not found" });
       }
-
+  
       // Validate that the user is in the project's team
       const teamMember = await db.TeamProject.findOne({
         include: [
@@ -50,23 +98,29 @@ module.exports = {
           },
         ],
         where: { projectId },
+        transaction: t,
       });
       if (!teamMember) {
+        await t.rollback();
         return res.status(400).json({ message: "Assigned user is not part of the project's team" });
       }
-
-      // Create task using Sequelize
-      const task = await db.Task.create({
-        title,
-        description: description || null,
-        dueDate: dueDate || null,
-        projectId,
-        assignedTo,
-        status: status || "To Do",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
+  
+      // Create task
+      const task = await db.Task.create(
+        {
+          title,
+          description: description || null,
+          dueDate: dueDate || null,
+          projectId,
+          assignedTo,
+          status: status || "To Do",
+        },
+        { transaction: t }
+      );
+  
+      // AUDIT: For CREATE, oldValues = null
+      req.body._previousData = null;
+  
       // Format response
       const formattedTask = {
         id: task.id,
@@ -81,40 +135,45 @@ module.exports = {
         project: { id: project.id, name: project.name },
         assignee: { id: user.id, name: `${user.firstName} ${user.lastName}`, email: user.email },
       };
-
-      // Notify admins, managers, and assigned user
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-      });
-      const emails = [...adminsAndManagers.map((u) => u.email), user.email].filter(Boolean);
-
-      if (emails.length > 0) {
+  
+      // Notify superadmins
+      await notifyAdminsAndManagers(
+        "New Task Created",
+        `
+          <p>Hello,</p>
+          <p>A new task titled <strong>${task.title}</strong> has been created by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+          <p><strong>Assigned To:</strong> ${user.firstName} ${user.lastName}</p>
+          <p><strong>Project:</strong> ${project.name}</p>
+          <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${task.description || "No description"}</p>
+          <p><strong>Status:</strong> ${task.status}</p>
+          <p>Best,<br>Team</p>
+        `,
+        t
+      );
+  
+      // Notify assignee separately
+      if (user.email) {
         await sendMail({
-          to: emails,
-          subject: "🆕 New Task Created",
+          to: user.email,
+          subject: "New Task Assigned",
           html: `
-            <p>Hello,</p>
-            <p>A new task titled <strong>${task.title}</strong> has been created by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Assigned To:</strong> ${user.firstName} ${user.lastName}</p>
+            <p>Hi ${user.firstName},</p>
+            <p>You have been assigned a new task:</p>
+            <p><strong>${task.title}</strong></p>
             <p><strong>Project:</strong> ${project.name}</p>
             <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
             <p><strong>Description:</strong> ${task.description || "No description"}</p>
-            <p><strong>Status:</strong> ${task.status}</p>
+            <p>Please check the system for details.</p>
             <p>Best,<br>Team</p>
           `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          taskId: task.id,
-          projectId,
-          timestamp: new Date().toISOString(),
-        });
+        }).catch(err => console.error(`Failed to notify assignee ${user.email}:`, err.message));
       }
-
-      res.status(201).json({ message: "Task created successfully", task: formattedTask });
+  
+      await t.commit();
+      return res.status(201).json({ message: "Task created successfully", task: formattedTask });
     } catch (err) {
+      await t.rollback();
       console.error("Create task error:", {
         message: err.message,
         stack: err.stack,
@@ -122,7 +181,7 @@ module.exports = {
         body: req.body,
         timestamp: new Date().toISOString(),
       });
-      res.status(500).json({ message: "Error creating task", details: err.message });
+      return res.status(500).json({ message: "Error creating task", details: err.message });
     }
   },
 
@@ -395,38 +454,38 @@ module.exports = {
         },
       };
 
-      // Notify admins, managers, and assignee
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-      });
-      const emails = [...adminsAndManagers.map((u) => u.email), updatedTask.email].filter(
-        (email, index, self) => email && self.indexOf(email) === index
+      // Notify superadmins
+      await notifyAdminsAndManagers(
+        "Task Status Updated",
+        `
+          <p>Hello,</p>
+          <p>The task <strong>${updatedTask.title}</strong> has been updated from <em>${task.status}</em> to <strong>${status}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+          <p><strong>Assigned To:</strong> ${updatedTask.firstName} ${updatedTask.lastName}</p>
+          <p><strong>Project:</strong> ${updatedTask.projectName}</p>
+          <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
+          <p><strong>Status:</strong> ${updatedTask.status}</p>
+          <p>Best,<br>Team</p>
+        `,
+        t
       );
-
-      if (emails.length > 0) {
+      
+      // Notify assignee separately (if they have email and not already covered)
+      if (updatedTask.email) {
         await sendMail({
-          to: emails,
-          subject: "✅ Task Status Updated",
+          to: updatedTask.email,
+          subject: "Your Task Status Was Updated",
           html: `
-            <p>Hello,</p>
-            <p>The task <strong>${updatedTask.title}</strong> has been updated from <em>${task.status}</em> to <strong>${status}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Assigned To:</strong> ${updatedTask.firstName} ${updatedTask.lastName}</p>
+            <p>Hi ${updatedTask.firstName},</p>
+            <p>Your task <strong>${updatedTask.title}</strong> has been updated to <strong>${status}</strong>.</p>
             <p><strong>Project:</strong> ${updatedTask.projectName}</p>
             <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
-            <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
-            <p><strong>Status:</strong> ${updatedTask.status}</p>
+            <p>Please check the system for full details.</p>
             <p>Best,<br>Team</p>
           `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          taskId,
-          timestamp: new Date().toISOString(),
-        });
+        }).catch(err => console.error(`Failed to notify assignee ${updatedTask.email}:`, err.message));
       }
-
+      
       res.json({ message: "Task status updated successfully", task: formattedTask });
     } catch (err) {
       console.error("Update task status error:", {
@@ -603,37 +662,39 @@ module.exports = {
       };
 
       // Notify admins, managers, and assignee
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-      });
-      const emails = [...adminsAndManagers.map((u) => u.email), newAssignee.email].filter(
-        (email, index, self) => email && self.indexOf(email) === index
+      // Notify superadmins
+      await notifyAdminsAndManagers(
+        "Task Updated",
+        `
+          <p>Hello,</p>
+          <p>The task <strong>${updatedTask.title}</strong> has been updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+          <p><strong>Assigned To:</strong> ${newAssignee.firstName} ${newAssignee.lastName}</p>
+          <p><strong>Project:</strong> ${updatedTask.projectName}</p>
+          <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
+          <p><strong>Status:</strong> ${updatedTask.status}</p>
+          <p>Best,<br>Team</p>
+        `,
+        t
       );
-
-      if (emails.length > 0) {
+      
+      // Notify new assignee directly
+      if (newAssignee.email) {
         await sendMail({
-          to: emails,
-          subject: "🔄 Task Updated",
+          to: newAssignee.email,
+          subject: "You Have Been Assigned a Task",
           html: `
-            <p>Hello,</p>
-            <p>The task <strong>${updatedTask.title}</strong> has been updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Assigned To:</strong> ${newAssignee.firstName} ${newAssignee.lastName}</p>
+            <p>Hi ${newAssignee.firstName},</p>
+            <p>You are now assigned to the task:</p>
+            <p><strong>${updatedTask.title}</strong></p>
             <p><strong>Project:</strong> ${updatedTask.projectName}</p>
-            <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
-            <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
             <p><strong>Status:</strong> ${updatedTask.status}</p>
+            <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+            <p>Please log in to review and take action.</p>
             <p>Best,<br>Team</p>
           `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          taskId,
-          timestamp: new Date().toISOString(),
-        });
+        }).catch(err => console.error(`Failed to notify assignee ${newAssignee.email}:`, err.message));
       }
-
       res.json({ message: "Task updated successfully", task: formattedTask });
     } catch (err) {
       console.error("Update task error:", {
@@ -690,38 +751,37 @@ module.exports = {
         }
       );
 
-      // Notify admins, managers, and assignee (if not the deleter)
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-      });
-      const emails = [...adminsAndManagers.map((u) => u.email), task.email].filter(
-        (email) => email !== req.user.email && email
+      // Notify superadmins
+      await notifyAdminsAndManagers(
+        "Task Deleted",
+        `
+          <p>Hello,</p>
+          <p>The task <strong>${task.title}</strong> has been deleted by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+          <p><strong>Assigned To:</strong> ${task.firstName} ${task.lastName}</p>
+          <p><strong>Project:</strong> ${task.projectName}</p>
+          <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${task.description || "No description"}</p>
+          <p><strong>Status:</strong> ${task.status}</p>
+          <p>Best,<br>Team</p>
+        `,
+        t
       );
-
-      if (emails.length > 0) {
+      
+      // Notify assignee directly (if not the deleter)
+      if (task.email && task.email !== req.user.email) {
         await sendMail({
-          to: emails,
-          subject: "🗑️ Task Deleted",
+          to: task.email,
+          subject: "A Task You Were Assigned Has Been Deleted",
           html: `
-            <p>Hello,</p>
-            <p>The task <strong>${task.title}</strong> has been deleted by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Assigned To:</strong> ${task.firstName} ${task.lastName}</p>
+            <p>Hi ${task.firstName},</p>
+            <p>The task <strong>${task.title}</strong> you were assigned to has been deleted by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
             <p><strong>Project:</strong> ${task.projectName}</p>
             <p><strong>Due Date:</strong> ${task.dueDate || "Not specified"}</p>
-            <p><strong>Description:</strong> ${task.description || "No description"}</p>
-            <p><strong>Status:</strong> ${task.status}</p>
+            <p>No further action is required.</p>
             <p>Best,<br>Team</p>
           `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          taskId,
-          timestamp: new Date().toISOString(),
-        });
+        }).catch(err => console.error(`Failed to notify assignee ${task.email}:`, err.message));
       }
-
       res.json({ message: "Task deleted successfully" });
     } catch (err) {
       console.error("Delete task error:", {
@@ -857,35 +917,37 @@ module.exports = {
         },
       };
 
-      // Notify admins, managers, and new assignee
-      const adminsAndManagers = await db.User.findAll({
-        where: { role: ["admin", "manager"] },
-        attributes: ["email"],
-      });
-      const emails = [...adminsAndManagers.map((u) => u.email), newUser.email].filter(
-        (email, index, self) => email && self.indexOf(email) === index
+      // Notify superadmins
+      await notifyAdminsAndManagers(
+        "Task Reassigned",
+        `
+          <p>Hello,</p>
+          <p>The task <strong>${updatedTask.title}</strong> has been reassigned to <strong>${newUser.firstName} ${newUser.lastName}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+          <p><strong>Project:</strong> ${updatedTask.projectName}</p>
+          <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+          <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
+          <p><strong>Status:</strong> ${updatedTask.status}</p>
+          <p>Best,<br>Team</p>
+        `,
+        t
       );
-
-      if (emails.length > 0) {
+      
+      // Notify new assignee directly
+      if (newUser.email) {
         await sendMail({
-          to: emails,
-          subject: "🔄 Task Reassigned",
+          to: newUser.email,
+          subject: "You Have Been Reassigned a Task",
           html: `
-            <p>Hello,</p>
-            <p>The task <strong>${updatedTask.title}</strong> has been reassigned to <strong>${newUser.firstName} ${newUser.lastName}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+            <p>Hi ${newUser.firstName},</p>
+            <p>You have been reassigned to the task:</p>
+            <p><strong>${updatedTask.title}</strong></p>
             <p><strong>Project:</strong> ${updatedTask.projectName}</p>
-            <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
-            <p><strong>Description:</strong> ${updatedTask.description || "No description"}</p>
             <p><strong>Status:</strong> ${updatedTask.status}</p>
+            <p><strong>Due Date:</strong> ${updatedTask.dueDate || "Not specified"}</p>
+            <p>Please log in to review and take action.</p>
             <p>Best,<br>Team</p>
           `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          taskId,
-          timestamp: new Date().toISOString(),
-        });
+        }).catch(err => console.error(`Failed to notify new assignee ${newUser.email}:`, err.message));
       }
 
       res.status(200).json({ message: "Task assigned successfully", task: formattedTask });
