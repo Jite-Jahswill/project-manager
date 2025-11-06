@@ -1099,6 +1099,7 @@ module.exports = {
     const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
+      if (!req.body) req.body = {};
 
       const client = await Client.findByPk(id, { transaction });
       if (!client) {
@@ -1165,6 +1166,7 @@ module.exports = {
     const transaction = await sequelize.transaction();
     try {
       const { id } = req.params;
+      if (!req.body) req.body = {};
       const client = await Client.findByPk(id, { transaction });
       if (!client) {
         await transaction.rollback();
