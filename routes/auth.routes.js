@@ -156,7 +156,6 @@ module.exports = (app) => {
    */
   router.post(
     "/register",
-    verifyToken,
     uploadToFirebase,
      authController.register
   );
