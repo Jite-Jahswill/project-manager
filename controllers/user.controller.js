@@ -288,6 +288,7 @@ module.exports = {
     const transaction = await db.sequelize.transaction();
     try {
       const { id } = req.params;
+      if (!req.body) req.body = {};
       if (!id) {
         await transaction.rollback();
         return res.status(400).json({ message: "id is required" });
