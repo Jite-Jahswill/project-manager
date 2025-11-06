@@ -275,6 +275,7 @@ exports.deleteRole = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
+    if (!req.body) req.body = {};
 
     // 1️⃣ Find the role
     const role = await Role.findByPk(id, { transaction: t });
@@ -283,7 +284,7 @@ exports.deleteRole = async (req, res) => {
       return res.status(404).json({ error: "Role not found" });
     }
 
-    req.body._deletedData = document.toJSON();
+    req.body._deletedData = role.toJSON();
 
     // 2️⃣ Check if any user currently has this role
     const userWithRole = await User.findOne({
