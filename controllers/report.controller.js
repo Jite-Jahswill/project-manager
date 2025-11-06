@@ -223,6 +223,7 @@ async updateReport(req, res) {
   async deleteReport(req, res) {
     const t = await sequelize.transaction();
     try {
+      if (!req.body) req.body = {};
       const report = await Report.findByPk(req.params.id, { transaction: t });
       if (!report) {
         await t.rollback();
