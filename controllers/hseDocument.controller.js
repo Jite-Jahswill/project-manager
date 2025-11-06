@@ -127,6 +127,7 @@ exports.updateDocument = async (req, res) => {
 exports.deleteDocument = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!req.body) req.body = {};
     const doc = await HseDocument.findByPk(id);
     if (!doc) return res.status(404).json({ message: "Document not found" });
     req.body._deletedData = doc.toJSON();
