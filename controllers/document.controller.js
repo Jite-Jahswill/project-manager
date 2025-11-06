@@ -332,6 +332,7 @@ async getDocumentsByProject(req, res) {
     const transaction = await sequelize.transaction();
     try {
       const { documentId } = req.params;
+      if (!req.body) req.body = {};
       if (!documentId) {
         await transaction.rollback();
         return res.status(400).json({ message: "documentId is required" });
