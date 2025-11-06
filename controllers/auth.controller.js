@@ -17,7 +17,7 @@ exports.register = async (req, res) => {
     const { firstName, lastName, email, roleName = "customer", phoneNumber } = req.body;
     const image = req.uploadedFiles?.[0]?.firebaseUrl;
 
-    if (!firstName || !lastName || !email || !phoneNumber || !image) {
+    if (!firstName || !lastName || !email || !phoneNumber) {
       await t.rollback();
       return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
     }
