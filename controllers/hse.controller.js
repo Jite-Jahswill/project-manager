@@ -1,7 +1,47 @@
 // controllers/hseReport.controller.js
 const { Op } = require("sequelize");
 const db = require("../models");
-const { HSEReport, HseDocument, User, sequelize } = db;
+const { HSEReport, HseDocument, User, sequelize, Role } = db;
+
+async function notifyAdminsAndManagers(subject, html, transaction = null) {
+  try {
+    const recipients = await User.findAll({
+      attributes: ["email"],
+      include: [
+        {
+          model: Role,
+          as: "role",
+          where: { name: "superadmin" }, // Only superadmins
+          attributes: [],
+        },
+      ],
+      transaction,
+    });
+
+    if (recipients.length === 0) {
+      console.log("No superadmins found to notify.");
+      return;
+    }
+
+    const emails = recipients
+      .map((u) => u.email)
+      .filter(Boolean)
+      .map((email) =>
+        sendMail({
+          to: email,
+          subject,
+          html,
+        }).catch((err) =>
+          console.error(`Failed to send email to ${email}:`, err.message)
+        )
+      );
+
+    await Promise.all(emails);
+    console.log(`Notified ${emails.length} superadmin(s)`);
+  } catch (error) {
+        console.error("notifyAdminsAndManagers error:", error.message);
+  }
+}
 
 // CREATE REPORT + UPLOAD FILES
 exports.createReport = async (req, res) => {
