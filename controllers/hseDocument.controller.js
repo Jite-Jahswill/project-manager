@@ -99,25 +99,73 @@ exports.getDocumentById = async (req, res) => {
 
 // 🟠 Update document
 exports.updateDocument = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { name, firebaseUrls, type, size, reportId } = req.body;
+    const { name, firebaseUrls, type, size, reportId } = req.body || {};
 
-    const doc = await HseDocument.findByPk(id);
-    if (!doc) return res.status(404).json({ message: "Document not found" });
+    // Ensure req.body exists for audit
+    if (!req.body) req.body = {};
 
-    req.body._previousData = doc.toJSON();
+    // 1. FETCH CURRENT DOCUMENT (for audit + validation)
+    const [doc] = await sequelize.query(
+      `SELECT * FROM HseDocuments WHERE id = :id FOR UPDATE`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
 
-    await doc.update({
-      name: name ?? doc.name,
-      firebaseUrls: firebaseUrls ?? doc.firebaseUrls,
-      type: type ?? doc.type,
-      size: size ?? doc.size,
-      reportId: reportId ?? doc.reportId,
-    });
+    if (!doc) {
+      await t.rollback();
+      return res.status(404).json({ message: "Document not found" });
+    }
 
-    return res.status(200).json(doc);
+    // AUDIT: Capture old values
+    req.body._previousData = doc;
+
+    // 2. BUILD UPDATE FIELDS
+    const updates = [];
+    const replacements = { id };
+
+    if (name !== undefined) {
+      updates.push("name = :name");
+      replacements.name = name;
+    }
+    if (firebaseUrls !== undefined) {
+      updates.push("firebaseUrls = :firebaseUrls");
+      replacements.firebaseUrls = JSON.stringify(firebaseUrls);
+    }
+    if (type !== undefined) {
+      updates.push("type = :type");
+      replacements.type = type;
+    }
+    if (size !== undefined) {
+      updates.push("size = :size");
+      replacements.size = size;
+    }
+    if (reportId !== undefined) {
+      updates.push("reportId = :reportId");
+      replacements.reportId = reportId === null ? null : reportId;
+    }
+
+    // Only run update if something changed
+    if (updates.length > 0) {
+      await sequelize.query(
+        `UPDATE HseDocuments 
+         SET ${updates.join(", ")}, updatedAt = NOW() 
+         WHERE id = :id`,
+        { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
+      );
+    }
+
+    // 3. FETCH UPDATED DOCUMENT
+    const [updatedDoc] = await sequelize.query(
+      `SELECT * FROM HseDocuments WHERE id = :id`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    await t.commit();
+    return res.status(200).json({ message: "Document updated", document: updatedDoc });
   } catch (err) {
+    await t.rollback();
     console.error("updateDocument error:", err);
     return res.status(500).json({ error: "Failed to update document" });
   }
