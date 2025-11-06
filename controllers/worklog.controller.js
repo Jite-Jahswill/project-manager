@@ -450,6 +450,7 @@ exports.updateLog = async (req, res) => {
 exports.deleteLog = async (req, res) => {
   try {
     const { logId } = req.params;
+    if (!req.body) req.body = {};
 
     // Validate input
     if (!logId) return res.status(400).json({ message: "logId is required" });
