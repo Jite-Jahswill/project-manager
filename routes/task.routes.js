@@ -292,7 +292,7 @@ module.exports = (app) => {
    * /api/tasks:
    *   get:
    *     summary: Get all tasks with optional filters
-   *     description: Retrieves a paginated list of all tasks with optional filters for title, status, and dueDate. Accessible to any authenticated user.
+   *     description: Retrieves a paginated list of all tasks with optional filters for title, status, dueDate, and assigneeEmail. Accessible to any authenticated user.
    *     tags: [Tasks]
    *     security:
    *       - bearerAuth: []
@@ -320,6 +320,14 @@ module.exports = (app) => {
    *         required: false
    *         description: Filter tasks by due date
    *         example: "2025-11-01T23:59:59.000Z"
+   *       - in: query
+   *         name: assigneeEmail
+   *         schema:
+   *           type: string
+   *           format: email
+   *         required: false
+   *         description: Filter tasks by assignee's email
+   *         example: "john.doe@company.com"
    *       - in: query
    *         name: page
    *         schema:
@@ -371,25 +379,25 @@ module.exports = (app) => {
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ErrorResponse'
-   *               example:
-   *                 message: "Invalid page or limit"
+   *             example:
+   *               message: "Invalid page or limit"
    *       401:
    *         description: Unauthorized - Invalid or missing token
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ErrorResponse'
-   *               example:
-   *                 message: "Unauthorized"
+   *             example:
+   *               message: "Unauthorized"
    *       500:
    *         description: Internal server error
    *         content:
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/ErrorResponse'
-   *               example:
-   *                 message: "Error fetching tasks"
-   *                 details: "Database error"
+   *             example:
+   *               message: "Error fetching tasks"
+   *               details: "Database error"
    */
   router.get("/", verifyToken, hasPermission("task:read"), taskController.getAllTasks);
 
