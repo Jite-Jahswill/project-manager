@@ -31,12 +31,21 @@ const auditActions = async (req, res, next) => {
       // === 2. ROUTE MAPPING USING FULL PATH ===
       else {
         const routeMap = {
-          "/api/reports": "Report",
-          "/api/hse/reports": "HSEReport",
+          "/api/hse-reports": "HSEReport",
           "/api/documents": "Document",
           "/api/clients": "Client",
           "/api/projects": "Project",
           "/api/users": "User",
+          "/api/hse/documents": "HseDocument",
+          "/api/leaves": "Leave",
+          "/api/logs": "Log",
+          "/api/messaging": "Messaging",
+          "/api/reports": "Report",
+          "/api/roles": "Role",
+          "/api/tasks": "Task",
+          "/api/teams": "Team",
+          "/api/work-logs": "WorkLog",
+          "/api/auth": "Auth",
         };
 
         const matched = Object.keys(routeMap).find(base =>
