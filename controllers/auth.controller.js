@@ -377,6 +377,7 @@ exports.deleteUser = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
+    if (!req.body) req.body = {};
     const user = await User.findByPk(id, { transaction: t });
     if (!user) {
       await t.rollback();
