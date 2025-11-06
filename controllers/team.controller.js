@@ -492,6 +492,7 @@ module.exports = {
   async deleteTeam(req, res) {
     try {
       const { id } = req.params;
+      if (!req.body) req.body = {};
 
       if (!id) {
         return res.status(400).json({ error: "id is required" });
