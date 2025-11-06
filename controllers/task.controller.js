@@ -339,7 +339,7 @@ module.exports = {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      req.body._previousData = task.toJSON();
+      req.body._previousData = task;
 
       // Update task status with raw SQL
       await db.sequelize.query(
@@ -481,7 +481,7 @@ module.exports = {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      req.body._previousData = [task].toJSON();
+      req.body._previousData = task;
 
       // Validate assignedTo if provided
       let newAssignee = { userId: task.userId, firstName: task.firstName, lastName: task.lastName, email: task.email };
@@ -676,7 +676,7 @@ module.exports = {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      req.body._deletedData = task.toJSON();
+      req.body._deletedData = task;
 
       // Delete task with raw SQL
       await db.sequelize.query(
