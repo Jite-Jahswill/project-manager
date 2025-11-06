@@ -481,7 +481,7 @@ module.exports = {
         return res.status(404).json({ message: "Task not found" });
       }
 
-      req.body._previousData = task.toJSON();
+      req.body._previousData = [task].toJSON();
 
       // Validate assignedTo if provided
       let newAssignee = { userId: task.userId, firstName: task.firstName, lastName: task.lastName, email: task.email };
