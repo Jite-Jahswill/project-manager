@@ -633,6 +633,7 @@ module.exports = {
   async deleteTask(req, res) {
     try {
       const { taskId } = req.params;
+      if (!req.body) req.body = {};
 
       // Fetch task with raw SQL
       const [task] = await db.sequelize.query(
