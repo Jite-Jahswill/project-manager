@@ -205,6 +205,7 @@ exports.deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const userId = req.user.id;
+    if (!req.body) req.body = {};
 
     const message = await Message.findByPk(messageId);
     if (!message)
