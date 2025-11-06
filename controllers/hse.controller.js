@@ -70,65 +70,148 @@ exports.updateReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { title, dateOfReport, timeOfReport, report, status, closedBy, attachedDocIds, detachDocIds } = req.body;
+    const {
+      title,
+      dateOfReport,
+      timeOfReport,
+      report,
+      status,
+      closedBy,
+      attachedDocIds,
+      detachDocIds,
+    } = req.body || {};
 
-    const existing = await HSEReport.findByPk(id, { transaction: t });
-    if (!existing) return res.status(404).json({ message: "Report not found" });
+    // ENSURE req.body exists for audit
+    if (!req.body) req.body = {};
 
-    req.body._previousData = existing.toJSON();
+    // 1. FETCH CURRENT REPORT (for audit)
+    const [existing] = await sequelize.query(
+      `SELECT * FROM HSEReports WHERE id = :id FOR UPDATE`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
 
-    const updates = {};
-    if (title) updates.title = title;
-    if (dateOfReport) updates.dateOfReport = dateOfReport;
-    if (timeOfReport) updates.timeOfReport = timeOfReport;
-    if (report) updates.report = report;
-    if (status) {
-      updates.status = status;
+    if (!existing) {
+      await t.rollback();
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    // AUDIT: SET OLD VALUES
+    req.body._previousData = existing;
+
+    // 2. BUILD UPDATE QUERY
+    const updates = [];
+    const replacements = { id };
+
+    if (title !== undefined) {
+      updates.push("title = :title");
+      replacements.title = title;
+    }
+    if (dateOfReport !== undefined) {
+      updates.push("dateOfReport = :dateOfReport");
+      replacements.dateOfReport = dateOfReport;
+    }
+    if (timeOfReport !== undefined) {
+      updates.push("timeOfReport = :timeOfReport");
+      replacements.timeOfReport = timeOfReport;
+    }
+    if (report !== undefined) {
+      updates.push("report = :report");
+      replacements.report = report;
+    }
+    if (status !== undefined) {
+      updates.push("status = :status");
+      replacements.status = status;
       if (status === "closed") {
-        updates.closedAt = new Date();
-        updates.closedBy = closedBy || req.user.id;
+        updates.push("closedAt = NOW()", "closedBy = :closedBy");
+        replacements.closedBy = closedBy || req.user.id;
       }
     }
 
-    await existing.update(updates, { transaction: t });
+    if (updates.length > 0) {
+      await sequelize.query(
+        `UPDATE HSEReports 
+         SET ${updates.join(", ")}, updatedAt = NOW() 
+         WHERE id = :id`,
+        { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
+      );
+    }
 
-    // Handle new uploaded files
+    // 3. HANDLE FILE UPLOADS
     if (req.uploadedFiles && req.uploadedFiles.length > 0) {
-      const docsToCreate = req.uploadedFiles.map((file) => ({
+      const docs = req.uploadedFiles.map((file) => ({
         name: file.originalname,
-        firebaseUrls: [file.firebaseUrl],
+        firebaseUrls: JSON.stringify([file.firebaseUrl]),
         uploadedBy: req.user.id,
         reportId: existing.id,
         type: file.mimetype,
         size: file.size,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       }));
-      await HseDocument.bulkCreate(docsToCreate, { transaction: t });
+      await sequelize.query(
+        `INSERT INTO HseDocuments 
+         (name, firebaseUrls, uploadedBy, reportId, type, size, createdAt, updatedAt)
+         VALUES ${docs.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+        {
+          replacements: docs.flatMap(d => [
+            d.name,
+            d.firebaseUrls,
+            d.uploadedBy,
+            d.reportId,
+            d.type,
+            d.size,
+            d.createdAt,
+            d.updatedAt,
+          ]),
+          type: sequelize.QueryTypes.INSERT,
+          transaction: t,
+        }
+      );
     }
 
-    // Attach new docs
+    // 4. ATTACH EXISTING DOCS
     if (attachedDocIds && attachedDocIds.length > 0) {
-      await HseDocument.update(
-        { reportId: existing.id },
-        { where: { id: attachedDocIds }, transaction: t }
+      await sequelize.query(
+        `UPDATE HseDocuments SET reportId = :reportId WHERE id IN (:attachedDocIds)`,
+        { replacements: { reportId: existing.id, attachedDocIds }, transaction: t }
       );
     }
 
-    // Detach docs
+    // 5. DETACH DOCS
     if (detachDocIds && detachDocIds.length > 0) {
-      await HseDocument.update(
-        { reportId: null },
-        { where: { id: detachDocIds, reportId: existing.id }, transaction: t }
+      await sequelize.query(
+        `UPDATE HseDocuments SET reportId = NULL WHERE id IN (:detachDocIds) AND reportId = :reportId`,
+        { replacements: { detachDocIds, reportId: existing.id }, transaction: t }
       );
     }
 
-    const updated = await HSEReport.findByPk(id, {
-      include: [
-        { model: User, as: "reporter" },
-        { model: User, as: "closer" },
-        { model: HseDocument, as: "documents" },
-      ],
-      transaction: t,
-    });
+    // 6. FETCH UPDATED REPORT
+    const [updated] = await sequelize.query(
+      `SELECT 
+         r.*,
+         reporter.id AS 'reporter.id',
+         reporter.firstName AS 'reporter.firstName',
+         reporter.lastName AS 'reporter.lastName',
+         reporter.email AS 'reporter.email',
+         closer.id AS 'closer.id',
+         closer.firstName AS 'closer.firstName',
+         closer.lastName AS 'closer.lastName',
+         closer.email AS 'closer.email'
+       FROM HSEReports r
+       LEFT JOIN Users reporter ON r.reporterId = reporter.id
+       LEFT JOIN Users closer ON r.closedBy = closer.id
+       WHERE r.id = :id`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
+
+    // 7. NOTIFY
+    const html = `
+      <h3>Report Updated</h3>
+      <p><strong>Title:</strong> ${updated.title}</p>
+      <p><strong>Status:</strong> ${updated.status}</p>
+      <p><strong>Updated by:</strong> ${req.user.firstName} ${req.user.lastName}</p>
+    `;
+    await notifyAdminsAndManagers("HSE Report Updated", html, t);
 
     await t.commit();
     return res.status(200).json({ message: "Report updated", report: updated });
