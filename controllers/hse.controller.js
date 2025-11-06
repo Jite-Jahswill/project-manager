@@ -144,6 +144,7 @@ exports.deleteReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
+    if (!req.body) req.body = {};
     const report = await HSEReport.findByPk(id, { transaction: t });
     if (!report) return res.status(404).json({ message: "Report not found" });
 
