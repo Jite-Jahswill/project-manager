@@ -1,6 +1,6 @@
 const db = require("../models");
 const sendMail = require("../utils/mailer");
-const { User, Role } = require("../models");
+const { User, Role, sequelize } = require("../models");
 
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
   try {
