@@ -209,7 +209,7 @@ module.exports = {
   // Get all tasks with optional filters (open to any authenticated user)
   async getAllTasks(req, res) {
     try {
-      const { title, status, dueDate, page = 1, limit = 20 } = req.query;
+      const { title, status, dueDate, assigneeEmail, page = 1, limit = 20 } = req.query;
 
       // Validate page and limit
       const pageNum = parseInt(page, 10);
@@ -228,6 +228,25 @@ module.exports = {
       }
       if (dueDate) {
         whereClause.dueDate = { [db.Sequelize.Op.eq]: dueDate };
+      }
+      // Build include for assignee filtering
+      const include = [
+        { model: db.Project, attributes: ["id", "name"] },
+      ];
+  
+      if (assigneeEmail) {
+        include.push({
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+          where: { email: { [db.Sequelize.Op.eq]: assigneeEmail } },
+        });
+      } else {
+        include.push({
+          model: db.User,
+          as: "assignee",
+          attributes: ["id", "firstName", "lastName", "email"],
+        });
       }
 
       const { count, rows } = await db.Task.findAndCountAll({
