@@ -362,6 +362,7 @@ module.exports = {
   // Update task status (open to any authenticated user)
   async updateTaskStatus(req, res) {
     try {
+      const t = await sequelize.transaction();
       const { status } = req.body;
       const { taskId } = req.params;
       const allowedStatuses = ["To Do", "In Progress", "Review", "Done"];
@@ -503,6 +504,7 @@ module.exports = {
   // Update task details (open to any authenticated user)
   async updateTask(req, res) {
     try {
+      const t = await sequelize.transaction();
       const { taskId } = req.params;
       const { title, description, dueDate, assignedTo, status } = req.body;
 
@@ -712,6 +714,7 @@ module.exports = {
   // Delete a task (open to any authenticated user)
   async deleteTask(req, res) {
     try {
+      const t = await sequelize.transaction();
       const { taskId } = req.params;
       if (!req.body) req.body = {};
 
@@ -798,6 +801,7 @@ module.exports = {
   // Assign task to a user in the project's team (open to any authenticated user)
   async assignTask(req, res) {
     try {
+      const t = await sequelize.transaction();
       const { taskId } = req.params;
       const { assignedTo } = req.body;
 
