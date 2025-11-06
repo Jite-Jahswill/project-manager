@@ -15,11 +15,11 @@ exports.register = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { firstName, lastName, email, roleName = "customer", phoneNumber } = req.body;
-    const image = req.uploadedFiles?.[0]?.firebaseUrl;
+    const image = req.uploadedFiles?.[0]?.firebaseUrl; // Optional
 
     if (!firstName || !lastName || !email || !phoneNumber) {
       await t.rollback();
-      return res.status(400).json({ message: "firstName, lastName, email, phoneNumber, and image are required" });
+      return res.status(400).json({ message: "firstName, lastName, email, and phoneNumber are required" });
     }
 
     const role = await Role.findOne({ where: { name: roleName }, transaction: t });
@@ -53,7 +53,7 @@ exports.register = async (req, res) => {
         email,
         password: hashedPassword,
         roleId: role.id,
-        image,
+        image, // Can be null/undefined
         phoneNumber,
         emailVerified: false,
         otp: hashedOTP,
@@ -84,7 +84,7 @@ exports.register = async (req, res) => {
         lastName: user.lastName,
         email: user.email,
         phoneNumber: user.phoneNumber,
-        image: user.image,
+        image: user.image || null,
         role: role.name,
       },
     });
