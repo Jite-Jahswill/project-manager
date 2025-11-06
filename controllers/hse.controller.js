@@ -8,6 +8,7 @@ exports.createReport = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { title, dateOfReport, timeOfReport, report, attachedDocIds } = req.body;
+    if (!req.body) req.body = {};
     const reporterId = req.user.id;
 
     if (!title || !dateOfReport || !timeOfReport || !report) {
