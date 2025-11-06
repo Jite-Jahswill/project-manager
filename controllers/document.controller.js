@@ -96,7 +96,7 @@ module.exports = {
         include: [
           { model: Project, as: "Project", attributes: ["id", "name"] },
           { model: User, as: "uploader", attributes: ["id", "firstName", "lastName", "email"] },
-          { model: sequelize.models.Report, as: "report", attributes: ["id", "title"], required: false },
+          { model: sequelize.models.Report, as: "Report", attributes: ["id", "title"], required: false },
         ],
         order: [["createdAt", "DESC"]],
         limit: parseInt(limit),
