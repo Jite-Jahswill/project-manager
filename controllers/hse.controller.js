@@ -2,6 +2,7 @@
 const { Op } = require("sequelize");
 const db = require("../models");
 const { HSEReport, HseDocument, User, sequelize, Role } = db;
+const sendMail = require("../utils/mailer");
 
 async function notifyAdminsAndManagers(subject, html, transaction = null) {
   try {
