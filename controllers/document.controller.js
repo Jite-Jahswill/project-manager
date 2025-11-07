@@ -283,7 +283,7 @@ async getDocumentsByProject(req, res) {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      req.body._previousData = document.toJSON();
+      req.body._previousData = document;
       
 
       // Update document status using raw MySQL
@@ -307,9 +307,6 @@ async getDocumentsByProject(req, res) {
           transaction,
         }
       );
-
-      const previous = await Model.findByPk(id);
-      req.body._previousData = previous.toJSON();
 
       await transaction.commit();
       res.status(200).json({ message: "Document status updated successfully", document: updatedDocument });
@@ -348,7 +345,7 @@ async getDocumentsByProject(req, res) {
       }
 
       // CAPTURE FOR AUDIT
-      req.body._deletedData = document.toJSON();
+      req.body._deletedData = document;
 
       // Delete from Firebase
       const fileName = document.firebaseUrl.split("/").pop();
