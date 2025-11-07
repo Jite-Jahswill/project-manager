@@ -253,6 +253,13 @@ async updateReport(req, res) {
     try {
       const { projectId, status, reporterName, page = 1, limit = 20 } = req.query;
   
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+  
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+  
       const where = {};
       if (projectId) where.projectId = projectId;
       if (status) where.status = status;
@@ -273,19 +280,14 @@ async updateReport(req, res) {
         };
       }
   
-      const pageNum = parseInt(page, 10);
-      const limitNum = parseInt(limit, 10);
-  
-      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
-        return res.status(400).json({ message: "Invalid page or limit" });
-      }
-  
       const { count, rows } = await Report.findAndCountAll({
         where,
         include,
         order: [["createdAt", "DESC"]],
         limit: limitNum,
         offset: (pageNum - 1) * limitNum,
+        distinct: true,     // This fixes the count
+        subQuery: false,     // Required when using limit + include
       });
   
       return res.status(200).json({
