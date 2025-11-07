@@ -294,7 +294,7 @@ module.exports = {
         return res.status(404).json({ error: "Team not found" });
       }
 
-      req.body._previousData = team.toJSON();
+      req.body._previousData = team;
 
       // Build update query
       const updateFields = [];
@@ -518,7 +518,7 @@ module.exports = {
         return res.status(404).json({ error: "Team not found" });
       }
 
-      req.body._deletedData = team.toJSON();
+      req.body._deletedData = team;
 
       // Delete team and user assignments with raw SQL
       await db.sequelize.query(
