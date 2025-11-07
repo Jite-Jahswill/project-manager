@@ -565,5 +565,46 @@ module.exports = (app) => {
     hseReportController.getAllReports
   );
 
+  /**
+   * @swagger
+   * /api/hse-reports/{id}:
+   *   get:
+   *     summary: Get a single HSE report by ID
+   *     description: Retrieves a full HSE report with reporter, closer, and all attached documents (with uploader info).
+   *     tags: [HSE Reports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Report ID
+   *         example: 5
+   *     responses:
+   *       200:
+   *         description: Report found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 report:
+   *                   $ref: '#/components/schemas/HSEReport'
+   *       404:
+   *         description: Report not found
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.get(
+    "/:id",
+    verifyToken,
+    hasPermission("hse:read"),
+    hseReportController.getReportById
+  );
+
   app.use("/api/hse-reports", router);
 };
