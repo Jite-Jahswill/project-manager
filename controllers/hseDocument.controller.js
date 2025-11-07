@@ -2,7 +2,7 @@ const { Op } = require("sequelize");
 const { HseDocument, User, HSEReport } = require("../models");
 
 // 🟢 Create new document
-exports.createDocuments = async (req, res) => {
+exports.createDocument = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { reportId } = req.body;               // optional
