@@ -153,7 +153,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.post("/", verifyToken, hseDocumentController.createDocument);
+  router.post("/", verifyToken,upload, uploadToFirebase, hseDocumentController.createDocument);
 
   /**
    * @swagger
