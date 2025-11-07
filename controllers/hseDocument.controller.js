@@ -2,28 +2,43 @@ const { Op } = require("sequelize");
 const { HseDocument, User, HSEReport } = require("../models");
 
 // 🟢 Create new document
-exports.createDocument = async (req, res) => {
+exports.createDocuments = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
-    const { name, firebaseUrls, reportId, type, size } = req.body;
+    const { reportId } = req.body;               // optional
     const uploadedBy = req.user.id;
 
-    if (!name || !firebaseUrls || !type || !size) {
-      return res.status(400).json({ error: "Missing required fields" });
+    // -----------------------------------------------------------------
+    // 1. No files → 400
+    // -----------------------------------------------------------------
+    if (!req.uploadedFiles || req.uploadedFiles.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ error: "No files uploaded" });
     }
 
-    const newDoc = await HseDocument.create({
-      name,
-      firebaseUrls,
+    // -----------------------------------------------------------------
+    // 2. Build rows for bulk insert
+    // -----------------------------------------------------------------
+    const docsToInsert = req.uploadedFiles.map(f => ({
+      name: f.originalname,
+      firebaseUrls: JSON.stringify([f.firebaseUrl]),   // keep as JSON array
       uploadedBy,
-      reportId: reportId || null,
-      type,
-      size,
-    });
+      reportId: reportId ? Number(reportId) : null,
+      type: f.mimetype,
+      size: f.size,
+    }));
 
-    return res.status(201).json(newDoc);
+    // -----------------------------------------------------------------
+    // 3. Bulk create (one DB row per file)
+    // -----------------------------------------------------------------
+    const created = await HseDocument.bulkCreate(docsToInsert, { transaction: t });
+
+    await t.commit();
+    return res.status(201).json({ documents: created });
   } catch (err) {
-    console.error("createDocument error:", err);
-    return res.status(500).json({ error: "Failed to create document" });
+    await t.rollback();
+    console.error("createDocuments error:", err);
+    return res.status(500).json({ error: "Failed to save documents", details: err.message });
   }
 };
 
