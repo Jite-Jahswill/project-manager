@@ -1,5 +1,6 @@
 const express = require("express");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
+const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
 const hseDocumentController = require("../controllers/hseDocument.controller");
 
 module.exports = (app) => {
@@ -153,7 +154,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.post("/", verifyToken,upload, uploadToFirebase, hseDocumentController.createDocument);
+  router.post("/", verifyToken, hasPermission("hsedocument:create"), upload, uploadToFirebase, hseDocumentController.createDocument);
 
   /**
    * @swagger
@@ -243,7 +244,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.get("/", verifyToken, hseDocumentController.getAllDocuments);
+  router.get("/", verifyToken, hasPermission("hsedocument:read"), hseDocumentController.getAllDocuments);
 
   /**
    * @swagger
@@ -276,7 +277,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.get("/:id", verifyToken, hseDocumentController.getDocumentById);
+  router.get("/:id", verifyToken, hasPermission("hsedocument:read"), hseDocumentController.getDocumentById);
 
   /**
    * @swagger
@@ -337,7 +338,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.put("/:id", verifyToken, hseDocumentController.updateDocument);
+  router.put("/:id", verifyToken, hasPermission("hsedocument:update"), upload, uploadToFirebase, hseDocumentController.updateDocument);
 
   /**
    * @swagger
@@ -373,7 +374,7 @@ module.exports = (app) => {
    *       500:
    *         description: Server error
    */
-  router.delete("/:id", verifyToken, hseDocumentController.deleteDocument);
+  router.delete("/:id", verifyToken, hasPermission("hsedocument:delete"), hseDocumentController.deleteDocument);
 
   app.use("/api/hse/documents", router);
 };
