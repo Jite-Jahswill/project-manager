@@ -461,3 +461,45 @@ exports.getAllReports = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch reports" });
   }
 };
+
+exports.getReportById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const report = await HSEReport.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: "reporter",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: User,
+          as: "closer",
+          attributes: ["id", "firstName", "lastName", "email"],
+        },
+        {
+          model: HseDocument,
+          as: "documents",
+          attributes: ["id", "name", "firebaseUrls", "type", "size", "uploadedBy"],
+          include: [
+            {
+              model: User,
+              as: "uploader",
+              attributes: ["id", "firstName", "lastName", "email"],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "Report not found" });
+    }
+
+    return res.status(200).json({ report });
+  } catch (err) {
+    console.error("getReportById error:", err);
+    return res.status(500).json({ error: "Failed to fetch report" });
+  }
+};
