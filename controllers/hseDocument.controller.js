@@ -117,12 +117,11 @@ exports.updateDocument = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { name, firebaseUrls, type, size, reportId } = req.body || {};
+    const { name, type, size, reportId } = req.body || {};
 
-    // Ensure req.body exists for audit
-    if (!req.body) req.body = {};
-
-    // 1. FETCH CURRENT DOCUMENT (for audit + validation)
+    // -----------------------------------------------------------------
+    // 1. Fetch current document (FOR UPDATE + audit)
+    // -----------------------------------------------------------------
     const [doc] = await sequelize.query(
       `SELECT * FROM HseDocuments WHERE id = :id FOR UPDATE`,
       { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
@@ -133,45 +132,55 @@ exports.updateDocument = async (req, res) => {
       return res.status(404).json({ message: "Document not found" });
     }
 
-    // AUDIT: Capture old values
+    // AUDIT: old values
+    if (!req.body) req.body = {};
     req.body._previousData = doc;
 
-    // 2. BUILD UPDATE FIELDS
+    // -----------------------------------------------------------------
+    // 2. Handle new file upload (if any)
+    // -----------------------------------------------------------------
+    let firebaseUrl = doc.firebaseUrls ? JSON.parse(doc.firebaseUrls)[0] : null;
+
+    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+      const newFile = req.uploadedFiles[0];               // only first file
+      firebaseUrl = newFile.firebaseUrl;
+
+      // optional: delete old file from Firebase
+      // const oldPath = doc.firebaseUrls ? JSON.parse(doc.firebaseUrls)[0].split('/').slice(3).join('/') : null;
+      // if (oldPath) await admin.storage().bucket().file(oldPath).delete().catch(() => {});
+    }
+
+    // -----------------------------------------------------------------
+    // 3. Build UPDATE fields
+    // -----------------------------------------------------------------
     const updates = [];
     const replacements = { id };
 
-    if (name !== undefined) {
-      updates.push("name = :name");
-      replacements.name = name;
-    }
-    if (firebaseUrls !== undefined) {
-      updates.push("firebaseUrls = :firebaseUrls");
-      replacements.firebaseUrls = JSON.stringify(firebaseUrls);
-    }
-    if (type !== undefined) {
-      updates.push("type = :type");
-      replacements.type = type;
-    }
-    if (size !== undefined) {
-      updates.push("size = :size");
-      replacements.size = size;
-    }
+    if (name !== undefined) { updates.push("name = :name"); replacements.name = name; }
+    if (type !== undefined) { updates.push("type = :type"); replacements.type = type; }
+    if (size !== undefined) { updates.push("size = :size"); replacements.size = size; }
     if (reportId !== undefined) {
       updates.push("reportId = :reportId");
-      replacements.reportId = reportId === null ? null : reportId;
+      replacements.reportId = reportId === null ? null : Number(reportId);
+    }
+    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+      updates.push("firebaseUrls = :firebaseUrls");
+      replacements.firebaseUrls = JSON.stringify([firebaseUrl]);
     }
 
-    // Only run update if something changed
+    // -----------------------------------------------------------------
+    // 4. Run UPDATE only if something changed
+    // -----------------------------------------------------------------
     if (updates.length > 0) {
       await sequelize.query(
-        `UPDATE HseDocuments 
-         SET ${updates.join(", ")}, updatedAt = NOW() 
-         WHERE id = :id`,
+        `UPDATE HseDocuments SET ${updates.join(", ")}, updatedAt = NOW() WHERE id = :id`,
         { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
       );
     }
 
-    // 3. FETCH UPDATED DOCUMENT
+    // -----------------------------------------------------------------
+    // 5. Return updated doc
+    // -----------------------------------------------------------------
     const [updatedDoc] = await sequelize.query(
       `SELECT * FROM HseDocuments WHERE id = :id`,
       { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
