@@ -385,3 +385,79 @@ exports.updateReportStatus = async (req, res) => {
     return res.status(500).json({ error: "Failed to update report status" });
   }
 };
+
+exports.getAllReports = async (req, res) => {
+  try {
+    const {
+      id,
+      title,
+      dateOfReport,
+      status,
+      reporterName,
+      page = 1,
+      limit = 20,
+    } = req.query;
+
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ message: "Invalid page or limit" });
+    }
+
+    const where = {};
+    if (id) where.id = id;
+    if (title) where.title = { [Op.like]: `%${title}%` };
+    if (dateOfReport) where.dateOfReport = dateOfReport;
+    if (status) where.status = status;
+
+    const include = [
+      {
+        model: User,
+        as: "reporter",
+        attributes: ["id", "firstName", "lastName", "email"],
+        where: reporterName
+          ? {
+              [Op.or]: [
+                { firstName: { [Op.like]: `%${reporterName}%` } },
+                { lastName: { [Op.like]: `%${reporterName}%` } },
+              ],
+            }
+          : undefined,
+      },
+      {
+        model: User,
+        as: "closer",
+        attributes: ["id", "firstName", "lastName", "email"],
+      },
+      {
+        model: HseDocument,
+        as: "documents",
+        attributes: ["id", "name", "firebaseUrls", "type", "size"],
+      },
+    ].filter(Boolean); // remove undefined
+
+    const { count, rows } = await HSEReport.findAndCountAll({
+      where,
+      include,
+      order: [["createdAt", "DESC"]],
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+      distinct: true,     // fixes count when documents cause duplicates
+      subQuery: false,
+    });
+
+    return res.status(200).json({
+      reports: rows,
+      pagination: {
+        totalItems: count,
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        itemsPerPage: limitNum,
+      },
+    });
+  } catch (err) {
+    console.error("getAllReports error:", err);
+    return res.status(500).json({ error: "Failed to fetch reports" });
+  }
+};
