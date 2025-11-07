@@ -476,6 +476,94 @@ module.exports = (app) => {
     hasPermission("hse:update"), // or "hse:close" if you want stricter control
     hseReportController.updateReportStatus
   );
+  
+  /**
+   * @swagger
+   * /api/hse-reports:
+   *   get:
+   *     summary: Get all HSE reports with filters and pagination
+   *     description: |
+   *       Fetch all HSE reports. Supports filtering by:
+   *       - `id`, `title`, `dateOfReport`, `status`, `reporterName`
+   *       - Includes reporter, closer, and attached documents
+   *     tags: [HSE Reports]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: id
+   *         schema:
+   *           type: integer
+   *         description: Filter by report ID
+   *         example: 5
+   *       - in: query
+   *         name: title
+   *         schema:
+   *           type: string
+   *         description: Partial match on title
+   *         example: "slip"
+   *       - in: query
+   *         name: dateOfReport
+   *         schema:
+   *           type: string
+   *           format: date
+   *         description: Exact date (YYYY-MM-DD)
+   *         example: "2025-11-05"
+   *       - in: query
+   *         name: status
+   *         schema:
+   *           type: string
+   *           enum: [open, pending, closed]
+   *         description: Filter by status
+   *         example: "open"
+   *       - in: query
+   *         name: reporterName
+   *         schema:
+   *           type: string
+   *         description: Partial match on reporter's first or last name
+   *         example: "john"
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           default: 1
+   *         description: Page number
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *           maximum: 100
+   *           default: 20
+   *         description: Items per page
+   *     responses:
+   *       200:
+   *         description: List of reports
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 reports:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/HSEReport'
+   *                 pagination:
+   *                   $ref: '#/components/schemas/Pagination'
+   *       400:
+   *         description: Invalid query parameters
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.get(
+    "/",
+    verifyToken,
+    hasPermission("hse:read"),
+    hseReportController.getAllReports
+  );
 
   app.use("/api/hse-reports", router);
 };
