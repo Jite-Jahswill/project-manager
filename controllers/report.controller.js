@@ -248,21 +248,22 @@ async updateReport(req, res) {
     }
   },
 
-  // GET ALL REPORTS
+  // Get all report
   async getAllReports(req, res) {
     try {
       const { projectId, status, reporterName, page = 1, limit = 20 } = req.query;
+  
       const where = {};
       if (projectId) where.projectId = projectId;
       if (status) where.status = status;
-
+  
       const include = [
         { model: User, as: "reporter", attributes: ["id", "firstName", "lastName"] },
         { model: Project, as: "project" },
         { model: Team, as: "team" },
         { model: Document, as: "documents" },
       ];
-
+  
       if (reporterName) {
         include[0].where = {
           [db.Sequelize.Op.or]: [
@@ -271,22 +272,29 @@ async updateReport(req, res) {
           ],
         };
       }
-
+  
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+  
+      if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+        return res.status(400).json({ message: "Invalid page or limit" });
+      }
+  
       const { count, rows } = await Report.findAndCountAll({
         where,
         include,
         order: [["createdAt", "DESC"]],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit),
+        limit: limitNum,
+        offset: (pageNum - 1) * limitNum,
       });
-
+  
       return res.status(200).json({
         reports: rows,
         pagination: {
           totalItems: count,
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(count / limit),
-          itemsPerPage: parseInt(limit),
+          currentPage: pageNum,
+          totalPages: Math.ceil(count / limitNum),
+          itemsPerPage: limitNum,
         },
       });
     } catch (err) {
