@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { HseDocument, User, HSEReport } = require("../models");
+const { HseDocument, User, HSEReport, sequelize } = require("../models");
 
 // 🟢 Create new document
 exports.createDocument = async (req, res) => {
