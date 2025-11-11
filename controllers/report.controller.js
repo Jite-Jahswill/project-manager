@@ -46,178 +46,245 @@ async function notifyAdminsAndManagers(subject, html, transaction = null) {
 module.exports = {
   // CREATE REPORT + UPLOAD FILES
   async createReport(req, res) {
-    const t = await sequelize.transaction();
-    try {
-      const { title, dateOfReport, timeOfReport, report, projectId, teamId } = req.body;
-      const reporterId = req.user.id;
+  const t = await sequelize.transaction();
+  try {
+    const { title, dateOfReport, timeOfReport, report, projectId, teamId, attachedDocIds } = req.body;
+    const reporterId = req.user.id;
 
-      if (!title || !dateOfReport || !timeOfReport || !report) {
-        await t.rollback();
-        return res.status(400).json({ error: "title, dateOfReport, timeOfReport, and report are required" });
-      }
-
-      const project = projectId ? await Project.findByPk(projectId, { transaction: t }) : null;
-      if (projectId && !project) {
-        await t.rollback();
-        return res.status(404).json({ error: "Project not found" });
-      }
-
-      const team = teamId ? await Team.findByPk(teamId, { transaction: t }) : null;
-      if (teamId && !team) {
-        await t.rollback();
-        return res.status(404).json({ error: "Team not found" });
-      }
-
-      const newReport = await Report.create(
-        {
-          title,
-          dateOfReport,
-          timeOfReport,
-          reporterId,
-          report,
-          projectId: project?.id || null,
-          teamId: team?.id || null,
-        },
-        { transaction: t }
-      );
-
-      // Handle uploaded files
-      if (req.uploadedFiles && req.uploadedFiles.length > 0) {
-        const docs = req.uploadedFiles.map((file) => ({
-          name: file.originalname,
-          firebaseUrl: file.firebaseUrl,
-          projectId: newReport.projectId,
-          reportId: newReport.id,
-          type: file.mimetype,
-          size: file.size,
-          uploadedBy: reporterId,
-        }));
-        await Document.bulkCreate(docs, { transaction: t });
-      }
-
-      const fullReport = await Report.findByPk(newReport.id, {
-        include: [
-          { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
-          { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
-          { model: Project, as: "project", attributes: ["id", "name"] },
-          { model: Team, as: "team", attributes: ["id", "name"] },
-          { model: Document, as: "documents" },
-        ],
-        transaction: t,
-      });
-
-      await t.commit();
-      return res.status(201).json({ message: "Report created", report: fullReport });
-    } catch (err) {
+    if (!title || !dateOfReport || !timeOfReport || !report) {
       await t.rollback();
-      console.error("createReport error:", err);
-      return res.status(500).json({ error: "Failed to create report" });
+      return res.status(400).json({ error: "title, dateOfReport, timeOfReport, and report are required" });
     }
-  },
+
+    const project = projectId ? await Project.findByPk(projectId, { transaction: t }) : null;
+    if (projectId && !project) {
+      await t.rollback();
+      return res.status(404).json({ error: "Project not found" });
+    }
+
+    const team = teamId ? await Team.findByPk(teamId, { transaction: t }) : null;
+    if (teamId && !team) {
+      await t.rollback();
+      return res.status(404).json({ error: "Team not found" });
+    }
+
+    // 1. Create Report
+    const newReport = await Report.create(
+      {
+        title,
+        dateOfReport,
+        timeOfReport,
+        reporterId,
+        report,
+        projectId: project?.id || null,
+        teamId: team?.id || null,
+      },
+      { transaction: t }
+    );
+
+    // 2. Upload New Files
+    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+      const newDocs = req.uploadedFiles.map(file => ({
+        name: file.originalname,
+        firebaseUrl: file.firebaseUrl,
+        projectId: newReport.projectId,
+        reportId: newReport.id,
+        type: file.mimetype,
+        size: file.size,
+        uploadedBy: reporterId,
+        status: "pending",
+      }));
+      await Document.bulkCreate(newDocs, { transaction: t });
+    }
+
+    // 3. Attach Existing Docs (by documentId)
+    if (attachedDocIds && Array.isArray(attachedDocIds) && attachedDocIds.length > 0) {
+      // Validate: docs exist + belong to same project (if report has one)
+      const where = { id: attachedDocIds };
+      if (newReport.projectId) where.projectId = newReport.projectId;
+
+      const docs = await Document.findAll({ where, transaction: t });
+      if (docs.length !== attachedDocIds.length) {
+        await t.rollback();
+        return res.status(400).json({ error: "One or more document IDs are invalid or do not belong to the project" });
+      }
+
+      await Document.update(
+        { reportId: newReport.id },
+        { where: { id: attachedDocIds }, transaction: t }
+      );
+    }
+
+    // 4. Fetch Full Report
+    const fullReport = await Report.findByPk(newReport.id, {
+      include: [
+        { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: Project, as: "project", attributes: ["id", "name"] },
+        { model: Team, as: "team", attributes: ["id", "name"] },
+        {
+          model: Document,
+          as: "documents",
+          include: [{ model: User, as: "uploader", attributes: ["id", "firstName", "lastName"] }],
+        },
+      ],
+      transaction: t,
+    });
+
+    await t.commit();
+    return res.status(201).json({ message: "Report created", report: fullReport });
+  } catch (err) {
+    await t.rollback();
+    console.error("createReport error:", err);
+    return res.status(500).json({ error: "Failed to create report" });
+  }
+},
 
   // UPDATE REPORT
 async updateReport(req, res) {
-    const t = await sequelize.transaction();
-    try {
-      const { id } = req.params;
-      const { title, dateOfReport, timeOfReport, report, status, closedBy } = req.body;
-      // ENSURE req.body exists
-      if (!req.body) req.body = {};
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      dateOfReport,
+      timeOfReport,
+      report,
+      status,
+      closedBy,
+      attachedDocIds,
+      detachDocIds,
+    } = req.body;
 
-      // 1. FETCH CURRENT DATA (for audit)
-      const [existing] = await sequelize.query(
-        `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
-        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
+    if (!req.body) req.body = {};
 
-      if (!existing) {
-        await t.rollback();
-        return res.status(404).json({ message: "Report not found" });
-      }
+    // 1. Fetch existing (for audit)
+    const [existing] = await sequelize.query(
+      `SELECT * FROM Reports WHERE id = :id FOR UPDATE`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
+    );
 
-      // AUDIT: SET OLD VALUES
-      req.body._previousData = existing;
-
-      // 2. BUILD UPDATE FIELDS
-      const updates = [];
-      const replacements = { id };
-
-      if (title !== undefined) { updates.push("title = :title"); replacements.title = title; }
-      if (dateOfReport !== undefined) { updates.push("dateOfReport = :dateOfReport"); replacements.dateOfReport = dateOfReport; }
-      if (timeOfReport !== undefined) { updates.push("timeOfReport = :timeOfReport"); replacements.timeOfReport = timeOfReport; }
-      if (report !== undefined) { updates.push("report = :report"); replacements.report = report; }
-      if (status !== undefined) {
-        updates.push("status = :status");
-        replacements.status = status;
-        if (status === "closed") {
-          updates.push("closedAt = NOW()", "closedBy = :closedBy");
-          replacements.closedBy = closedBy || req.user.id;
-        }
-      }
-
-      if (updates.length === 0 && (!req.uploadedFiles || req.uploadedFiles.length === 0)) {
-        await t.rollback();
-        return res.status(400).json({ message: "No fields to update" });
-      }
-
-      // 3. UPDATE REPORT
-      if (updates.length > 0) {
-        await sequelize.query(
-          `UPDATE Reports SET ${updates.join(", ")}, updatedAt = NOW() WHERE id = :id`,
-          { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
-        );
-      }
-
-      // 4. UPLOAD NEW DOCUMENTS
-      if (req.uploadedFiles && req.uploadedFiles.length > 0) {
-        const docs = req.uploadedFiles.map(file => ({
-          name: file.originalname,
-          firebaseUrl: file.firebaseUrl,
-          projectId: existing.projectId,
-          reportId: existing.id,
-          type: file.mimetype,
-          size: file.size,
-          uploadedBy: req.user.id,
-          status: "pending",
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }));
-        await Document.bulkCreate(docs, { transaction: t });
-      }
-
-      // 5. FETCH UPDATED REPORT
-      const [updated] = await sequelize.query(
-        `SELECT r.*, 
-                reporter.firstName AS 'reporter.firstName', reporter.lastName AS 'reporter.lastName',
-                closer.firstName AS 'closer.firstName', closer.lastName AS 'closer.lastName',
-                p.name AS 'project.name',
-                t.name AS 'team.name'
-         FROM Reports r
-         LEFT JOIN Users reporter ON r.reporterId = reporter.id
-         LEFT JOIN Users closer ON r.closedBy = closer.id
-         LEFT JOIN Projects p ON r.projectId = p.id
-         LEFT JOIN Teams t ON r.teamId = t.id
-         WHERE r.id = :id`,
-        { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
-      );
-
-      // 6. NOTIFY
-      const html = `
-        <h3>Report Updated</h3>
-        <p><strong>Title:</strong> ${updated.title}</p>
-        <p><strong>Status:</strong> ${updated.status}</p>
-        <p><strong>Updated by:</strong> ${req.user.firstName} ${req.user.lastName}</p>
-      `;
-      await notifyAdminsAndManagers("Project Report Updated", html, t);
-
-      await t.commit();
-      return res.status(200).json({ message: "Report updated", report: updated });
-    } catch (err) {
+    if (!existing) {
       await t.rollback();
-      console.error("updateReport error:", err);
-      return res.status(500).json({ error: "Failed to update report" });
+      return res.status(404).json({ message: "Report not found" });
     }
-  },
+
+    req.body._previousData = existing;
+
+    // 2. BUILD RAW UPDATE QUERY
+    const updates = [];
+    const replacements = { id };
+
+    if (title !== undefined) {
+      updates.push("title = :title");
+      replacements.title = title;
+    }
+    if (dateOfReport !== undefined) {
+      updates.push("dateOfReport = :dateOfReport");
+      replacements.dateOfReport = dateOfReport;
+    }
+    if (timeOfReport !== undefined) {
+      updates.push("timeOfReport = :timeOfReport");
+      replacements.timeOfReport = timeOfReport;
+    }
+    if (report !== undefined) {
+      updates.push("report = :report");
+      replacements.report = report;
+    }
+    if (status !== undefined) {
+      updates.push("status = :status");
+      replacements.status = status;
+
+      if (status === "closed" && existing.status !== "closed") {
+        updates.push("closedAt = NOW()", "closedBy = :closedBy");
+        replacements.closedBy = closedBy || req.user.id;
+      }
+      if (status !== "closed" && existing.status === "closed") {
+        updates.push("closedAt = NULL", "closedBy = NULL");
+      }
+    }
+
+    // 3. EXECUTE RAW UPDATE (only if fields changed)
+    if (updates.length > 0) {
+      await sequelize.query(
+        `UPDATE Reports
+         SET ${updates.join(", ")}, updatedAt = NOW()
+         WHERE id = :id`,
+        { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
+      );
+    }
+
+    // 4. Upload new files
+    if (req.uploadedFiles && req.uploadedFiles.length > 0) {
+      const newDocs = req.uploadedFiles.map(file => ({
+        name: file.originalname,
+        firebaseUrl: file.firebaseUrl,
+        projectId: existing.projectId,
+        reportId: existing.id,
+        type: file.mimetype,
+        size: file.size,
+        uploadedBy: req.user.id,
+        status: "pending",
+      }));
+      await Document.bulkCreate(newDocs, { transaction: t });
+    }
+
+    // 5. Attach existing docs
+    if (attachedDocIds && Array.isArray(attachedDocIds) && attachedDocIds.length > 0) {
+      const where = { id: attachedDocIds };
+      if (existing.projectId) where.projectId = existing.projectId;
+
+      const docs = await Document.findAll({ where, transaction: t });
+      if (docs.length !== attachedDocIds.length) {
+        await t.rollback();
+        return res.status(400).json({ error: "Invalid document IDs or project mismatch" });
+      }
+
+      await Document.update(
+        { reportId: existing.id },
+        { where: { id: attachedDocIds }, transaction: t }
+      );
+    }
+
+    // 6. Detach docs
+    if (detachDocIds && Array.isArray(detachDocIds) && detachDocIds.length > 0) {
+      await Document.update(
+        { reportId: null },
+        { where: { id: detachDocIds, reportId: existing.id }, transaction: t }
+      );
+    }
+
+    // 7. Fetch updated report (Sequelize)
+    const updatedReport = await Report.findByPk(id, {
+      include: [
+        { model: User, as: "reporter", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: User, as: "closer", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: Project, as: "project", attributes: ["id", "name"] },
+        { model: Team, as: "team", attributes: ["id", "name"] },
+        {
+          model: Document,
+          as: "documents",
+          include: [{ model: User, as: "uploader", attributes: ["id", "firstName", "lastName"] }],
+        },
+      ],
+      transaction: t,
+    });
+
+    // 8. Notify
+    await notifyAdminsAndManagers(
+      "Project Report Updated",
+      `<p>Report <strong>${updatedReport.title}</strong> updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>`,
+      t
+    );
+
+    await t.commit();
+    return res.status(200).json({ message: "Report updated", report: updatedReport });
+  } catch (err) {
+    await t.rollback();
+    console.error("updateReport error:", err);
+    return res.status(500).json({ error: "Failed to update report" });
+  }
+},
 
   // DELETE REPORT
   async deleteReport(req, res) {
