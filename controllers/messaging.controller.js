@@ -109,33 +109,59 @@ exports.getAllConversations = async (req, res) => {
 
 // 🟠 Send message
 exports.sendMessage = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { conversationId } = req.params;
-    const { content, type } = req.body;
+    const { content, type = "text" } = req.body;
     const senderId = req.user.id;
 
     const participant = await Participant.findOne({
       where: { conversationId, userId: senderId },
+      transaction: t,
     });
-
-    if (!participant)
+    if (!participant) {
+      await t.rollback();
       return res.status(403).json({ error: "Not part of this conversation" });
+    }
+
+    const conversation = await Conversation.findByPk(conversationId, { transaction: t });
+    let receiverId = null;
+
+    if (conversation.type === "direct") {
+      const other = await Participant.findOne({
+        where: { conversationId, userId: { [Op.ne]: senderId } },
+        transaction: t,
+      });
+      receiverId = other?.userId || null;
+    }
 
     const message = await Message.create({
       conversationId,
       senderId,
+      receiverId,
       content,
-      type: type || "text",
-    });
+      type,
+      isRead: false,
+    }, { transaction: t });
+
+    await t.commit();
 
     const populated = await Message.findByPk(message.id, {
       include: [
-        { model: User, as: "sender", attributes: ["id", "fullName", "email"] },
+        { model: User, as: "sender", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: User, as: "receiver", attributes: ["id", "firstName", "lastName", "email"] },
       ],
+    });
+
+    // Emit via socket
+    io.to(`conversation:${conversationId}`).emit("newMessage", {
+      ...populated.toJSON(),
+      isRead: false,
     });
 
     return res.status(201).json(populated);
   } catch (err) {
+    await t.rollback();
     console.error("sendMessage error:", err);
     return res.status(500).json({ error: "Failed to send message" });
   }
@@ -143,27 +169,55 @@ exports.sendMessage = async (req, res) => {
 
 // 🟡 Get all messages in a conversation
 exports.getAllMessages = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { conversationId } = req.params;
     const userId = req.user.id;
 
     const participant = await Participant.findOne({
       where: { conversationId, userId },
+      transaction: t,
     });
-
-    if (!participant)
+    if (!participant) {
+      await t.rollback();
       return res.status(403).json({ error: "You are not part of this conversation" });
+    }
+
+    // Mark unread messages as read (exclude own messages)
+    await Message.update(
+      { isRead: true },
+      {
+        where: {
+          conversationId,
+          receiverId: userId,
+          senderId: { [Op.ne]: userId },
+          isRead: false,
+        },
+        transaction: t,
+      }
+    );
 
     const messages = await Message.findAll({
       where: { conversationId },
       include: [
-        { model: User, as: "sender", attributes: ["id", "fullName", "email"] },
+        { model: User, as: "sender", attributes: ["id", "firstName", "lastName", "email"] },
+        { model: User, as: "receiver", attributes: ["id", "firstName", "lastName", "email"] },
       ],
       order: [["createdAt", "ASC"]],
+      transaction: t,
+    });
+
+    await t.commit();
+
+    // Emit read receipt
+    io.to(`conversation:${conversationId}`).emit("messagesRead", {
+      userId,
+      messageIds: messages.filter(m => m.receiverId === userId && m.senderId !== userId).map(m => m.id),
     });
 
     return res.json(messages);
   } catch (err) {
+    await t.rollback();
     console.error("getAllMessages error:", err);
     return res.status(500).json({ error: "Failed to fetch messages" });
   }
