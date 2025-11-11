@@ -133,7 +133,7 @@ module.exports = (app) => {
     "/",
     verifyToken,
     hasPermission("report:create"),
-    upload.array("files", 10),           // Accept up to 10 files
+    upload,           // Accept up to 10 files
     uploadToFirebase,
     reportController.createReport
   );
@@ -273,7 +273,7 @@ module.exports = (app) => {
     "/:id",
     verifyToken,
     hasPermission("report:update"),
-    upload.array("files", 10),
+    upload,
     uploadToFirebase,
     reportController.updateReport
   );
