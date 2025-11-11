@@ -1,3 +1,4 @@
+// models/message.model.js
 module.exports = (sequelize, DataTypes) => {
   const Message = sequelize.define("Message", {
     id: {
@@ -12,6 +13,10 @@ module.exports = (sequelize, DataTypes) => {
     senderId: {
       type: DataTypes.INTEGER,
       allowNull: false,
+    },
+    receiverId: {                     // NEW
+      type: DataTypes.INTEGER,
+      allowNull: true,                // null for group chats
     },
     content: {
       type: DataTypes.TEXT,
@@ -29,7 +34,24 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
     },
+    isRead: {                         // NEW
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+  }, {
+    indexes: [
+      { fields: ["conversationId"] },
+      { fields: ["senderId"] },
+      { fields: ["receiverId"] },
+      { fields: ["isRead"] },
+    ],
   });
+
+  Message.associate = (models) => {
+    Message.belongsTo(models.User, { foreignKey: "senderId", as: "sender" });
+    Message.belongsTo(models.User, { foreignKey: "receiverId", as: "receiver" });
+    Message.belongsTo(models.Conversation, { foreignKey: "conversationId" });
+  };
 
   return Message;
 };
