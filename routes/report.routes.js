@@ -51,6 +51,8 @@ module.exports = (app) => {
    *         status: { type: string, enum: [pending, approved, rejected, completed, "not complete"], example: "pending" }
    *         uploadedBy: { type: integer, example: 1 }
    *         createdAt: { type: string, format: date-time }
+   *         uploader:
+   *           $ref: '#/components/schemas/UserSummary'
    *
    *     Report:
    *       type: object
@@ -80,8 +82,8 @@ module.exports = (app) => {
    *   post:
    *     summary: Create a new project report
    *     description: |
-   *       Creates a report with optional file attachments.
-   *       Files are uploaded via `multipart/form-data` and linked via `reportId`.
+   *       Creates a report with optional file uploads and/or linking existing documents via `attachedDocIds`.
+   *       Files are uploaded via `files[]` field.
    *     tags: [Reports]
    *     security: [bearerAuth: []]
    *     requestBody:
@@ -102,12 +104,17 @@ module.exports = (app) => {
    *               report: { type: string, example: "Worker slipped on wet floor..." }
    *               projectId: { type: integer, example: 1, nullable: true }
    *               teamId: { type: integer, example: 1, nullable: true }
+   *               attachedDocIds:
+   *                 type: array
+   *                 items: { type: integer }
+   *                 description: List of existing document IDs to attach
+   *                 example: [5, 7]
    *               files:
    *                 type: array
    *                 items:
    *                   type: string
    *                   format: binary
-   *                 description: Attach photos, PDFs, etc.
+   *                 description: Upload new files
    *     responses:
    *       201:
    *         description: Report created
@@ -118,7 +125,7 @@ module.exports = (app) => {
    *               properties:
    *                 message: { type: string }
    *                 report: { $ref: '#/components/schemas/Report' }
-   *       400: { description: Missing required fields }
+   *       400: { description: Missing required fields or invalid document IDs }
    *       404: { description: Project/Team not found }
    *       500: { description: Server error }
    */
@@ -126,8 +133,8 @@ module.exports = (app) => {
     "/",
     verifyToken,
     hasPermission("report:create"),
-    upload,                    // Handle file upload
-    uploadToFirebase,          // Save to Firebase → req.uploadedFiles
+    upload.array("files", 10),           // Accept up to 10 files
+    uploadToFirebase,
     reportController.createReport
   );
 
@@ -173,7 +180,12 @@ module.exports = (app) => {
    *                     totalItems: { type: integer }
    *                     itemsPerPage: { type: integer }
    */
-  router.get("/", verifyToken, hasPermission("report:read"), reportController.getAllReports);
+  router.get(
+    "/",
+    verifyToken,
+    hasPermission("report:read"),
+    reportController.getAllReports
+  );
 
   /**
    * @swagger
@@ -196,15 +208,24 @@ module.exports = (app) => {
    *               type: object
    *               properties:
    *                 report: { $ref: '#/components/schemas/Report' }
+   *       404: { description: Report not found }
    */
-  router.get("/:id", verifyToken, hasPermission("report:read"), reportController.getReportById);
+  router.get(
+    "/:id",
+    verifyToken,
+    hasPermission("report:read"),
+    reportController.getReportById
+  );
 
   /**
    * @swagger
    * /api/reports/{id}:
    *   put:
    *     summary: Update report
-   *     description: Update text, status, or add new files.
+   *     description: |
+   *       Update text, status, or add new files. Also supports:
+   *       - `attachedDocIds`: Link existing documents
+   *       - `detachDocIds`: Unlink documents
    *     tags: [Reports]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -224,9 +245,19 @@ module.exports = (app) => {
    *               report: { type: string }
    *               status: { type: string, enum: [open, pending, closed] }
    *               closedBy: { type: integer }
+   *               attachedDocIds:
+   *                 type: array
+   *                 items: { type: integer }
+   *                 example: [8, 9]
+   *               detachDocIds:
+   *                 type: array
+   *                 items: { type: integer }
+   *                 example: [5]
    *               files:
    *                 type: array
-   *                 items: { type: string, format: binary }
+   *                 items:
+   *                   type: string
+   *                   format: binary
    *     responses:
    *       200:
    *         description: Report updated
@@ -242,7 +273,7 @@ module.exports = (app) => {
     "/:id",
     verifyToken,
     hasPermission("report:update"),
-    upload,
+    upload.array("files", 10),
     uploadToFirebase,
     reportController.updateReport
   );
@@ -263,7 +294,12 @@ module.exports = (app) => {
    *     responses:
    *       200: { description: Report deleted }
    */
-  router.delete("/:id", verifyToken, hasPermission("report:delete"), reportController.deleteReport);
+  router.delete(
+    "/:id",
+    verifyToken,
+    hasPermission("report:delete"),
+    reportController.deleteReport
+  );
 
   /**
    * @swagger
