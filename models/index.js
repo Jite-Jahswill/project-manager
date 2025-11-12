@@ -166,7 +166,6 @@ db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
 // Message → User (sender)
-db.Message.belongsTo(db.User, { as: "sender", foreignKey: "senderId" });
 db.User.hasMany(db.Message, { as: "sentMessages", foreignKey: "senderId" });
 
 // ADD THIS:
