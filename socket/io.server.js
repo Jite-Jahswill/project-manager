@@ -1,7 +1,7 @@
 // socket/io.server.js
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
-const { User, Role, Message, Participant, Conversation, sequelize } = require("../models");
+const { User, Role, Message, Participant, Conversation, sequelize, Op } = require("../models");
 
 let io;
 
@@ -51,7 +51,7 @@ const initSocket = (httpServer) => {
   io.on("connection", (socket) => {
     console.log(`User ${socket.user.name} connected (ID: ${socket.user.id})`);
 
-    // Join personal room for direct notifications
+    // Join personal room
     socket.join(`user:${socket.user.id}`);
 
     // ──────────────────────────────────
@@ -62,16 +62,13 @@ const initSocket = (httpServer) => {
         const participant = await Participant.findOne({
           where: { conversationId, userId: socket.user.id },
         });
-
         if (!participant) {
           socket.emit("error", { message: "Not authorized to join this conversation" });
           return;
         }
-
         socket.join(`conversation:${conversationId}`);
         console.log(`${socket.user.name} joined conversation:${conversationId}`);
 
-        // Optional: emit current participants
         const participants = await Participant.findAll({
           where: { conversationId },
           include: [{ model: User, attributes: ["id", "firstName", "lastName"] }],
@@ -94,7 +91,7 @@ const initSocket = (httpServer) => {
     });
 
     // ──────────────────────────────────
-    // SEND MESSAGE (Real-time + DB)
+    // SEND MESSAGE
     // ──────────────────────────────────
     socket.on("sendMessage", async ({ conversationId, content, type = "text" }) => {
       if (!hasPermission(socket, "message:create")) {
@@ -104,7 +101,6 @@ const initSocket = (httpServer) => {
 
       const t = await sequelize.transaction();
       try {
-        // Verify participant
         const participant = await Participant.findOne({
           where: { conversationId, userId: socket.user.id },
           transaction: t,
@@ -120,13 +116,12 @@ const initSocket = (httpServer) => {
 
         if (conversation.type === "direct") {
           const other = await Participant.findOne({
-            where: { conversationId, userId: { [sequelize.Op.ne]: socket.user.id } },
+            where: { conversationId, userId: { [Op.ne]: socket.user.id } },
             transaction: t,
           });
           receiverId = other?.userId || null;
         }
 
-        // Create message
         const message = await Message.create({
           conversationId,
           senderId: socket.user.id,
@@ -138,7 +133,6 @@ const initSocket = (httpServer) => {
 
         await t.commit();
 
-        // Populate sender
         const populated = await Message.findByPk(message.id, {
           include: [
             { model: User, as: "sender", attributes: ["id", "firstName", "lastName", "email"] },
@@ -148,10 +142,8 @@ const initSocket = (httpServer) => {
 
         const messageData = populated.toJSON();
 
-        // Broadcast to conversation room
         io.to(`conversation:${conversationId}`).emit("newMessage", messageData);
 
-        // Send push to receiver's personal room if not online in convo
         if (receiverId) {
           io.to(`user:${receiverId}`).emit("newMessageNotification", {
             conversationId,
@@ -177,7 +169,7 @@ const initSocket = (httpServer) => {
     });
 
     // ──────────────────────────────────
-    // MARK MESSAGES AS READ (Client calls this)
+    // MARK MESSAGES AS READ
     // ──────────────────────────────────
     socket.on("markMessagesRead", async ({ conversationId }) => {
       const t = await sequelize.transaction();
@@ -188,7 +180,7 @@ const initSocket = (httpServer) => {
             where: {
               conversationId,
               receiverId: socket.user.id,
-              senderId: { [sequelize.Op.ne]: socket.user.id },
+              senderId: { [Op.ne]: socket.user.id },
               isRead: false,
             },
             transaction: t,
