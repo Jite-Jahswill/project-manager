@@ -165,6 +165,14 @@ db.Report.belongsTo(db.User, { foreignKey: "userId" });
 db.Project.hasMany(db.Report, { foreignKey: "projectId" });
 db.Report.belongsTo(db.Project, { foreignKey: "projectId" });
 
+// Message → User (sender)
+db.Message.belongsTo(db.User, { as: "sender", foreignKey: "senderId" });
+db.User.hasMany(db.Message, { as: "sentMessages", foreignKey: "senderId" });
+
+// ADD THIS:
+db.Message.belongsTo(db.User, { as: "receiver", foreignKey: "receiverId" });
+db.User.hasMany(db.Message, { as: "receivedMessages", foreignKey: "receiverId" });
+
 db.User.hasMany(db.HSEReport, { foreignKey: "reporterId", as: "hseReports" });
 db.User.hasMany(db.HSEReport, { foreignKey: "closedBy", as: "closedHseReports" });
 
