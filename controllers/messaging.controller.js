@@ -1,105 +1,165 @@
-const { Conversation, Message, Participant, User, sequelize } = require("../models");
+// controllers/messaging.controller.js
+const {
+  Conversation,
+  Participant,
+  Message,
+  User,
+  sequelize,
+  Op,
+} = require("../models");
+const { io } = require("../socket/io.server"); // Export io from io.server.js
 
-// 🟢 Create or get direct chat
-exports.startDirectChat = async (req, res) => {
+// Helper: Format conversation with fullName
+const formatConversation = (conv) => {
+  const json = conv.toJSON();
+  json.participants = json.participants.map((u) => ({
+    ...u,
+    fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+  }));
+  return json;
+};
+
+// ────────────────────────────────────────
+// 1. Get or Create Private Chat (1-to-1)
+// ────────────────────────────────────────
+exports.getPrivateChat = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const userId = req.user.id;
     const { recipientId } = req.params;
-    const { name } = req.body;
 
     if (parseInt(userId) === parseInt(recipientId)) {
       await t.rollback();
       return res.status(400).json({ error: "Cannot chat with yourself" });
     }
 
-    // ✅ Check if conversation already exists between both users
+    // Find existing direct conversation
     const existing = await Conversation.findOne({
       where: { type: "direct" },
-      include: [
-        {
-          model: User,
-          as: "participants",
-          attributes: ["id"],
-          through: { attributes: [] },
-          where: { id: [userId, recipientId] },
-        },
-      ],
+      include: [{
+        model: User,
+        as: "participants",
+        attributes: ["id"],
+        through: { attributes: [] },
+        where: { id: { [Op.in]: [userId, recipientId] } },
+      }],
+      group: ['Conversation.id'],
+      having: sequelize.literal(`COUNT(DISTINCT "participants"."id") = 2`),
+      transaction: t,
     });
 
     if (existing) {
       await t.commit();
-      return res.json(existing);
+      const full = await Conversation.findByPk(existing.id, {
+        include: [{
+          model: User,
+          as: "participants",
+          attributes: ["id", "firstName", "lastName", "email"],
+        }],
+      });
+      return res.json(formatConversation(full));
     }
 
-    // ✅ Create conversation (with optional name)
+    // Create new
     const conversation = await Conversation.create(
-      { type: "direct", name: name || null, createdBy: userId },
+      { type: "direct", createdBy: userId },
       { transaction: t }
     );
 
-    await Participant.bulkCreate(
-      [
-        { conversationId: conversation.id, userId },
-        { conversationId: conversation.id, userId: recipientId },
-      ],
-      { transaction: t }
-    );
+    await Participant.bulkCreate([
+      { conversationId: conversation.id, userId },
+      { conversationId: conversation.id, userId: recipientId },
+    ], { transaction: t });
 
     await t.commit();
 
-    const fullConversation = await Conversation.findByPk(conversation.id, {
-      include: [
-        {
-          model: User,
-          as: "participants",
-          attributes: ["id", "firstName", "lastName", "email"],
-        },
-      ],
+    const full = await Conversation.findByPk(conversation.id, {
+      include: [{
+        model: User,
+        as: "participants",
+        attributes: ["id", "firstName", "lastName", "email"],
+      }],
     });
 
-    // ✅ Combine firstName + lastName (if they exist)
-    const formatted = {
-      ...fullConversation.toJSON(),
-      participants: fullConversation.participants.map((u) => ({
-        ...u.toJSON(),
-        fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
-      })),
-    };
-
-    return res.status(201).json(formatted);
+    return res.status(201).json(formatConversation(full));
   } catch (err) {
     await t.rollback();
-    console.error("startDirectChat error:", err);
-    return res.status(500).json({ error: "Failed to start conversation" });
+    console.error("getPrivateChat error:", err);
+    return res.status(500).json({ error: "Failed to get private chat" });
   }
 };
 
+// ────────────────────────────────────────
+// 2. Create Group Chat
+// ────────────────────────────────────────
+exports.createGroupChat = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { name, participantIds } = req.body;
+    const creatorId = req.user.id;
+
+    if (!name || !Array.isArray(participantIds) || participantIds.length < 2) {
+      await t.rollback();
+      return res.status(400).json({ error: "Name and at least 2 participants required" });
+    }
+
+    const allIds = [...new Set([creatorId, ...participantIds])];
+    if (allIds.length < 3) {
+      await t.rollback();
+      return res.status(400).json({ error: "Group must have at least 3 members (including you)" });
+    }
+
+    const conversation = await Conversation.create({
+      type: "group",
+      name,
+      createdBy: creatorId,
+    }, { transaction: t });
+
+    const participants = allIds.map(userId => ({
+      conversationId: conversation.id,
+      userId,
+    }));
+
+    await Participant.bulkCreate(participants, { transaction: t });
+    await t.commit();
+
+    const full = await Conversation.findByPk(conversation.id, {
+      include: [{
+        model: User,
+        as: "participants",
+        attributes: ["id", "firstName", "lastName", "email"],
+      }],
+    });
+
+    // Notify via socket
+    io.to(`user:${creatorId}`).emit("conversationCreated", formatConversation(full));
+
+    return res.status(201).json(formatConversation(full));
+  } catch (err) {
+    await t.rollback();
+    console.error("createGroupChat error:", err);
+    return res.status(500).json({ error: "Failed to create group" });
+  }
+};
+
+// ────────────────────────────────────────
+// 3. Get All Conversations (Private + Group)
+// ────────────────────────────────────────
 exports.getAllConversations = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const conversations = await Conversation.findAll({
-      include: [
-        {
-          model: User,
-          as: "participants",
-          attributes: ["id", "firstName", "lastName", "email"],
-          through: { attributes: [] },
-          where: { id: userId },
-        },
-      ],
+      include: [{
+        model: User,
+        as: "participants",
+        attributes: ["id", "firstName", "lastName", "email"],
+        through: { attributes: [] },
+        where: { id: userId },
+      }],
       order: [["updatedAt", "DESC"]],
     });
 
-    const formatted = conversations.map((conv) => ({
-      ...conv.toJSON(),
-      participants: conv.participants.map((u) => ({
-        ...u.toJSON(),
-        fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
-      })),
-    }));
-
+    const formatted = conversations.map(formatConversation);
     return res.json(formatted);
   } catch (err) {
     console.error("getAllConversations error:", err);
@@ -107,7 +167,9 @@ exports.getAllConversations = async (req, res) => {
   }
 };
 
-// 🟠 Send message
+// ────────────────────────────────────────
+// 4. Send Message
+// ────────────────────────────────────────
 exports.sendMessage = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -153,13 +215,20 @@ exports.sendMessage = async (req, res) => {
       ],
     });
 
-    // Emit via socket
-    io.to(`conversation:${conversationId}`).emit("newMessage", {
-      ...populated.toJSON(),
-      isRead: false,
-    });
+    const msgData = populated.toJSON();
 
-    return res.status(201).json(populated);
+    // Emit to room
+    io.to(`conversation:${conversationId}`).emit("newMessage", msgData);
+
+    // Push to receiver
+    if (receiverId) {
+      io.to(`user:${receiverId}`).emit("newMessageNotification", {
+        conversationId,
+        message: msgData,
+      });
+    }
+
+    return res.status(201).json(msgData);
   } catch (err) {
     await t.rollback();
     console.error("sendMessage error:", err);
@@ -167,7 +236,9 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// 🟡 Get all messages in a conversation
+// ────────────────────────────────────────
+// 5. Get Messages + Mark as Read
+// ────────────────────────────────────────
 exports.getAllMessages = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -180,10 +251,10 @@ exports.getAllMessages = async (req, res) => {
     });
     if (!participant) {
       await t.rollback();
-      return res.status(403).json({ error: "You are not part of this conversation" });
+      return res.status(403).json({ error: "Not in conversation" });
     }
 
-    // Mark unread messages as read (exclude own messages)
+    // Mark as read
     await Message.update(
       { isRead: true },
       {
@@ -210,10 +281,16 @@ exports.getAllMessages = async (req, res) => {
     await t.commit();
 
     // Emit read receipt
-    io.to(`conversation:${conversationId}`).emit("messagesRead", {
-      userId,
-      messageIds: messages.filter(m => m.receiverId === userId && m.senderId !== userId).map(m => m.id),
-    });
+    const readIds = messages
+      .filter(m => m.receiverId === userId && m.senderId !== userId && m.isRead)
+      .map(m => m.id);
+
+    if (readIds.length > 0) {
+      io.to(`conversation:${conversationId}`).emit("messagesRead", {
+        userId,
+        messageIds: readIds,
+      });
+    }
 
     return res.json(messages);
   } catch (err) {
@@ -223,7 +300,9 @@ exports.getAllMessages = async (req, res) => {
   }
 };
 
-// 🟢 Edit message
+// ────────────────────────────────────────
+// 6. Edit Message
+// ────────────────────────────────────────
 exports.editMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
@@ -231,57 +310,50 @@ exports.editMessage = async (req, res) => {
     const userId = req.user.id;
 
     const message = await Message.findByPk(messageId);
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    if (message.senderId !== userId) return res.status(403).json({ error: "Not your message" });
 
-    if (!message)
-      return res.status(404).json({ error: "Message not found" });
+    await message.update({ content, isEdited: true });
 
-    req.body._previousData = message.toJSON();
-
-    if (message.senderId !== userId)
-      return res.status(403).json({ error: "You can only edit your messages" });
-
-    message.content = content || message.content;
-    message.isEdited = true;
-    await message.save();
-
-    return res.json({
-      message: "Message updated successfully",
-      data: message,
+    io.to(`conversation:${message.conversationId}`).emit("messageUpdated", {
+      messageId,
+      content,
+      isEdited: true,
     });
+
+    return res.json({ message: "Message updated", data: message });
   } catch (err) {
     console.error("editMessage error:", err);
     return res.status(500).json({ error: "Failed to edit message" });
   }
 };
 
-// 🔴 Delete message (soft delete)
+// ────────────────────────────────────────
+// 7. Delete Message (Soft)
+// ────────────────────────────────────────
 exports.deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const userId = req.user.id;
-    if (!req.body) req.body = {};
 
     const message = await Message.findByPk(messageId);
-    if (!message)
-      return res.status(404).json({ error: "Message not found" });
+    if (!message) return res.status(404).json({ error: "Message not found" });
+    if (message.senderId !== userId) return res.status(403).json({ error: "Not your message" });
 
-    req.body._deletedData = message.toJSON();
+    await message.update({ isDeleted: true, content: null });
 
-    if (message.senderId !== userId)
-      return res.status(403).json({ error: "You can only delete your messages" });
+    io.to(`conversation:${message.conversationId}`).emit("messageDeleted", { messageId });
 
-    message.isDeleted = true;
-    message.content = null; // optional – to hide content
-    await message.save();
-
-    return res.json({ message: "Message deleted successfully" });
+    return res.json({ message: "Message deleted" });
   } catch (err) {
     console.error("deleteMessage error:", err);
     return res.status(500).json({ error: "Failed to delete message" });
   }
 };
 
-// 🔵 Add participant to group
+// ────────────────────────────────────────
+// 8. Add Member to Group
+// ────────────────────────────────────────
 exports.addGroupMember = async (req, res) => {
   try {
     const { conversationId } = req.params;
@@ -289,36 +361,40 @@ exports.addGroupMember = async (req, res) => {
 
     const conversation = await Conversation.findByPk(conversationId);
     if (!conversation || conversation.type !== "group")
-      return res.status(400).json({ error: "Not a group conversation" });
+      return res.status(400).json({ error: "Not a group" });
 
     const exists = await Participant.findOne({ where: { conversationId, userId } });
-    if (exists)
-      return res.status(400).json({ error: "User already in group" });
+    if (exists) return res.status(400).json({ error: "User already in group" });
 
     await Participant.create({ conversationId, userId });
-    return res.status(200).json({ message: "User added to group" });
+
+    io.to(`conversation:${conversationId}`).emit("participantAdded", { userId });
+
+    return res.json({ message: "Member added" });
   } catch (err) {
     console.error("addGroupMember error:", err);
     return res.status(500).json({ error: "Failed to add member" });
   }
 };
 
-// 🔴 Leave conversation
+// ────────────────────────────────────────
+// 9. Leave Conversation
+// ────────────────────────────────────────
 exports.leaveConversation = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.id;
 
     const participant = await Participant.findOne({ where: { conversationId, userId } });
-    if (!participant)
-      return res.status(404).json({ error: "Not in conversation" });
-
-    req.body._deletedData = participant.toJSON();
+    if (!participant) return res.status(404).json({ error: "Not in conversation" });
 
     await participant.destroy();
-    return res.status(200).json({ message: "Left conversation successfully" });
+
+    io.to(`conversation:${conversationId}`).emit("participantRemoved", { userId });
+
+    return res.json({ message: "Left conversation" });
   } catch (err) {
     console.error("leaveConversation error:", err);
-    return res.status(500).json({ error: "Failed to leave conversation" });
+    return res.status(500).json({ error: "Failed to leave" });
   }
 };
