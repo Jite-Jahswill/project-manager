@@ -7,14 +7,14 @@ module.exports = (sequelize, DataTypes) => {
     createdBy: { type: DataTypes.INTEGER, allowNull: true },
   });
 
-  Conversation.associate = (models) => {
-    Conversation.belongsToMany(models.User, {
-      through: models.Participant,
-      foreignKey: "conversationId",
-      as: "participants",
-    });
-    Conversation.hasMany(models.Message, { foreignKey: "conversationId", as: "messages" });
-  };
+  // Conversation.associate = (models) => {
+  //   Conversation.belongsToMany(models.User, {
+  //     through: models.Participant,
+  //     foreignKey: "conversationId",
+  //     as: "participants",
+  //   });
+  //   Conversation.hasMany(models.Message, { foreignKey: "conversationId", as: "messages" });
+  // };
 
   return Conversation;
 };
