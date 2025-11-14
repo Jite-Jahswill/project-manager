@@ -31,9 +31,22 @@ exports.getOrCreatePrivateChat = async (req, res) => {
       return res.status(400).json({ message: "You cannot chat with yourself" });
     }
 
-    // ============================================================
-    // 1️⃣ FIND EXISTING PRIVATE CHAT
-    // ============================================================
+    // ============================================
+    // 0️⃣ VALIDATE BOTH USERS EXIST
+    // ============================================
+    const usersExist = await User.findAll({
+      where: { id: { [Op.in]: [currentUserId, recipientId] } }
+    });
+
+    if (usersExist.length !== 2) {
+      return res.status(400).json({
+        message: "One or both users do not exist"
+      });
+    }
+
+    // ============================================
+    // 1️⃣ FIND EXISTING CONVERSATION
+    // ============================================
     const matchedConversations = await Participant.findAll({
       where: {
         userId: { [Op.in]: [currentUserId, recipientId] }
@@ -43,12 +56,10 @@ exports.getOrCreatePrivateChat = async (req, res) => {
       having: sequelize.literal("COUNT(DISTINCT userId) = 2")
     });
 
-    let conversation;
-
     if (matchedConversations.length > 0) {
       const convoId = matchedConversations[0].conversationId;
 
-      conversation = await Conversation.findByPk(convoId, {
+      const conversation = await Conversation.findByPk(convoId, {
         include: [
           {
             model: User,
@@ -70,9 +81,9 @@ exports.getOrCreatePrivateChat = async (req, res) => {
       });
     }
 
-    // ============================================================
-    // 2️⃣ CREATE NEW PRIVATE CHAT
-    // ============================================================
+    // ============================================
+    // 2️⃣ CREATE NEW CONVERSATION
+    // ============================================
     const newConversation = await Conversation.create({
       type: "direct"
     });
