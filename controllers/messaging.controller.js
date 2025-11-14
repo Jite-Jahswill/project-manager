@@ -31,16 +31,21 @@ exports.getOrCreatePrivateChat = async (req, res) => {
     // Find existing direct chat
     const existing = await Conversation.findOne({
       where: { type: "direct" },
-      include: [{
-        model: User,
-        as: "participants",
-        where: { id: { [Op.in]: [currentUserId, recipientId] } },
-        through: { attributes: [] },
-      }],
+      include: [
+        {
+          model: User,
+          as: "participants",
+          attributes: ["id"],
+          through: { attributes: [] },
+          where: {
+            id: { [Op.in]: [currentUserId, recipientId] }
+          }
+        }
+      ],
       group: ["Conversation.id"],
-      having: sequelize.literal(`COUNT(DISTINCT "participants"."id") = 2`),
-      transaction: t,
+      having: sequelize.literal(`COUNT(participants.id) = 2`)
     });
+
 
     if (existing) {
       const convo = await Conversation.findByPk(existing.id, {
