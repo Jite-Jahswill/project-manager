@@ -11,20 +11,6 @@ const formatUser = (u) => ({
   fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
 });
 
-// 1️⃣ Get chat history between two users & mark as read
-// controllers/directChat.controller.js
-const { DirectChat, User, sequelize } = require("../models");
-const { Op } = require("sequelize");
-
-// Helper to format user info
-const formatUser = (u) => ({
-  id: u.id,
-  firstName: u.firstName,
-  lastName: u.lastName,
-  email: u.email,
-  fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
-});
-
 // Get full chat history between two users
 exports.getChatHistory = async (req, res) => {
   const t = await sequelize.transaction();
