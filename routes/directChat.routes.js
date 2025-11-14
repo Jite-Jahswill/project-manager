@@ -60,10 +60,16 @@ module.exports = (app) => {
    * @swagger
    * /api/direct-chat/{user1}/{user2}:
    *   get:
-   *     summary: Get chat history between two users
+   *     summary: Get chat history between two users + auto mark as read
    *     description: |
-   *       Fetches all messages between `user1` and `user2` (order doesn't matter).
-   *       Automatically marks **unread messages** for the **logged-in user** as read.
+   *       Fetches **all messages** exchanged between `user1` and `user2` (in any direction).
+   *       
+   *       **Security**: Only allowed if the **logged-in user** is **one of the two participants**.
+   *       - If not → returns `403 Forbidden`.
+   *       
+   *       **Read Receipts**: Automatically marks **unread messages sent to the logged-in user** as `isRead: true`.
+   *       
+   *       **Response**: Clean, formatted message list with full sender/receiver info.
    *     tags: [Direct Chat]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -72,23 +78,73 @@ module.exports = (app) => {
    *         required: true
    *         schema: { type: integer }
    *         example: 1
+   *         description: User ID of first participant
    *       - in: path
    *         name: user2
    *         required: true
    *         schema: { type: integer }
    *         example: 5
+   *         description: User ID of second participant
    *     responses:
    *       200:
-   *         description: Chat history
+   *         description: Chat history retrieved successfully
    *         content:
    *           application/json:
    *             schema:
    *               type: array
-   *               items: { $ref: '#/components/schemas/DirectMessage' }
+   *               items:
+   *                 type: object
+   *                 properties:
+   *                   id: { type: integer, example: 101 }
+   *                   content: { type: string, nullable: true, example: "Hey! How's it going?" }
+   *                   type: { type: string, enum: [text, image, file], example: "text" }
+   *                   isRead: { type: boolean, example: true }
+   *                   isEdited: { type: boolean, example: false }
+   *                   isDeleted: { type: boolean, example: false }
+   *                   createdAt: { type: string, format: date-time }
+   *                   updatedAt: { type: string, format: date-time }
+   *                   sender: { $ref: '#/components/schemas/UserSummary' }
+   *                   receiver: { $ref: '#/components/schemas/UserSummary' }
+   *             example:
+   *               - id: 101
+   *                 content: "Hello!"
+   *                 type: "text"
+   *                 isRead: true
+   *                 isEdited: false
+   *                 isDeleted: false
+   *                 createdAt: "2025-04-05T10:00:00Z"
+   *                 updatedAt: "2025-04-05T10:00:00Z"
+   *                 sender:
+   *                   id: 1
+   *                   firstName: "John"
+   *                   lastName: "Doe"
+   *                   email: "john@company.com"
+   *                   fullName: "John Doe"
+   *                 receiver:
+   *                   id: 5
+   *                   firstName: "Jane"
+   *                   lastName: "Smith"
+   *                   email: "jane@company.com"
+   *                   fullName: "Jane Smith"
+   *       403:
+   *         description: Forbidden — you are not part of this conversation
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error: { type: string, example: "You are not part of this conversation" }
    *       401:
-   *         description: Unauthorized
+   *         description: Unauthorized — invalid or missing token
    *       500:
    *         description: Server error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error: { type: string }
+   *                 details: { type: string }
    */
   router.get(
     "/:user1/:user2",
