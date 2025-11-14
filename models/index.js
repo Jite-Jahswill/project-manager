@@ -29,6 +29,7 @@ db.Message = require("./message.model")(sequelize, DataTypes);
 db.MessageRecipient = require("./messageRecipient.model")(sequelize, DataTypes);
 db.Participant = require("./participant.model")(sequelize, DataTypes);
 db.HseDocument = require("./hseDocument.model")(sequelize, DataTypes);
+db.directChat = require("./directChat.model")(sequelize, DataTypes);
 db.Audit = require("./audit.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
