@@ -18,68 +18,93 @@ const formatUser = (u) => ({
 });
 
 // 1. GET OR CREATE PRIVATE CHAT (Click user → open chat)
-exports.getOrCreatePrivateChat = async (req, res) => {
-  const t = await sequelize.transaction();
+exports.createOrGetConversation = async (req, res) => {
   try {
     const currentUserId = req.user.id;
-    const { recipientId } = req.params;
+    const { recipientId } = req.body;
 
-    if (parseInt(currentUserId) === parseInt(recipientId)) {
-      return res.status(400).json({ error: "Cannot chat with yourself" });
+    if (!recipientId) {
+      return res.status(400).json({ message: "recipientId is required" });
     }
 
-    // Find existing direct chat
-    const existing = await Conversation.findOne({
-      where: { type: "direct" },
+    if (recipientId === currentUserId) {
+      return res.status(400).json({ message: "You cannot chat with yourself" });
+    }
+
+    // ============================================================
+    // 1️⃣ FIND ANY EXISTING PRIVATE CHAT BETWEEN THESE TWO USERS
+    // ============================================================
+    const matchedConversations = await Participant.findAll({
+      where: {
+        userId: { [Op.in]: [currentUserId, recipientId] }
+      },
+      attributes: ["conversationId"],
+      group: ["conversationId"],
+      having: sequelize.literal("COUNT(DISTINCT userId) = 2")
+    });
+
+    let conversation;
+
+    if (matchedConversations.length > 0) {
+      const convoId = matchedConversations[0].conversationId;
+
+      conversation = await Conversation.findByPk(convoId, {
+        include: [
+          {
+            model: User,
+            as: "participants",
+            attributes: ["id", "firstName", "lastName", "email"],
+            through: { attributes: [] }
+          },
+          {
+            model: Message,
+            as: "messages",
+            order: [["createdAt", "ASC"]]
+          }
+        ]
+      });
+
+      return res.status(200).json({
+        message: "Existing conversation found",
+        conversation
+      });
+    }
+
+    // ============================================================
+    // 2️⃣ NO CONVO FOUND — CREATE NEW PRIVATE CHAT
+    // ============================================================
+
+    const newConversation = await Conversation.create({
+      type: "direct"
+    });
+
+    await Participant.bulkCreate([
+      { userId: currentUserId, conversationId: newConversation.id },
+      { userId: recipientId, conversationId: newConversation.id }
+    ]);
+
+    const createdConversation = await Conversation.findByPk(newConversation.id, {
       include: [
         {
           model: User,
           as: "participants",
-          attributes: ["id"],
-          through: { attributes: [] },
-          where: {
-            id: { [Op.in]: [currentUserId, recipientId] }
-          }
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] }
         }
-      ],
-      group: ["Conversation.id"],
-      having: sequelize.literal(`COUNT(participants.id) = 2`)
-    });
-
-
-    if (existing) {
-      const convo = await Conversation.findByPk(existing.id, {
-        include: [{ model: User, as: "participants", attributes: ["id", "firstName", "lastName", "email"] }],
-        transaction: t,
-      });
-      await t.commit();
-      return res.json({
-        ...convo.toJSON(),
-        participants: convo.participants.map(formatUser),
-      });
-    }
-
-    // Create new private chat
-    const convo = await Conversation.create({ type: "direct", createdBy: currentUserId }, { transaction: t });
-    await Participant.bulkCreate([
-      { conversationId: convo.id, userId: currentUserId },
-      { conversationId: convo.id, userId: recipientId },
-    ], { transaction: t });
-
-    await t.commit();
-
-    const full = await Conversation.findByPk(convo.id, {
-      include: [{ model: User, as: "participants", attributes: ["id", "firstName", "lastName", "email"] }],
+      ]
     });
 
     return res.status(201).json({
-      ...full.toJSON(),
-      participants: full.participants.map(formatUser),
+      message: "New conversation created",
+      conversation: createdConversation
     });
-  } catch (err) {
-    await t.rollback();
-    console.error(err);
-    res.status(500).json({ error: "Failed to open chat" });
+
+  } catch (error) {
+    console.error("createOrGetConversation error:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message
+    });
   }
 };
 
