@@ -120,7 +120,7 @@ module.exports = (app) => {
   router.post(
     "/",
     verifyToken,
-    hasPermission("hsedocument:create"),
+    // hasPermission("hsedocument:create"),
     upload,
     uploadToFirebase,
     hseDocumentController.createDocument
