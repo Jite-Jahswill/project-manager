@@ -21,7 +21,7 @@ const formatUser = (u) => ({
 exports.getOrCreatePrivateChat = async (req, res) => {
   try {
     const currentUserId = req.user.id;
-    const { recipientId } = req.body;
+    const recipientId = parseInt(req.params.recipientId);
 
     if (!recipientId) {
       return res.status(400).json({ message: "recipientId is required" });
@@ -32,7 +32,7 @@ exports.getOrCreatePrivateChat = async (req, res) => {
     }
 
     // ============================================================
-    // 1️⃣ FIND ANY EXISTING PRIVATE CHAT BETWEEN THESE TWO USERS
+    // 1️⃣ FIND EXISTING PRIVATE CHAT
     // ============================================================
     const matchedConversations = await Participant.findAll({
       where: {
@@ -71,9 +71,8 @@ exports.getOrCreatePrivateChat = async (req, res) => {
     }
 
     // ============================================================
-    // 2️⃣ NO CONVO FOUND — CREATE NEW PRIVATE CHAT
+    // 2️⃣ CREATE NEW PRIVATE CHAT
     // ============================================================
-
     const newConversation = await Conversation.create({
       type: "direct"
     });
@@ -100,7 +99,7 @@ exports.getOrCreatePrivateChat = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("createOrGetConversation error:", error);
+    console.error("getOrCreatePrivateChat error:", error);
     return res.status(500).json({
       message: "Internal server error",
       error: error.message
