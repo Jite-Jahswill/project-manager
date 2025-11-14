@@ -12,11 +12,33 @@ const formatUser = (u) => ({
 });
 
 // 1️⃣ Get chat history between two users & mark as read
+// controllers/directChat.controller.js
+const { DirectChat, User, sequelize } = require("../models");
+const { Op } = require("sequelize");
+
+// Helper to format user info
+const formatUser = (u) => ({
+  id: u.id,
+  firstName: u.firstName,
+  lastName: u.lastName,
+  email: u.email,
+  fullName: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+});
+
+// Get full chat history between two users
 exports.getChatHistory = async (req, res) => {
   const t = await sequelize.transaction();
   try {
+    const requestingUserId = req.user.id;
     const { user1, user2 } = req.params;
 
+    // Ensure the requesting user is part of this conversation
+    if (![parseInt(user1), parseInt(user2)].includes(requestingUserId)) {
+      await t.rollback();
+      return res.status(403).json({ error: "You are not part of this conversation" });
+    }
+
+    // Fetch all messages between the two users (both directions)
     const messages = await DirectChat.findAll({
       where: {
         [Op.or]: [
@@ -36,16 +58,35 @@ exports.getChatHistory = async (req, res) => {
     await DirectChat.update(
       { isRead: true },
       {
-        where: { receiverId: req.user.id, isRead: false, senderId: { [Op.in]: [user1, user2] } },
+        where: {
+          receiverId: requestingUserId,
+          senderId: { [Op.in]: [user1, user2] },
+          isRead: false,
+        },
         transaction: t,
       }
     );
 
     await t.commit();
-    res.json(messages);
+
+    // Format response: optional, you can include user info neatly
+    const formatted = messages.map((m) => ({
+      id: m.id,
+      content: m.content,
+      type: m.type,
+      isRead: m.isRead,
+      isEdited: m.isEdited,
+      isDeleted: m.isDeleted,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+      sender: formatUser(m.sender),
+      receiver: formatUser(m.receiver),
+    }));
+
+    res.status(200).json(formatted);
   } catch (err) {
     await t.rollback();
-    console.error(err);
+    console.error("getChatHistory error:", err);
     res.status(500).json({ error: "Failed to fetch chat history", details: err.message });
   }
 };
