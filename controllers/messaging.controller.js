@@ -18,7 +18,7 @@ const formatUser = (u) => ({
 });
 
 // 1. GET OR CREATE PRIVATE CHAT (Click user → open chat)
-exports.createOrGetConversation = async (req, res) => {
+exports.getOrCreatePrivateChat = async (req, res) => {
   try {
     const currentUserId = req.user.id;
     const { recipientId } = req.body;
