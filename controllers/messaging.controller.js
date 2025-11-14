@@ -7,6 +7,7 @@ const {
   sequelize,
   Op,
 } = require("../models");
+const { Op } = require("sequelize");
 
 // Helper
 const formatUser = (u) => ({
