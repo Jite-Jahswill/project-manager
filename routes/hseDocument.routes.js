@@ -58,18 +58,17 @@ module.exports = (app) => {
    *         updatedAt: { type: string, format: date-time }
    */
 
-  // ===================================================================
-  // CREATE / UPLOAD HSE DOCUMENTS (Multiple files allowed)
-  // ===================================================================
+// CREATE / UPLOAD HSE DOCUMENTS
   /**
    * @swagger
    * /api/hse/documents:
    *   post:
    *     summary: Upload one or more HSE documents
    *     description: |
-   *       Upload files (images, PDFs, videos, etc.) to Firebase Storage.
-   *       Files are automatically made public and saved with metadata.
-   *       Optional: link to an existing HSE report using `reportId`.
+   *       Upload files to Firebase Storage. You can customize the display name using the `name` field.
+   *       - If `name` is not provided → uses original filename
+   *       - If `name` is provided → overrides filename (e.g., for better titles)
+   *       - Optional: attach to HSE report via `reportId`
    *     tags: [HSE Documents]
    *     security: [bearerAuth: []]
    *     requestBody:
@@ -78,27 +77,35 @@ module.exports = (app) => {
    *         multipart/form-data:
    *           schema:
    *             type: object
+   *             required:
+   *               - files
    *             properties:
    *               files:
    *                 type: array
    *                 items:
    *                   type: string
    *                   format: binary
-   *                 description: One or more files (max 10, 10MB each)
+   *                 description: One or more files (max 10 files, 10MB each)
+   *               name:
+   *                 type: string
+   *                 example: "Incident Photo - Wet Floor Area"
+   *                 description: |
+   *                   Custom display name for the document.
+   *                   If omitted, original filename is used.
    *               reportId:
    *                 type: string
    *                 nullable: true
    *                 example: "4"
-   *                 description: Optional — attach uploaded files to this HSE report
+   *                 description: Optional — link all uploaded files to this HSE report
    *     responses:
    *       201:
-   *         description: Files uploaded successfully
+   *         description: Uploaded successfully
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 message: { type: string }
+   *                 message: { type: string, example: "Documents uploaded successfully" }
    *                 documents:
    *                   type: array
    *                   items:
@@ -114,11 +121,10 @@ module.exports = (app) => {
     "/",
     verifyToken,
     hasPermission("hsedocument:create"),
-    upload,           // multer → req.files
-    uploadToFirebase, // → req.uploadedFiles
+    upload,
+    uploadToFirebase,
     hseDocumentController.createDocument
   );
-
   // ===================================================================
   // GET ALL DOCUMENTS (with filters)
   // ===================================================================
