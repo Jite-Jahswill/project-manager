@@ -1,3 +1,4 @@
+// routes/hse.routes.js
 const express = require("express");
 const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
@@ -10,7 +11,7 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: HSE Documents
-   *     description: Manage uploaded HSE files (images, PDFs, etc.) and link them to reports
+   *     description: Upload & manage HSE files (photos, PDFs, videos) with Firebase Storage
    *
    * components:
    *   securitySchemes:
@@ -23,202 +24,144 @@ module.exports = (app) => {
    *     UserSummary:
    *       type: object
    *       properties:
-   *         id:
-   *           type: integer
-   *           example: 1
-   *         firstName:
-   *           type: string
-   *           example: "John"
-   *         lastName:
-   *           type: string
-   *           example: "Doe"
-   *         email:
-   *           type: string
-   *           example: "john.doe@company.com"
+   *         id: { type: integer, example: 1 }
+   *         firstName: { type: string, example: "John" }
+   *         lastName: { type: string, example: "Doe" }
+   *         email: { type: string, example: "john.doe@company.com" }
    *
    *     HSEReportSummary:
    *       type: object
    *       properties:
-   *         id:
-   *           type: integer
-   *           example: 4
-   *         title:
-   *           type: string
-   *           example: "Near Miss - Slip Hazard"
-   *         status:
-   *           type: string
-   *           enum: [open, pending, closed]
-   *           example: "open"
+   *         id: { type: integer, example: 4 }
+   *         title: { type: string, example: "Near Miss - Slip Hazard" }
+   *         status: { type: string, enum: [open, pending, closed], example: "open" }
    *
    *     HseDocument:
    *       type: object
    *       properties:
-   *         id:
-   *           type: integer
-   *           example: 5
-   *         name:
-   *           type: string
-   *           example: "Incident Photo - Wet Floor"
+   *         id: { type: integer, example: 12 }
+   *         name: { type: string, example: "Wet Floor Incident Photo.jpg" }
    *         firebaseUrls:
    *           type: array
-   *           items:
-   *             type: string
-   *           example: ["https://storage.googleapis.com/.../photo1.jpg"]
-   *         type:
-   *           type: string
-   *           example: "image/jpeg"
-   *         size:
-   *           type: integer
-   *           example: 245760
-   *         uploadedBy:
-   *           type: integer
-   *           example: 1
-   *         reportId:
-   *           type: integer
-   *           nullable: true
-   *           example: 4
+   *           items: { type: string }
+   *           example: ["https://storage.googleapis.com/your-bucket/uploads/files-1699012345678.jpg"]
+   *         type: { type: string, example: "image/jpeg" }
+   *         size: { type: integer, example: 348921 }
+   *         uploadedBy: { type: integer, example: 1 }
+   *         reportId: { type: integer, nullable: true, example: 4 }
    *         uploader:
    *           $ref: '#/components/schemas/UserSummary'
    *         report:
    *           $ref: '#/components/schemas/HSEReportSummary'
    *           nullable: true
-   *         createdAt:
-   *           type: string
-   *           format: date-time
-   *         updatedAt:
-   *           type: string
-   *           format: date-time
+   *         createdAt: { type: string, format: date-time }
+   *         updatedAt: { type: string, format: date-time }
    */
 
+  // ===================================================================
+  // CREATE / UPLOAD HSE DOCUMENTS (Multiple files allowed)
+  // ===================================================================
   /**
    * @swagger
    * /api/hse/documents:
    *   post:
-   *     summary: Upload a new HSE document
+   *     summary: Upload one or more HSE documents
    *     description: |
-   *       Creates a standalone HSE document. Can be linked to a report later via `reportId` or `update`.
-   *       Use this when uploading files **without** creating a report.
+   *       Upload files (images, PDFs, videos, etc.) to Firebase Storage.
+   *       Files are automatically made public and saved with metadata.
+   *       Optional: link to an existing HSE report using `reportId`.
    *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
+   *     security: [bearerAuth: []]
    *     requestBody:
    *       required: true
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
-   *             required:
-   *               - name
-   *               - firebaseUrls
-   *               - type
-   *               - size
    *             properties:
-   *               name:
-   *                 type: string
-   *                 example: "Safety Incident Photo"
-   *               firebaseUrls:
+   *               files:
    *                 type: array
    *                 items:
    *                   type: string
-   *                 example: ["https://storage.googleapis.com/.../photo1.jpg"]
-   *               type:
-   *                 type: string
-   *                 example: "image/jpeg"
-   *               size:
-   *                 type: integer
-   *                 example: 245000
+   *                   format: binary
+   *                 description: One or more files (max 10, 10MB each)
    *               reportId:
-   *                 type: integer
+   *                 type: string
    *                 nullable: true
-   *                 example: 4
-   *                 description: Optional. Link to existing HSE report
+   *                 example: "4"
+   *                 description: Optional — attach uploaded files to this HSE report
    *     responses:
    *       201:
-   *         description: Document created successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/HseDocument'
-   *       400:
-   *         description: Missing required fields
+   *         description: Files uploaded successfully
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Missing required fields"
+   *                 message: { type: string }
+   *                 documents:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/HseDocument'
+   *       400:
+   *         description: No files uploaded
    *       401:
    *         description: Unauthorized
    *       500:
-   *         description: Server error
+   *         description: Upload failed
    */
-  router.post("/", verifyToken, hasPermission("hsedocument:create"), upload, uploadToFirebase, hseDocumentController.createDocument);
+  router.post(
+    "/",
+    verifyToken,
+    hasPermission("hsedocument:create"),
+    upload,           // multer → req.files
+    uploadToFirebase, // → req.uploadedFiles
+    hseDocumentController.createDocument
+  );
 
+  // ===================================================================
+  // GET ALL DOCUMENTS (with filters)
+  // ===================================================================
   /**
    * @swagger
    * /api/hse/documents:
    *   get:
-   *     summary: Get all HSE documents
+   *     summary: List all HSE documents
    *     description: |
-   *       Retrieve paginated list of documents with optional filters.
-   *       - Use `reportId=null` to get **unattached** documents
-   *       - Use `reportId=5` to get **documents for report #5**
+   *       Supports search, filtering by type/report/date, and pagination.
+   *       Use `reportId=null` to get unattached documents.
    *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: query
    *         name: search
-   *         schema:
-   *           type: string
-   *         description: Search by document name (partial match)
-   *         example: "fire"
+   *         schema: { type: string }
+   *         description: Search in filename
    *       - in: query
    *         name: type
-   *         schema:
-   *           type: string
-   *         description: Filter by MIME type
-   *         example: "image/jpeg"
+   *         schema: { type: string }
+   *         description: Filter by MIME type (e.g., image/jpeg)
    *       - in: query
    *         name: reportId
-   *         schema:
-   *           type: string
-   *         description: Filter by report ID. Use `null` for unattached.
-   *         example: "null"
+   *         schema: { type: string }
+   *         description: Filter by report ID or use "null" for unattached
    *       - in: query
    *         name: startDate
-   *         schema:
-   *           type: string
-   *           format: date
-   *         description: Filter by upload date (inclusive)
-   *         example: "2025-11-01"
+   *         schema: { type: string, format: date }
+   *         example: 2025-11-01
    *       - in: query
    *         name: endDate
-   *         schema:
-   *           type: string
-   *           format: date
-   *         description: Filter by upload date (inclusive)
-   *         example: "2025-11-03"
+   *         schema: { type: string, format: date }
+   *         example: 2025-11-30
    *       - in: query
    *         name: page
-   *         schema:
-   *           type: integer
-   *           minimum: 1
-   *           default: 1
-   *         example: 1
+   *         schema: { type: integer, default: 1 }
    *       - in: query
    *         name: limit
-   *         schema:
-   *           type: integer
-   *           minimum: 1
-   *           maximum: 100
-   *           default: 20
-   *         example: 20
+   *         schema: { type: integer, default: 20, maximum: 100 }
    *     responses:
    *       200:
-   *         description: Paginated list of documents
+   *         description: Paginated list
    *         content:
    *           application/json:
    *             schema:
@@ -226,155 +169,135 @@ module.exports = (app) => {
    *               properties:
    *                 documents:
    *                   type: array
-   *                   items:
-   *                     $ref: '#/components/schemas/HseDocument'
+   *                   items: { $ref: '#/components/schemas/HseDocument' }
    *                 pagination:
    *                   type: object
    *                   properties:
-   *                     totalItems:
-   *                       type: integer
-   *                     currentPage:
-   *                       type: integer
-   *                     totalPages:
-   *                       type: integer
-   *                     itemsPerPage:
-   *                       type: integer
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *                     totalItems: { type: integer }
+   *                     currentPage: { type: integer }
+   *                     totalPages: { type: integer }
+   *                     itemsPerPage: { type: integer }
    */
-  router.get("/", verifyToken, hasPermission("hsedocument:read"), hseDocumentController.getAllDocuments);
+  router.get(
+    "/",
+    verifyToken,
+    hasPermission("hsedocument:read"),
+    hseDocumentController.getAllDocuments
+  );
 
+  // ===================================================================
+  // GET SINGLE DOCUMENT
+  // ===================================================================
   /**
    * @swagger
    * /api/hse/documents/{id}:
    *   get:
-   *     summary: Get a single HSE document
-   *     description: Retrieve full details of a document including uploader and linked report.
+   *     summary: Get document by ID
    *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
-   *         schema:
-   *           type: integer
-   *         example: 5
-   *         description: Document ID
+   *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Document retrieved
+   *         description: Document details
    *         content:
    *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/HseDocument'
+   *             schema: { $ref: '#/components/schemas/HseDocument' }
    *       404:
-   *         description: Document not found
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *         description: Not found
    */
-  router.get("/:id", verifyToken, hasPermission("hsedocument:read"), hseDocumentController.getDocumentById);
+  router.get(
+    "/:id",
+    verifyToken,
+    hasPermission("hsedocument:read"),
+    hseDocumentController.getDocumentById
+  );
 
+  // ===================================================================
+  // UPDATE DOCUMENT (Metadata + optional file replacement)
+  // ===================================================================
   /**
    * @swagger
    * /api/hse/documents/{id}:
    *   put:
-   *     summary: Update an HSE document
+   *     summary: Update document metadata or replace file
    *     description: |
-   *       Update metadata, URLs, or link to a different report.
-   *       - Use `reportId: null` to **detach** from current report
-   *       - Use `reportId: 10` to **attach** to a new report
+   *       - Update name, link to different report, or replace the file.
+   *       - Old file in Firebase is automatically deleted.
    *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
-   *         schema:
-   *           type: integer
-   *         example: 3
+   *         schema: { type: integer }
    *     requestBody:
-   *       required: true
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
    *             properties:
    *               name:
    *                 type: string
-   *                 example: "Updated Incident Screenshot"
-   *               firebaseUrls:
+   *                 example: "Corrected Incident Photo"
+   *               reportId:
+   *                 type: string
+   *                 nullable: true
+   *                 example: "null"
+   *                 description: Set to "null" to detach from report
+   *               files:
    *                 type: array
    *                 items:
    *                   type: string
-   *                 example: ["https://storage.googleapis.com/.../newphoto.png"]
-   *               type:
-   *                 type: string
-   *                 example: "image/png"
-   *               size:
-   *                 type: integer
-   *                 example: 312000
-   *               reportId:
-   *                 type: integer
-   *                 nullable: true
-   *                 example: 10
-   *                 description: Change or remove report link
+   *                   format: binary
+   *                 description: Optional — upload new file to replace old one
    *     responses:
    *       200:
    *         description: Document updated
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/HseDocument'
    *       404:
    *         description: Document not found
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
    */
-  router.put("/:id", verifyToken, hasPermission("hsedocument:update"), upload, uploadToFirebase, hseDocumentController.updateDocument);
+  router.put(
+    "/:id",
+    verifyToken,
+    hasPermission("hsedocument:update"),
+    upload,           // optional new file
+    uploadToFirebase,
+    hseDocumentController.updateDocument
+  );
 
+  // ===================================================================
+  // DELETE DOCUMENT
+  // ===================================================================
   /**
    * @swagger
    * /api/hse/documents/{id}:
    *   delete:
-   *     summary: Delete an HSE document
-   *     description: Permanently removes the document. Does **not** affect linked reports.
+   *     summary: Delete HSE document
+   *     description: Permanently deletes record + file from Firebase Storage.
    *     tags: [HSE Documents]
-   *     security:
-   *       - bearerAuth: []
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
-   *         schema:
-   *           type: integer
-   *         example: 8
+   *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Document deleted
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Document deleted successfully"
+   *         description: Deleted successfully
    *       404:
-   *         description: Document not found
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *         description: Not found
    */
-  router.delete("/:id", verifyToken, hasPermission("hsedocument:delete"), hseDocumentController.deleteDocument);
+  router.delete(
+    "/:id",
+    verifyToken,
+    hasPermission("hsedocument:delete"),
+    hseDocumentController.deleteDocument
+  );
 
+  // Mount router
   app.use("/api/hse/documents", router);
 };
