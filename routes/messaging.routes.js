@@ -96,6 +96,50 @@ module.exports = (app) => {
    */
 
   // ===================================================================
+  // 1. OPEN OR CREATE PRIVATE CHAT
+  // ===================================================================
+  /**
+   * @swagger
+   * /api/messaging/direct/{recipientId}:
+   *   post:
+   *     summary: Open or create 1-on-1 chat
+   *     description: |
+   *       Finds existing direct chat or creates a new one.
+   *       Returns full conversation with participants.
+   *     tags: [Messaging]
+   *     security: [bearerAuth: []]
+   *     parameters:
+   *       - in: path
+   *         name: recipientId
+   *         required: true
+   *         schema: { type: integer }
+   *         example: 7
+   *         description: ID of the other user
+   *     responses:
+   *       200:
+   *         description: Existing chat
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message: { type: string, example: "Existing conversation found" }
+   *                 conversation: { $ref: '#/components/schemas/Conversation' }
+   *       201:
+   *         description: New chat created
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message: { type: string, example: "New conversation created" }
+   *                 conversation: { $ref: '#/components/schemas/Conversation' }
+   *       400:
+   *         description: Invalid recipient or self-chat
+   */
+  router.post("/direct/:recipientId", verifyToken, messagingController.getOrCreatePrivateChat);
+
+  // ===================================================================
   // 2. CREATE GROUP
   // ===================================================================
   /**
