@@ -5,7 +5,6 @@ const {
   Message,
   User,
   sequelize,
-  Op,
 } = require("../models");
 const { Op } = require("sequelize");
 
