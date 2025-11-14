@@ -339,30 +339,33 @@ exports.getMessages = async (req, res) => {
       return res.status(403).json({ error: "Not in chat" });
     }
 
-    if (convo.type === "direct") {
-      // mark MessageRecipient.isRead true for messages where user is recipient
+    // Fetch all message IDs for this conversation
+    const messageIds = await Message.findAll({
+      where: { conversationId },
+      attributes: ["id"],
+      raw: true,
+      transaction: t,
+    });
+
+    const ids = messageIds.map(m => m.id);
+
+    if (ids.length > 0) {
+      // mark as read for recipients
       await MessageRecipient.update(
         { isRead: true },
-        {
-          where: { userId, messageId: { [Op.in]: sequelize.literal(`(SELECT id FROM "Messages" WHERE "conversationId" = ${conversationId})`) } },
-          transaction: t,
-        }
+        { where: { userId, messageId: { [Op.in]: ids } }, transaction: t }
       );
 
-      // also update Message.isRead for messages where receiverId === userId (legacy field)
-      await Message.update({ isRead: true }, {
-        where: { conversationId, receiverId: userId, isRead: false },
-        transaction: t,
-      });
-    } else {
-      // group: mark MessageRecipient rows for this user as read
-      await MessageRecipient.update(
-        { isRead: true },
-        { where: { userId, messageId: { [Op.in]: sequelize.literal(`(SELECT id FROM "Messages" WHERE "conversationId" = ${conversationId})`) } }, transaction: t }
-      );
+      // legacy field for direct messages
+      if (convo.type === "direct") {
+        await Message.update(
+          { isRead: true },
+          { where: { conversationId, receiverId: userId, isRead: false }, transaction: t }
+        );
+      }
     }
 
-    // fetch messages and include recipients (for group we can show who has read)
+    // fetch messages with sender + recipients info
     const messages = await Message.findAll({
       where: { conversationId },
       include: [
