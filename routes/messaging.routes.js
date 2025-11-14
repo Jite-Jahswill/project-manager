@@ -1,7 +1,8 @@
 // routes/messaging.routes.js
 const express = require("express");
+const { verifyToken } = require("../middlewares/auth.middleware");
+const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
 const messagingController = require("../controllers/messaging.controller");
-const { verifyToken, hasPermission } = require("../middlewares/auth.middleware");
 
 module.exports = (app) => {
   const router = express.Router();
@@ -10,7 +11,7 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Messaging
-   *     description: WhatsApp-style private & group chat with real-time updates
+   *     description: WhatsApp-style private & group chat (file upload, read receipts, full control)
    *
    * components:
    *   securitySchemes:
@@ -23,56 +24,50 @@ module.exports = (app) => {
    *     UserSummary:
    *       type: object
    *       properties:
-   *         id: { type: integer, example: 2 }
-   *         firstName: { type: string, example: "Oghomena" }
-   *         lastName: { type: string, example: "Mena" }
-   *         email: { type: string, example: "oghomenag@gmail.com" }
-   *         fullName: { type: string, example: "Oghomena Mena" }
+   *         id: { type: integer }
+   *         firstName: { type: string }
+   *         lastName: { type: string }
+   *         email: { type: string }
+   *         fullName: { type: string }
    *
    *     Message:
    *       type: object
    *       properties:
-   *         id: { type: integer, example: 34 }
-   *         conversationId: { type: integer, example: 12 }
-   *         senderId: { type: integer, example: 1 }
-   *         receiverId: { type: integer, nullable: true, example: 2 }
-   *         content: { type: string, example: "Hey, how’s it going?" }
-   *         type: { type: string, enum: [text, image, file], example: "text" }
-   *         isRead: { type: boolean, example: false }
-   *         isEdited: { type: boolean, example: false }
-   *         isDeleted: { type: boolean, example: false }
+   *         id: { type: integer }
+   *         conversationId: { type: integer }
+   *         senderId: { type: integer }
+   *         receiverId: { type: integer, nullable: true }
+   *         content: { type: string }
+   *         type: { type: string, enum: [text, image, file] }
+   *         isRead: { type: boolean }
+   *         isEdited: { type: boolean }
+   *         isDeleted: { type: boolean }
    *         sender: { $ref: '#/components/schemas/UserSummary' }
-   *         receiver: { $ref: '#/components/schemas/UserSummary' }
+   *         receiver: { $ref: '#/components/schemas/UserSummary', nullable: true }
    *         createdAt: { type: string, format: date-time }
    *         updatedAt: { type: string, format: date-time }
    *
    *     Conversation:
    *       type: object
    *       properties:
-   *         id: { type: integer, example: 1 }
-   *         type: { type: string, enum: [direct, group], example: "direct" }
-   *         name: { type: string, nullable: true, example: "Team Alpha" }
-   *         createdBy: { type: integer, example: 1 }
+   *         id: { type: integer }
+   *         type: { type: string, enum: [direct, group] }
+   *         name: { type: string, nullable: true }
+   *         createdBy: { type: integer }
    *         createdAt: { type: string, format: date-time }
    *         updatedAt: { type: string, format: date-time }
    *         participants:
    *           type: array
-   *           items:
-   *             $ref: '#/components/schemas/UserSummary'
+   *           items: { $ref: '#/components/schemas/UserSummary' }
    */
 
-  // ─────────────────────────────────────
-  // 1. PRIVATE CHAT (Click user → open chat)
-  // ─────────────────────────────────────
+  // 1. OPEN PRIVATE CHAT (Click any user → chat opens)
   /**
    * @swagger
    * /api/messaging/direct/{recipientId}:
    *   post:
    *     summary: Open or create private chat
-   *     description: |
-   *       Gets existing 1-on-1 chat or creates a new one.
-   *       - Auto-creates if not exists.
-   *       - Returns full conversation with participants.
+   *     description: Gets existing 1-on-1 or creates new one automatically.
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -80,39 +75,20 @@ module.exports = (app) => {
    *         name: recipientId
    *         required: true
    *         schema: { type: integer }
-   *         example: 5
-   *         description: ID of the other user
+   *         example: 7
    *     responses:
-   *       200:
-   *         description: Existing chat
-   *         content:
-   *           application/json:
-   *             schema: { $ref: '#/components/schemas/Conversation' }
-   *       201:
-   *         description: New chat created
-   *         content:
-   *           application/json:
-   *             schema: { $ref: '#/components/schemas/Conversation' }
-   *       400:
-   *         description: Cannot chat with yourself
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *       200: { description: Existing chat }
+   *       201: { description: New chat created }
+   *       400: { description: Cannot chat with yourself }
    */
-  router.post("/direct/:recipientId", verifyToken, messagingController.getPrivateChat);
+  router.post("/direct/:recipientId", verifyToken, messagingController.getOrCreatePrivateChat);
 
-  // ─────────────────────────────────────
-  // 2. CREATE GROUP CHAT
-  // ─────────────────────────────────────
+  // 2. CREATE GROUP
   /**
    * @swagger
    * /api/messaging/group:
    *   post:
-   *     summary: Create group chat
-   *     description: |
-   *       Creates a group with at least 3 members (including you).
-   *       Emits `conversationCreated` via Socket.io.
+   *     summary: Create new group
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     requestBody:
@@ -123,79 +99,25 @@ module.exports = (app) => {
    *             type: object
    *             required: [name, participantIds]
    *             properties:
-   *               name: { type: string, example: "Project Team" }
+   *               name: { type: string, example: "Dev Team 2025" }
    *               participantIds:
    *                 type: array
    *                 items: { type: integer }
-   *                 example: [3, 4, 5]
-   *                 description: Other users to add
+   *                 minItems: 2
+   *                 example: [3, 5, 8]
    *     responses:
-   *       201:
-   *         description: Group created
-   *         content:
-   *           application/json:
-   *             schema: { $ref: '#/components/schemas/Conversation' }
-   *       400:
-   *         description: Invalid input
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *       201: { description: Group created, $ref: '#/components/schemas/Conversation' }
+   *       400: { description: Invalid data }
    */
-  router.post("/group", verifyToken, messagingController.createGroupChat);
+  router.post("/group", verifyToken, messagingController.createGroup);
 
-  // ─────────────────────────────────────
-  // 3. ADD MEMBER TO GROUP
-  // ─────────────────────────────────────
-  /**
-   * @swagger
-   * /api/messaging/group/{conversationId}/participant:
-   *   post:
-   *     summary: Add user to group
-   *     description: Requires `message:manage` permission.
-   *     tags: [Messaging]
-   *     security: [bearerAuth: []]
-   *     parameters:
-   *       - in: path
-   *         name: conversationId
-   *         required: true
-   *         schema: { type: integer }
-   *         example: 10
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             required: [userId]
-   *             properties:
-   *               userId: { type: integer, example: 7 }
-   *     responses:
-   *       200:
-   *         description: Member added
-   *       400:
-   *         description: Not a group or already in group
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
-   */
-  router.post(
-    "/group/:conversationId/participant",
-    verifyToken,
-    hasPermission("message:manage"),
-    messagingController.addGroupMember
-  );
-
-  // ─────────────────────────────────────
-  // 4. GET ALL CONVERSATIONS
-  // ─────────────────────────────────────
+  // 3. GET ALL MY CHATS
   /**
    * @swagger
    * /api/messaging/conversations:
    *   get:
-   *     summary: Get all chats (private + group)
-   *     description: Sorted by latest message.
+   *     summary: Get all my conversations
+   *     description: Private + group chats, sorted by latest activity
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     responses:
@@ -205,24 +127,17 @@ module.exports = (app) => {
    *           application/json:
    *             schema:
    *               type: array
-   *               items:
-   *                 $ref: '#/components/schemas/Conversation'
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *               items: { $ref: '#/components/schemas/Conversation' }
    */
-  router.get("/conversations", verifyToken, messagingController.getAllConversations);
+  router.get("/conversations", verifyToken, messagingController.getMyConversations);
 
-  // ─────────────────────────────────────
-  // 5. SEND MESSAGE
-  // ─────────────────────────────────────
+  // 4. SEND MESSAGE (Text + Image + File)
   /**
    * @swagger
    * /api/messaging/{conversationId}/message:
    *   post:
-   *     summary: Send message
-   *     description: Real-time via Socket.io.
+   *     summary: Send message (text or file)
+   *     description: Supports text and file upload (image/file). File → Firebase → URL stored.
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -230,41 +145,40 @@ module.exports = (app) => {
    *         name: conversationId
    *         required: true
    *         schema: { type: integer }
-   *         example: 12
    *     requestBody:
-   *       required: true
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
-   *             required: [content]
    *             properties:
-   *               content: { type: string, example: "Hello!" }
-   *               type: { type: string, enum: [text, image, file], default: text }
+   *               content:
+   *                 type: string
+   *                 description: Text message (required if no file)
+   *               files:
+   *                 type: array
+   *                 items:
+   *                   type: string
+   *                   format: binary
+   *                 description: Optional file/image
    *     responses:
-   *       201:
-   *         description: Message sent
-   *         content:
-   *           application/json:
-   *             schema: { $ref: '#/components/schemas/Message' }
-   *       403:
-   *         description: Not in conversation
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *       201: { description: Message sent, $ref: '#/components/schemas/Message' }
+   *       403: { description: Not in conversation }
    */
-  router.post("/:conversationId/message", verifyToken, messagingController.sendMessage);
+  router.post(
+    "/:conversationId/message",
+    verifyToken,
+    upload,
+    uploadToFirebase,
+    messagingController.sendMessage
+  );
 
-  // ─────────────────────────────────────
-  // 6. GET MESSAGES + MARK READ
-  // ─────────────────────────────────────
+  // 5. GET MESSAGES → Auto mark as read
   /**
    * @swagger
    * /api/messaging/{conversationId}/messages:
    *   get:
-   *     summary: Get messages (auto-mark as read)
-   *     description: Emits `messagesRead` via Socket.io.
+   *     summary: Get messages (auto mark as read)
+   *     description: All unread messages from others are marked as read when fetched.
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -272,100 +186,51 @@ module.exports = (app) => {
    *         name: conversationId
    *         required: true
    *         schema: { type: integer }
-   *         example: 12
    *     responses:
    *       200:
-   *         description: Messages
+   *         description: Messages list
    *         content:
    *           application/json:
    *             schema:
    *               type: array
-   *               items:
-   *                 $ref: '#/components/schemas/Message'
-   *       403:
-   *         description: Not in conversation
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *               items: { $ref: '#/components/schemas/Message' }
    */
-  router.get("/:conversationId/messages", verifyToken, messagingController.getAllMessages);
+  router.get("/:conversationId/messages", verifyToken, messagingController.getMessages);
 
-  // ─────────────────────────────────────
-  // 7. EDIT MESSAGE
-  // ─────────────────────────────────────
+  // 6. ADD MEMBER TO GROUP
   /**
    * @swagger
-   * /api/messaging/message/{messageId}:
-   *   put:
-   *     summary: Edit message
-   *     description: Only sender can edit.
+   * /api/messaging/group/{conversationId}/member:
+   *   post:
+   *     summary: Add member to group
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
-   *         name: messageId
+   *         name: conversationId
    *         required: true
    *         schema: { type: integer }
-   *         example: 34
    *     requestBody:
    *       required: true
    *       content:
    *         application/json:
    *           schema:
    *             type: object
+   *             required: [userId]
    *             properties:
-   *               content: { type: string, example: "Fixed typo" }
+   *               userId: { type: integer }
    *     responses:
-   *       200:
-   *         description: Updated
-   *       403:
-   *         description: Not your message
-   *       404:
-   *         description: Not found
-   *       500:
-   *         description: Server error
+   *       200: { description: Member added }
+   *       400: { description: Already in group or not a group }
    */
-  router.put("/message/:messageId", verifyToken, messagingController.editMessage);
+  router.post("/group/:conversationId/member", verifyToken, messagingController.addMember);
 
-  // ─────────────────────────────────────
-  // 8. DELETE MESSAGE
-  // ─────────────────────────────────────
+  // 7. REMOVE MEMBER FROM GROUP
   /**
    * @swagger
-   * /api/messaging/message/{messageId}:
+   * /api/messaging/group/{conversationId}/member/{memberId}:
    *   delete:
-   *     summary: Delete message (soft)
-   *     description: Only sender.
-   *     tags: [Messaging]
-   *     security: [bearerAuth: []]
-   *     parameters:
-   *       - in: path
-   *         name: messageId
-   *         required: true
-   *         schema: { type: integer }
-   *         example: 34
-   *     responses:
-   *       200:
-   *         description: Deleted
-   *       403:
-   *         description: Not your message
-   *       404:
-   *         description: Not found
-   *       500:
-   *         description: Server error
-   */
-  router.delete("/message/:messageId", verifyToken, messagingController.deleteMessage);
-
-  // ─────────────────────────────────────
-  // 9. LEAVE CONVERSATION
-  // ─────────────────────────────────────
-  /**
-   * @swagger
-   * /api/messaging/conversation/{conversationId}:
-   *   delete:
-   *     summary: Leave chat
-   *     description: Works for private & group.
+   *     summary: Remove member from group
    *     tags: [Messaging]
    *     security: [bearerAuth: []]
    *     parameters:
@@ -373,21 +238,34 @@ module.exports = (app) => {
    *         name: conversationId
    *         required: true
    *         schema: { type: integer }
-   *         example: 10
+   *       - in: path
+   *         name: memberId
+   *         required: true
+   *         schema: { type: integer }
    *     responses:
-   *       200:
-   *         description: Left
-   *       404:
-   *         description: Not in chat
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Server error
+   *       200: { description: Member removed }
    */
-  router.delete("/conversation/:conversationId", verifyToken, messagingController.leaveConversation);
+  router.delete("/group/:conversationId/member/:memberId", verifyToken, messagingController.removeMember);
 
-  // ─────────────────────────────────────
-  // MOUNT ROUTER
-  // ─────────────────────────────────────
+  // 8. DELETE GROUP (Creator only)
+  /**
+   * @swagger
+   * /api/messaging/group/{conversationId}:
+   *   delete:
+   *     summary: Delete group (creator only)
+   *     tags: [Messaging]
+   *     security: [bearerAuth: []]
+   *     parameters:
+   *       - in: path
+   *         name: conversationId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200: { description: Group deleted }
+   *       403: { description: Only creator can delete }
+   */
+  router.delete("/group/:conversationId", verifyToken, messagingController.deleteGroup);
+
+  // Mount
   app.use("/api/messaging", router);
 };
