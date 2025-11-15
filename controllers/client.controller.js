@@ -164,6 +164,8 @@ module.exports = {
       const hashedOTP = await bcrypt.hash(otp, 10);
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+      console.log(autoPassword);
+
       const client = await Client.create(
         {
           firstName, lastName, email, password: hashedPassword, image,
@@ -179,18 +181,18 @@ module.exports = {
       transaction = null;
 
       // SEND EMAIL (fire-and-forget)
-      sendMail({
-        to: client.email,
-        subject: "Welcome! Verify Your Client Account",
-        html: `
-          <p>Hello ${client.firstName},</p>
-          <p>Your client account has been created.</p>
-          <p><strong>Email:</strong> ${client.email}</p>
-          <p><strong>Password:</strong> ${autoPassword}</p>
-          <p><strong>OTP:</strong> ${otp}</p>
-          <p>Best,<br>Team</p>
-        `,
-      }).catch(err => console.error("Email failed:", err.message));
+      // sendMail({
+      //   to: client.email,
+      //   subject: "Welcome! Verify Your Client Account",
+      //   html: `
+      //     <p>Hello ${client.firstName},</p>
+      //     <p>Your client account has been created.</p>
+      //     <p><strong>Email:</strong> ${client.email}</p>
+      //     <p><strong>Password:</strong> ${autoPassword}</p>
+      //     <p><strong>OTP:</strong> ${otp}</p>
+      //     <p>Best,<br>Team</p>
+      //   `,
+      // }).catch(err => console.error("Email failed:", err.message));
 
       // AUDIT: CREATE → responseData has client.id
       return res.status(201).json({
