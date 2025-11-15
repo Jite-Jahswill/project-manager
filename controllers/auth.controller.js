@@ -46,7 +46,7 @@ exports.register = async (req, res) => {
     const hashedOTP = await bcrypt.hash(otp, 10);
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    console.log(hashedPassword);
+    console.log(autoPassword);
 
     const user = await User.create(
       {
