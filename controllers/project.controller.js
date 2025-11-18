@@ -1272,7 +1272,7 @@ module.exports = {
           //   )
           // );
         //   await Promise.all(emailPromises);
-        // }
+        }
 
         await transaction.commit();
 
@@ -1364,10 +1364,10 @@ module.exports = {
             })),
           },
         });
-      // } catch (err) {
-      //   await transaction.rollback();
-      //   throw err;
-      // }
+      } catch (err) {
+        await transaction.rollback();
+        throw err;
+      }
     } catch (err) {
       await transaction.rollback();
       console.error("Update project error:", {
