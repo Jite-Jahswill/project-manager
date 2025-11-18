@@ -30,24 +30,24 @@ module.exports = {
       });
 
       // Notify all admins/superadmins
-      const admins = await User.findAll({
-        include: [{ model: db.Role, as: "role", where: { name: ["superadmin", "admin"] }, attributes: [] }],
-        attributes: ["email"],
-      });
+      // const admins = await User.findAll({
+      //   include: [{ model: db.Role, as: "role", where: { name: ["superadmin", "admin"] }, attributes: [] }],
+      //   attributes: ["email"],
+      // });
 
-      const adminEmails = admins.map(a => a.email).filter(Boolean);
+      // const adminEmails = admins.map(a => a.email).filter(Boolean);
 
-      if (adminEmails.length > 0) {
-        await sendMail({
-          to: adminEmails,
-          subject: "New Leave Request Submitted",
-          html: `
-            <p>Hello,</p>
-            <p><strong>${user.firstName} ${user.lastName}</strong> submitted a leave request from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
-            <p>Reason: ${reason}</p>
-          `,
-        });
-      }
+      // if (adminEmails.length > 0) {
+      //   await sendMail({
+      //     to: adminEmails,
+      //     subject: "New Leave Request Submitted",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p><strong>${user.firstName} ${user.lastName}</strong> submitted a leave request from <strong>${startDate}</strong> to <strong>${endDate}</strong>.</p>
+      //       <p>Reason: ${reason}</p>
+      //     `,
+      //   });
+      // }
 
       res.status(201).json({ message: "Leave created successfully", leave: { ...newLeave.toJSON(), User: user } });
     } catch (error) {
@@ -191,12 +191,12 @@ module.exports = {
       await Leave.update({ status, updatedAt: new Date() }, { where: { id } });
 
       // Notify user
-      await sendMail({
-        to: leave.User.email,
-        subject: `Your Leave Request has been ${status.toUpperCase()}`,
-        html: `<p>Hi ${leave.User.firstName},</p>
-               <p>Your leave from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been <strong>${status}</strong>.</p>`,
-      });
+      // await sendMail({
+      //   to: leave.User.email,
+      //   subject: `Your Leave Request has been ${status.toUpperCase()}`,
+      //   html: `<p>Hi ${leave.User.firstName},</p>
+      //          <p>Your leave from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been <strong>${status}</strong>.</p>`,
+      // });
 
       const updatedLeave = await Leave.findByPk(id, {
         include: [{ model: User, attributes: ["id", "firstName", "lastName", "email"] }],
@@ -220,12 +220,12 @@ module.exports = {
 
       await leave.destroy();
 
-      await sendMail({
-        to: leave.User.email,
-        subject: "Your Leave Request has been Deleted",
-        html: `<p>Hi ${leave.User.firstName},</p>
-               <p>Your leave request from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been deleted.</p>`,
-      });
+      // await sendMail({
+      //   to: leave.User.email,
+      //   subject: "Your Leave Request has been Deleted",
+      //   html: `<p>Hi ${leave.User.firstName},</p>
+      //          <p>Your leave request from <strong>${leave.startDate}</strong> to <strong>${leave.endDate}</strong> has been deleted.</p>`,
+      // });
 
       res.status(200).json({ message: "Leave deleted successfully" });
     } catch (error) {
