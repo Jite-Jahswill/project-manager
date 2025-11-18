@@ -64,25 +64,25 @@ module.exports = {
       const users = await db.User.findAll({
         attributes: ["email"],
       });
-      const emails = users.map((u) => u.email).filter(Boolean);
+      // const emails = users.map((u) => u.email).filter(Boolean);
 
-      if (emails.length > 0) {
-        await sendMail({
-          to: emails,
-          subject: "🆕 New Team Created",
-          html: `
-            <p>Hello,</p>
-            <p>A new team <strong>${team.name}</strong> has been created by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Description:</strong> ${team.description || "No description"}</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          teamId: team.id,
-          timestamp: new Date().toISOString(),
-        });
+      // if (emails.length > 0) {
+      //   await sendMail({
+      //     to: emails,
+      //     subject: "🆕 New Team Created",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>A new team <strong>${team.name}</strong> has been created by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+      //       <p><strong>Description:</strong> ${team.description || "No description"}</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   });
+      // } else {
+      //   console.warn("No emails found for notification", {
+      //     userId: req.user.id,
+      //     teamId: team.id,
+      //     timestamp: new Date().toISOString(),
+      //   });
       }
 
       res.status(201).json({ message: "Team created", team: teamResponse });
@@ -449,29 +449,29 @@ module.exports = {
       const allUsers = await db.User.findAll({
         attributes: ["email"],
       });
-      const userEmails = updatedTeam.Users.map((u) => u.email);
-      const emails = [...allUsers.map((u) => u.email), ...userEmails].filter(
-        (email, index, self) => email && self.indexOf(email) === index
-      );
+      // const userEmails = updatedTeam.Users.map((u) => u.email);
+      // const emails = [...allUsers.map((u) => u.email), ...userEmails].filter(
+      //   (email, index, self) => email && self.indexOf(email) === index
+      // );
 
-      if (emails.length > 0) {
-        await sendMail({
-          to: emails,
-          subject: "🔄 Team Updated",
-          html: `
-            <p>Hello,</p>
-            <p>The team <strong>${updatedTeam.name}</strong> has been updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Description:</strong> ${updatedTeam.description || "No description"}</p>
-            <p><strong>Users:</strong> ${updatedTeam.Users.map((u) => `${u.firstName} ${u.lastName}`).join(", ") || "None"}</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          teamId: id,
-          timestamp: new Date().toISOString(),
-        });
+      // if (emails.length > 0) {
+      //   await sendMail({
+      //     to: emails,
+      //     subject: "🔄 Team Updated",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>The team <strong>${updatedTeam.name}</strong> has been updated by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+      //       <p><strong>Description:</strong> ${updatedTeam.description || "No description"}</p>
+      //       <p><strong>Users:</strong> ${updatedTeam.Users.map((u) => `${u.firstName} ${u.lastName}`).join(", ") || "None"}</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   });
+      // } else {
+      //   console.warn("No emails found for notification", {
+      //     userId: req.user.id,
+      //     teamId: id,
+      //     timestamp: new Date().toISOString(),
+      //   });
       }
 
       res.json({ message: "Team updated", team: teamResponse, userResults });
@@ -559,27 +559,27 @@ module.exports = {
           type: db.sequelize.QueryTypes.SELECT,
         }
       );
-      const emails = [...users.map((u) => u.email), ...teamUsers.map((u) => u.email)].filter(
-        (email, index, self) => email && self.indexOf(email) === index && email !== req.user.email
-      );
+      // const emails = [...users.map((u) => u.email), ...teamUsers.map((u) => u.email)].filter(
+      //   (email, index, self) => email && self.indexOf(email) === index && email !== req.user.email
+      // );
 
-      if (emails.length > 0) {
-        await sendMail({
-          to: emails,
-          subject: "🗑️ Team Deleted",
-          html: `
-            <p>Hello,</p>
-            <p>The team <strong>${team.name}</strong> has been deleted by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Description:</strong> ${team.description || "No description"}</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          teamId: id,
-          timestamp: new Date().toISOString(),
-        });
+      // if (emails.length > 0) {
+      //   await sendMail({
+      //     to: emails,
+      //     subject: "🗑️ Team Deleted",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>The team <strong>${team.name}</strong> has been deleted by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+      //       <p><strong>Description:</strong> ${team.description || "No description"}</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   });
+      // } else {
+      //   console.warn("No emails found for notification", {
+      //     userId: req.user.id,
+      //     teamId: id,
+      //     timestamp: new Date().toISOString(),
+      //   });
       }
 
       res.json({ message: "Team deleted" });
@@ -733,26 +733,26 @@ module.exports = {
         (email, index, self) => email && self.indexOf(email) === index
       );
 
-      if (emails.length > 0) {
-        await sendMail({
-          to: emails,
-          subject: "👥 Users Assigned to Team",
-          html: `
-            <p>Hello,</p>
-            <p>Users have been assigned to the team <strong>${updatedTeam.name}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Assigned Users:</strong> ${results
-              .filter((r) => r.status === "success")
-              .map((r) => `${r.user.firstName} ${r.user.lastName}`)
-              .join(", ") || "None"}</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          teamId,
-          timestamp: new Date().toISOString(),
-        });
+      // if (emails.length > 0) {
+      //   await sendMail({
+      //     to: emails,
+      //     subject: "👥 Users Assigned to Team",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>Users have been assigned to the team <strong>${updatedTeam.name}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+      //       <p><strong>Assigned Users:</strong> ${results
+      //         .filter((r) => r.status === "success")
+      //         .map((r) => `${r.user.firstName} ${r.user.lastName}`)
+      //         .join(", ") || "None"}</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   });
+      // } else {
+      //   console.warn("No emails found for notification", {
+      //     userId: req.user.id,
+      //     teamId,
+      //     timestamp: new Date().toISOString(),
+      //   });
       }
 
       res.json({
@@ -900,26 +900,26 @@ module.exports = {
         (email, index, self) => email && self.indexOf(email) === index && email !== req.user.email
       );
 
-      if (emails.length > 0) {
-        await sendMail({
-          to: emails,
-          subject: "👤 Users Unassigned from Team",
-          html: `
-            <p>Hello,</p>
-            <p>Users have been unassigned from the team <strong>${updatedTeam.name}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
-            <p><strong>Unassigned Users:</strong> ${results
-              .filter((r) => r.status === "success")
-              .map((r) => `${r.user.firstName} ${r.user.lastName}`)
-              .join(", ") || "None"}</p>
-            <p>Best,<br>Team</p>
-          `,
-        });
-      } else {
-        console.warn("No emails found for notification", {
-          userId: req.user.id,
-          teamId,
-          timestamp: new Date().toISOString(),
-        });
+      // if (emails.length > 0) {
+      //   await sendMail({
+      //     to: emails,
+      //     subject: "👤 Users Unassigned from Team",
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>Users have been unassigned from the team <strong>${updatedTeam.name}</strong> by <strong>${req.user.firstName} ${req.user.lastName}</strong>.</p>
+      //       <p><strong>Unassigned Users:</strong> ${results
+      //         .filter((r) => r.status === "success")
+      //         .map((r) => `${r.user.firstName} ${r.user.lastName}`)
+      //         .join(", ") || "None"}</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   });
+      // } else {
+      //   console.warn("No emails found for notification", {
+      //     userId: req.user.id,
+      //     teamId,
+      //     timestamp: new Date().toISOString(),
+      //   });
       }
 
       res.json({
