@@ -83,7 +83,7 @@ module.exports = {
       //     teamId: team.id,
       //     timestamp: new Date().toISOString(),
       //   });
-      }
+      //}
 
       res.status(201).json({ message: "Team created", team: teamResponse });
     } catch (err) {
@@ -472,7 +472,7 @@ module.exports = {
       //     teamId: id,
       //     timestamp: new Date().toISOString(),
       //   });
-      }
+      //}
 
       res.json({ message: "Team updated", team: teamResponse, userResults });
     } catch (err) {
@@ -580,7 +580,7 @@ module.exports = {
       //     teamId: id,
       //     timestamp: new Date().toISOString(),
       //   });
-      }
+      //}
 
       res.json({ message: "Team deleted" });
     } catch (err) {
@@ -753,7 +753,7 @@ module.exports = {
       //     teamId,
       //     timestamp: new Date().toISOString(),
       //   });
-      }
+     // }
 
       res.json({
         message: "Users assigned to team",
@@ -920,7 +920,7 @@ module.exports = {
       //     teamId,
       //     timestamp: new Date().toISOString(),
       //   });
-      }
+      //}
 
       res.json({
         message: "Users unassigned from team",
