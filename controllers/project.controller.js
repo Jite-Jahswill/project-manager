@@ -681,7 +681,7 @@ module.exports = {
       //   })
       // );
 
-      await Promise.all(emailPromises);
+      // await Promise.all(emailPromises);
 
       return res.status(200).json({
         message: `Team assigned to project "${project.name}" successfully`,
@@ -801,7 +801,7 @@ module.exports = {
       //   })
       // );
 
-      await Promise.all(emailPromises);
+      // await Promise.all(emailPromises);
 
       return res.status(200).json({
         message: `Team removed from project "${project.name}" successfully`,
@@ -999,7 +999,7 @@ module.exports = {
       //   })
       // );
 
-      await Promise.all(emailPromises);
+      // await Promise.all(emailPromises);
 
       if (status.toLowerCase() === "done") {
         await notifyClientOnProjectCompletion(projectId);
@@ -1470,7 +1470,7 @@ module.exports = {
         //   ),
         // ];
 
-        await Promise.all(emailPromises);
+        // await Promise.all(emailPromises);
         await transaction.commit();
 
         return res.status(200).json({ message: "Project deleted successfully" });
