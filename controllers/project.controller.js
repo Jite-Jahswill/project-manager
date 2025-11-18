@@ -658,28 +658,28 @@ module.exports = {
         });
       }
 
-      const emailPromises = teamMembers.map((user) =>
-        sendMail({
-          to: user.email,
-          subject: `Your Team Has Been Assigned to Project: ${project.name}`,
-          html: `
-            <p>Hello ${user.firstName},</p>
-            <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
-            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-            <p>Please log in to view your tasks.</p>
-            <p>Best,<br>Team</p>
-          `,
-        }).catch((emailErr) => {
-          console.error("Email sending error:", {
-            message: emailErr.message,
-            userId: user.id,
-            email: user.email,
-            timestamp: new Date().toISOString(),
-          });
-        })
-      );
+      // const emailPromises = teamMembers.map((user) =>
+      //   sendMail({
+      //     to: user.email,
+      //     subject: `Your Team Has Been Assigned to Project: ${project.name}`,
+      //     html: `
+      //       <p>Hello ${user.firstName},</p>
+      //       <p>Your team has been assigned to the project <strong>${project.name}</strong>.</p>
+      //       <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+      //       <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+      //       <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+      //       <p>Please log in to view your tasks.</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   }).catch((emailErr) => {
+      //     console.error("Email sending error:", {
+      //       message: emailErr.message,
+      //       userId: user.id,
+      //       email: user.email,
+      //       timestamp: new Date().toISOString(),
+      //     });
+      //   })
+      // );
 
       await Promise.all(emailPromises);
 
@@ -778,28 +778,28 @@ module.exports = {
         });
       }
 
-      const emailPromises = teamMembers.map((user) =>
-        sendMail({
-          to: user.email,
-          subject: `Your Team Has Been Removed from Project: ${project.name}`,
-          html: `
-            <p>Hello ${user.firstName},</p>
-            <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
-            <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
-            <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
-            <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-            <p>Please check your dashboard for updated assignments.</p>
-            <p>Best,<br>Team</p>
-          `,
-        }).catch((emailErr) => {
-          console.error("Email sending error:", {
-            message: emailErr.message,
-            userId: user.id,
-            email: user.email,
-            timestamp: new Date().toISOString(),
-          });
-        })
-      );
+      // const emailPromises = teamMembers.map((user) =>
+      //   sendMail({
+      //     to: user.email,
+      //     subject: `Your Team Has Been Removed from Project: ${project.name}`,
+      //     html: `
+      //       <p>Hello ${user.firstName},</p>
+      //       <p>Your team has been removed from the project <strong>${project.name}</strong>.</p>
+      //       <p><strong>Start Date:</strong> ${project.startDate || "TBD"}</p>
+      //       <p><strong>End Date:</strong> ${project.endDate || "TBD"}</p>
+      //       <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+      //       <p>Please check your dashboard for updated assignments.</p>
+      //       <p>Best,<br>Team</p>
+      //     `,
+      //   }).catch((emailErr) => {
+      //     console.error("Email sending error:", {
+      //       message: emailErr.message,
+      //       userId: user.id,
+      //       email: user.email,
+      //       timestamp: new Date().toISOString(),
+      //     });
+      //   })
+      // );
 
       await Promise.all(emailPromises);
 
@@ -982,22 +982,22 @@ module.exports = {
         ...adminsAndManagers.map((u) => u.email),
       ]);
 
-      const emailPromises = Array.from(uniqueEmails).map((email) =>
-        sendMail({
-          to: email,
-          subject: `Project Status Updated: ${project.name}`,
-          html: `
-            <p>Hello,</p>
-            <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
-            <p><strong>Contact Phone:</strong> ${
-              assignedUsers.find((u) => u.email === email)?.phoneNumber ||
-              adminsAndManagers.find((u) => u.email === email)?.phoneNumber ||
-              "Not provided"
-            }</p>
-            <p>Best regards,<br>Team</p>
-          `,
-        })
-      );
+      // const emailPromises = Array.from(uniqueEmails).map((email) =>
+      //   sendMail({
+      //     to: email,
+      //     subject: `Project Status Updated: ${project.name}`,
+      //     html: `
+      //       <p>Hello,</p>
+      //       <p>The status of project <strong>${project.name}</strong> has been updated to <strong>${status}</strong>.</p>
+      //       <p><strong>Contact Phone:</strong> ${
+      //         assignedUsers.find((u) => u.email === email)?.phoneNumber ||
+      //         adminsAndManagers.find((u) => u.email === email)?.phoneNumber ||
+      //         "Not provided"
+      //       }</p>
+      //       <p>Best regards,<br>Team</p>
+      //     `,
+      //   })
+      // );
 
       await Promise.all(emailPromises);
 
@@ -1234,45 +1234,45 @@ module.exports = {
             });
           }
 
-          const emailPromises = [];
-          teamMembersToAdd.forEach((user) =>
-            emailPromises.push(
-              sendMail({
-                to: user.email,
-                subject: `Project Updated: ${name || project.name}`,
-                html: `
-                  <p>Hello ${user.firstName},</p>
-                  <p>Your team has been assigned to the project <strong>${name || project.name}</strong>.</p>
-                  <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
-                  <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
-                  <p><strong>Status:</strong> ${status || project.status}</p>
-                  <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-                  <p>Check your dashboard for details.</p>
-                  <p>Best,<br>Team</p>
-                `,
-              })
-            )
-          );
-          teamMembersToRemove.forEach((user) =>
-            emailPromises.push(
-              sendMail({
-                to: user.email,
-                subject: `Removed from Project: ${name || project.name}`,
-                html: `
-                  <p>Hello ${user.firstName},</p>
-                  <p>Your team has been removed from the project <strong>${name || project.name}</strong>.</p>
-                  <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
-                  <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
-                  <p><strong>Status:</strong> ${status || project.status}</p>
-                  <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-                  <p>Check your dashboard for details.</p>
-                  <p>Best,<br>Team</p>
-                `,
-              })
-            )
-          );
-          await Promise.all(emailPromises);
-        }
+          // const emailPromises = [];
+          // teamMembersToAdd.forEach((user) =>
+          //   emailPromises.push(
+          //     sendMail({
+          //       to: user.email,
+          //       subject: `Project Updated: ${name || project.name}`,
+          //       html: `
+          //         <p>Hello ${user.firstName},</p>
+          //         <p>Your team has been assigned to the project <strong>${name || project.name}</strong>.</p>
+          //         <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
+          //         <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
+          //         <p><strong>Status:</strong> ${status || project.status}</p>
+          //         <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+          //         <p>Check your dashboard for details.</p>
+          //         <p>Best,<br>Team</p>
+          //       `,
+          //     })
+          //   )
+          // );
+          // teamMembersToRemove.forEach((user) =>
+          //   emailPromises.push(
+          //     sendMail({
+          //       to: user.email,
+          //       subject: `Removed from Project: ${name || project.name}`,
+          //       html: `
+          //         <p>Hello ${user.firstName},</p>
+          //         <p>Your team has been removed from the project <strong>${name || project.name}</strong>.</p>
+          //         <p><strong>Start Date:</strong> ${startDate || project.startDate || "TBD"}</p>
+          //         <p><strong>End Date:</strong> ${endDate || project.endDate || "TBD"}</p>
+          //         <p><strong>Status:</strong> ${status || project.status}</p>
+          //         <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+          //         <p>Check your dashboard for details.</p>
+          //         <p>Best,<br>Team</p>
+          //       `,
+          //     })
+          //   )
+          // );
+        //   await Promise.all(emailPromises);
+        // }
 
         await transaction.commit();
 
@@ -1441,33 +1441,33 @@ module.exports = {
 
         await db.Project.destroy({ where: { id: projectId }, transaction });
 
-        const emailPromises = [
-          ...teamMembers.map((user) =>
-            sendMail({
-              to: user.email,
-              subject: `Project Deleted: ${project.name}`,
-              html: `
-                <p>Hello ${user.firstName},</p>
-                <p>The project <strong>${project.name}</strong> has been deleted.</p>
-                <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
-                <p>Please check your dashboard for updated assignments.</p>
-                <p>Best,<br>Team</p>
-              `,
-            })
-          ),
-          ...clients.map((client) =>
-            sendMail({
-              to: client.email,
-              subject: `Project Deleted: ${project.name}`,
-              html: `
-                <p>Hello ${client.firstName},</p>
-                <p>The project <strong>${project.name}</strong> has been deleted.</p>
-                <p>Please contact us for any questions.</p>
-                <p>Best,<br>Team</p>
-              `,
-            })
-          ),
-        ];
+        // const emailPromises = [
+        //   ...teamMembers.map((user) =>
+        //     sendMail({
+        //       to: user.email,
+        //       subject: `Project Deleted: ${project.name}`,
+        //       html: `
+        //         <p>Hello ${user.firstName},</p>
+        //         <p>The project <strong>${project.name}</strong> has been deleted.</p>
+        //         <p><strong>Contact Phone:</strong> ${user.phoneNumber || "Not provided"}</p>
+        //         <p>Please check your dashboard for updated assignments.</p>
+        //         <p>Best,<br>Team</p>
+        //       `,
+        //     })
+        //   ),
+        //   ...clients.map((client) =>
+        //     sendMail({
+        //       to: client.email,
+        //       subject: `Project Deleted: ${project.name}`,
+        //       html: `
+        //         <p>Hello ${client.firstName},</p>
+        //         <p>The project <strong>${project.name}</strong> has been deleted.</p>
+        //         <p>Please contact us for any questions.</p>
+        //         <p>Best,<br>Team</p>
+        //       `,
+        //     })
+        //   ),
+        // ];
 
         await Promise.all(emailPromises);
         await transaction.commit();
