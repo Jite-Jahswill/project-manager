@@ -79,14 +79,15 @@ exports.getAllAudits = async (req, res) => {
 
     const [audits, [{ total }]] = await Promise.all([
       sequelize.query(
-        `SELECT * FROM Audits ${where} ORDER BY date ASC LIMIT :limit OFFSET :offset`,
+        `SELECT * FROM Auditors ${where} ORDER BY date ASC LIMIT :limit OFFSET :offset`,
         { replacements, type: sequelize.QueryTypes.SELECT }
       ),
       sequelize.query(
-        `SELECT COUNT(*) as total FROM Audits ${where}`,
+        `SELECT COUNT(*) as total FROM Auditors ${where}`,
         { replacements, type: sequelize.QueryTypes.SELECT }
       )
     ]);
+
 
     res.json({
       audits,
@@ -109,7 +110,7 @@ exports.updateAudit = async (req, res) => {
     const { id } = req.params;
 
     const [previous] = await sequelize.query(
-      `SELECT * FROM Audits WHERE id = :id FOR UPDATE`,
+      `SELECT * FROM Auditors WHERE id = :id FOR UPDATE`,
       { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
@@ -138,12 +139,12 @@ exports.updateAudit = async (req, res) => {
     }
 
     await sequelize.query(
-      `UPDATE Audits SET ${updates.join(", ")}, updatedAt = NOW() WHERE id = :id`,
+      `UPDATE Auditors SET ${updates.join(", ")}, updatedAt = NOW() WHERE id = :id`,
       { replacements, type: sequelize.QueryTypes.UPDATE, transaction: t }
     );
 
     const [updated] = await sequelize.query(
-      `SELECT * FROM Audits WHERE id = :id`,
+      `SELECT * FROM Auditors WHERE id = :id`,
       { replacements: { id }, type: sequelize.QueryTypes.SELECT, transaction: t }
     );
 
