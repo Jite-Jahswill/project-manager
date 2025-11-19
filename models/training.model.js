@@ -16,6 +16,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.DATEONLY,
         allowNull: false,
       },
+      status: {
+        type: DataTypes.ENUM("Scheduled", "In Progress", "Urgent", "Completed", "Cancelled"),
+        defaultValue: "Scheduled",
+      },
+      progress: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0,
+        validate: { min: 0, max: 100 },
+      },
+      reminderSentAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "Trainings",
