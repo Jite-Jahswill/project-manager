@@ -34,6 +34,7 @@ db.Audit = require("./audit.model")(sequelize, DataTypes);
 db.Auditor = require("./auditor.model")(sequelize, DataTypes);
 db.Risk = require("./risk.model")(sequelize, DataTypes);
 db.Training = require("./training.model")(sequelize, DataTypes);
+db.FinanceExpense = require("./financeExpense.model")(sequelize, DataTypes);
 db.TrainingAttendees = require("./trainingAttendee.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
