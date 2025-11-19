@@ -38,7 +38,7 @@ module.exports = (app) => {
    *         totalPages: { type: integer }
    *         itemsPerPage: { type: integer }
    *
-   * /api/audit:
+   * /api/auditor:
    *   post:
    *     summary: Create a new audit schedule
    *     tags: [Audit Schedule]
@@ -94,7 +94,7 @@ module.exports = (app) => {
    *                   items: { $ref: '#/components/schemas/Audit' }
    *                 pagination: { $ref: '#/components/schemas/Pagination' }
    *
-   * /api/audit/{id}:
+   * /api/auditor/{id}:
    *   put:
    *     summary: Update audit (raw MySQL)
    *     tags: [Audit Schedule]
@@ -148,5 +148,5 @@ module.exports = (app) => {
   router.put("/:id", verifyToken, hasPermission(perms.update), auditorController.updateAudit);
   router.delete("/:id", verifyToken, hasPermission(perms.delete), auditorController.deleteAudit);
 
-  app.use("/api/audit", router);
+  app.use("/api/auditor", router);
 };
