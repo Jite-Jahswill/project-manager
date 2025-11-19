@@ -10,7 +10,7 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Training Tracker
-   *     description: Full safety training management – scheduling, progress tracking, reminders & compliance
+   *     description: Complete safety training management – scheduling, progress tracking, compliance & automated reminders
    *
    * components:
    *   securitySchemes:
@@ -29,7 +29,7 @@ module.exports = (app) => {
    *         status:
    *           type: string
    *           enum: [Scheduled, In Progress, Urgent, Completed, Cancelled]
-   *           example: "In Progress"
+   *           example: In Progress
    *         progress: { type: integer, minimum: 0, maximum: 100, example: 75 }
    *         reminderSentAt: { type: string, format: date-time, nullable: true }
    *         createdAt: { type: string, format: date-time }
@@ -52,19 +52,12 @@ module.exports = (app) => {
    *         page: { type: integer }
    *         totalPages: { type: integer }
    *         itemsPerPage: { type: integer }
-   */
-
-  // ──────────────────────────────────────────────────────────────
-  // ROUTES
-  // ──────────────────────────────────────────────────────────────
-
-  /**
-   * @swagger
+   *
    * /api/training:
    *   post:
    *     summary: Create new training course with attendees
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     requestBody:
    *       required: true
    *       content:
@@ -75,20 +68,22 @@ module.exports = (app) => {
    *             properties:
    *               courseName: { type: string }
    *               nextTrainingDate: { type: string, format: date }
-   *               attendeeIds: { type: array, items: { type: integer }, example: [3, 7, 12] }
+   *               attendeeIds: 
+   *                 type: array
+   *                 items: { type: integer }
+   *                 example: [3, 7, 12]
    *     responses:
-   *       201: { description: Training created + email sent to all attendees }
-   *       400: { description: Missing required fields }
-   */
-  router.post("/", verifyToken, hasPermission("training:create"), trainingController.createTraining);
-
-  /**
-   * @swagger
-   * /api/training:
+   *       201:
+   *         description: Training created successfully + notification sent
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Training'
+   *
    *   get:
    *     summary: Get all trainings (search + pagination)
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: query
    *         name: search
@@ -102,42 +97,41 @@ module.exports = (app) => {
    *         schema: { type: integer, default: 20 }
    *     responses:
    *       200:
-   *         description: List of trainings
+   *         description: Paginated list of trainings
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 trainings: { type: array, items: { $ref: '#/components/schemas/Training' } }
-   *                 pagination: { $ref: '#/components/schemas/Pagination' }
-   */
-  router.get("/", verifyToken, hasPermission("training:view"), trainingController.getAllTrainings);
-
-  /**
-   * @swagger
+   *                 trainings:
+   *                   type: array
+   *                   items:
+   *                     $ref: '#/components/schemas/Training'
+   *                 pagination:
+   *                   $ref: '#/components/schemas/Pagination'
+   *
    * /api/training/{id}:
    *   get:
    *     summary: Get single training with full attendee list
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       200: { description: Training details }
-   *       404: { description: Not found }
-   */
-  router.get("/:id", verifyToken, hasPermission("training:view"), trainingController.getTrainingById);
-
-  /**
-   * @swagger
-   * /api/training/{id}:
+   *       200:
+   *         description: Training details
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/Training'
+   *
    *   put:
-   *     summary: Update training (course name, date, progress, status) – RAW MySQL
+   *     summary: Update training (progress, date, status) – RAW MySQL
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
@@ -154,21 +148,32 @@ module.exports = (app) => {
    *               progress: { type: integer, minimum: 0, maximum: 100 }
    *               status: { type: string, enum: [Scheduled, In Progress, Urgent, Completed, Cancelled] }
    *     responses:
-   *       200: { description: Training updated (auto status on progress 100%) }
-   */
-  router.put("/:id", verifyToken, hasPermission("training:update"), trainingController.updateTraining);
-
-  /**
-   * @swagger
-   * /api/training/{id}/status:
-   *   patch:
-   *     summary: Update only status (quick action)
+   *       200:
+   *         description: Training updated (auto-completes at 100%)
+   *
+   *   delete:
+   *     summary: Delete training (cancels and notifies all)
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: Training cancelled and deleted
+   *
+   * /api/training/{id}/status:
+   *   patch:
+   *     summary: Quick status update (e.g. mark as Urgent)
+   *     tags: [Training Tracker]
+   *     security: [bearerAuth: []]
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
    *     requestBody:
    *       required: true
    *       content:
@@ -181,44 +186,32 @@ module.exports = (app) => {
    *                 type: string
    *                 enum: [Scheduled, In Progress, Urgent, Completed, Cancelled]
    *     responses:
-   *       200: { description: Status updated + email notification }
-   */
-  router.patch("/:id/status", verifyToken, hasPermission("training:update"), trainingController.updateStatus);
-
-  /**
-   * @swagger
+   *       200:
+   *         description: Status updated + notification sent
+   *
    * /api/training/{id}/remind:
    *   post:
-   *     summary: Send reminder email to ALL attendees + admins (one-click button)
+   *     summary: One-click reminder to ALL attendees + managers
    *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
+   *     security: [bearerAuth: []]
    *     parameters:
    *       - in: path
    *         name: id
    *         required: true
    *         schema: { type: integer }
    *     responses:
-   *       200: { description: Reminder sent successfully }
+   *       200:
+   *         description: Reminder emails sent successfully
    */
-  router.post("/:id/remind", verifyToken, hasPermission("training:remind"), trainingController.sendReminder);
 
-  /**
-   * @swagger
-   * /api/training/{id}:
-   *   delete:
-   *     summary: Delete training (cancels and notifies everyone)
-   *     tags: [Training Tracker]
-   *     security: [{ bearerAuth: [] }]
-   *     parameters:
-   *       - in: path
-   *         name: id
-   *         required: true
-   *         schema: { type: integer }
-   *     responses:
-   *       200: { description: Training deleted + cancellation email sent }
-   */
+  // Routes
+  router.post("/", verifyToken, hasPermission("training:create"), trainingController.createTraining);
+  router.get("/", verifyToken, hasPermission("training:view"), trainingController.getAllTrainings);
+  router.get("/:id", verifyToken, hasPermission("training:view"), trainingController.getTrainingById);
+  router.put("/:id", verifyToken, hasPermission("training:update"), trainingController.updateTraining);
+  router.patch("/:id/status", verifyToken, hasPermission("training:update"), trainingController.updateStatus);
+  router.post("/:id/remind", verifyToken, hasPermission("training:remind"), trainingController.sendReminder);
   router.delete("/:id", verifyToken, hasPermission("training:update"), trainingController.deleteTraining);
 
-  // Mount route
   app.use("/api/training", router);
 };
