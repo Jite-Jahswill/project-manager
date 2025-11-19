@@ -1,6 +1,6 @@
 // routes/messaging.routes.js
 const express = require("express");
-const { verifyToken } = require("../middlewares/auth.middleware");
+const { verifyToken,hasPermission } = require("../middlewares/auth.middleware");
 const { upload, uploadToFirebase } = require("../middlewares/upload.middleware");
 const messagingController = require("../controllers/messaging.controller");
 
