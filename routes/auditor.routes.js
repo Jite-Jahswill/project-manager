@@ -10,7 +10,7 @@ module.exports = (app) => {
    * @swagger
    * tags:
    *   - name: Audit Schedule
-   *     description: Manage internal safety audit schedules and assignments
+   *     description: Manage internal safety audit schedules and inspector assignments
    *
    * components:
    *   securitySchemes:
@@ -18,6 +18,46 @@ module.exports = (app) => {
    *       type: http
    *       scheme: bearer
    *       bearerFormat: JWT
+   *
+   *   schemas:
+   *     Audit:
+   *       type: object
+   *       properties:
+   *         id:
+   *           type: integer
+   *         title:
+   *           type: string
+   *           example: "Q4 Warehouse Safety Audit"
+   *         date:
+   *           type: string
+   *           format: date
+   *           example: "2025-03-15"
+   *         area:
+   *           type: string
+   *           example: "Main Warehouse & Loading Bay"
+   *         inspectors:
+   *           type: array
+   *           items:
+   *             type: string
+   *           example: ["John Doe", "Jane Smith"]
+   *         createdAt:
+   *           type: string
+   *           format: date-time
+   *         updatedAt:
+   *           type: string
+   *           format: date-time
+   *
+   *     Pagination:
+   *       type: object
+   *       properties:
+   *         total:
+   *           type: integer
+   *         page:
+   *           type: integer
+   *         totalPages:
+   *           type: integer
+   *         itemsPerPage:
+   *           type: integer
    *
    * /api/audit:
    *   post:
@@ -54,7 +94,7 @@ module.exports = (app) => {
    *                     items:
    *                       type: string
    *                     example: ["John Doe", "Jane Smith"]
-   *                 description: Can be a single name or array of inspector names
+   *                 description: Single name or array of inspector names
    *     responses:
    *       201:
    *         description: Audit created successfully
@@ -64,7 +104,7 @@ module.exports = (app) => {
    *         description: Insufficient permissions
    *
    *   get:
-   *     summary: Get all audits with search & pagination
+   *     summary: Get all audits with search and pagination
    *     tags: [Audit Schedule]
    *     security:
    *       - bearerAuth: []
@@ -117,22 +157,27 @@ module.exports = (app) => {
    *           schema:
    *             type: object
    *             properties:
-   *               title: { type: string }
-   *               date: { type: string, format: date }
-   *               area: { type: string }
+   *               title:
+   *                 type: string
+   *               date:
+   *                 type: string
+   *                 format: date
+   *               area:
+   *                 type: string
    *               inspectors:
    *                 oneOf:
    *                   - type: string
    *                   - type: array
-   *                     items: { type: string }
+   *                     items:
+   *                       type: string
    *     responses:
    *       200:
-   *         description: Audit updated
+   *         description: Audit updated successfully
    *       404:
    *         description: Audit not found
    *
    *   delete:
-   *     summary: Delete an audit
+   *     summary: Delete an audit schedule
    *     tags: [Audit Schedule]
    *     security:
    *       - bearerAuth: []
@@ -145,63 +190,20 @@ module.exports = (app) => {
    *     responses:
    *       200:
    *         description: Audit deleted successfully
-   *
-   * components:
-   *   schemas:
-   *     Audit:
-   *       type: object
-   *       properties:
-   *         id: { type: integer }
-   *         title: { type: string }
-   *         date: { type: string, format: date }
-   *         area: { type: string }
-   *         inspectors: { type: array, items: { type: string } }
-   *         createdAt: { type: string, format: date-time }
-   *         updatedAt: { type: string, format: date-time }
-   *     Pagination:
-   *       type: object
-   *       properties:
-   *         total: { type: integer }
-   *         page: { type: integer }
-   *         totalPages: { type: integer }
-   *         itemsPerPage: { type: integer }
    */
 
   // === PERMISSIONS ===
   const perms = {
     create: "audit:schedule",
-    read: "audit:view",
+    read:   "audit:view",
     update: "audit:schedule",
     delete: "audit:schedule",
   };
 
-  router.post(
-    "/",
-    verifyToken,
-    hasPermission(perms.create),
-    auditorController.createAudit
-  );
-
-  router.get(
-    "/",
-    verifyToken,
-    hasPermission(perms.read),
-    auditorController.getAllAudits
-  );
-
-  router.put(
-    "/:id",
-    verifyToken,
-    hasPermission(perms.update),
-    auditorController.updateAudit
-  );
-
-  router.delete(
-    "/:id",
-    verifyToken,
-    hasPermission(perms.delete),
-    auditorController.deleteAudit
-  );
+  router.post("/", verifyToken, hasPermission(perms.create), auditorController.createAudit);
+  router.get("/",  verifyToken, hasPermission(perms.read),   auditorController.getAllAudits);
+  router.put("/:id", verifyToken, hasPermission(perms.update), auditorController.updateAudit);
+  router.delete("/:id", verifyToken, hasPermission(perms.delete), auditorController.deleteAudit);
 
   app.use("/api/audit", router);
 };
