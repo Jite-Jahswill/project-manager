@@ -31,6 +31,9 @@ db.Participant = require("./participant.model")(sequelize, DataTypes);
 db.HseDocument = require("./hseDocument.model")(sequelize, DataTypes);
 db.DirectChat = require("./directChat.model")(sequelize, DataTypes);
 db.Audit = require("./audit.model")(sequelize, DataTypes);
+db.Auditor = require("./auditor.model")(sequelize, DataTypes);
+db.Risk = require("./risk.model")(sequelize, DataTypes);
+db.Training = require("./training.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
 Object.keys(db).forEach((modelName) => {
