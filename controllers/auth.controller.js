@@ -359,6 +359,77 @@ exports.updateUserRole = async (req, res) => {
 
   try {
     const { id } = req.params;
+    const { roleId } = req.body;
+
+    if (!roleId) {
+      await t.rollback();
+      return res.status(400).json({ error: "roleId is required" });
+    }
+
+    // Check if role exists
+    const role = await Role.findByPk(roleId, { transaction: t });
+    if (!role) {
+      await t.rollback();
+      return res.status(400).json({ error: `Role with ID '${roleId}' does not exist` });
+    }
+
+    // Get user
+    const user = await User.findByPk(id, { transaction: t });
+    if (!user) {
+      await t.rollback();
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Update user's roleId
+    await sequelize.query(
+      `UPDATE Users SET roleId = :roleId WHERE id = :userId`,
+      {
+        replacements: { roleId, userId: id },
+        type: sequelize.QueryTypes.UPDATE,
+        transaction: t,
+      }
+    );
+
+    // Fetch updated user
+    const updatedUser = await User.findByPk(id, {
+      include: [
+        {
+          model: Role,
+          as: "role",
+          attributes: ["id", "name", "permissions"],
+        },
+      ],
+      transaction: t,
+    });
+
+    await t.commit();
+
+    return res.json({
+      message: "User role updated successfully",
+      user: {
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        roleId: updatedUser.role.id,
+        role: updatedUser.role.name,
+        permissions: updatedUser.role.permissions,
+      },
+    });
+
+  } catch (error) {
+    await t.rollback();
+    console.error("Update user role error:", error);
+    return res.status(500).json({ error: "Failed to update user role" });
+  }
+};
+
+
+exports.updateUserRoleByRolename = async (req, res) => {
+  const t = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
     const { role: roleName } = req.body;
 
     if (!roleName) {
