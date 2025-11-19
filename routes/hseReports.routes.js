@@ -39,5 +39,5 @@ module.exports = (app) => {
 
   router.get("/analytics", verifyToken, hasPermission("hse:reports:view"), getHseAnalytics);
 
-  app.use("/api/hse/report-overview", router);
+  app.use("/api/hse/reports", router);
 };
