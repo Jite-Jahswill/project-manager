@@ -121,6 +121,9 @@ require("./routes/hseDocument.routes")(app);
 require("./routes/messaging.routes")(app);
 require("./routes/audit.routes")(app);
 require("./routes/directChat.routes")(app);
+require("./routes/auditor.routes")(app);
+require("./routes/risk.routes")(app);
+require("./routes/training.routes")(app);
 // In your main server.js or app.js
 app.use("/uploads", express.static("uploads"));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
