@@ -37,7 +37,7 @@ exports.getHseAnalytics = async (req, res) => {
     // 4. UPCOMING AUDITS
     const [upcomingAudits] = await sequelize.query(`
       SELECT COUNT(*) as upcomingAudits
-      FROM Audits
+      FROM Auditors
       WHERE date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY);
     `);
 
