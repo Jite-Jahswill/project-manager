@@ -354,7 +354,6 @@ exports.updateUser = async (req, res) => {
 // ---------------------------------------------------------------------
 // UPDATE USER ROLE
 // ---------------------------------------------------------------------
-
 exports.updateUserRole = async (req, res) => {
   const t = await sequelize.transaction();
 
@@ -367,7 +366,7 @@ exports.updateUserRole = async (req, res) => {
       return res.status(400).json({ error: "Role name is required" });
     }
 
-    // Find role by name
+    // Get role by name (e.g. "customer", "admin", "superadmin")
     const role = await Role.findOne({
       where: { name: roleName },
       transaction: t,
@@ -375,36 +374,33 @@ exports.updateUserRole = async (req, res) => {
 
     if (!role) {
       await t.rollback();
-      return res.status(400).json({ error: `Role '${roleName}' not found` });
+      return res.status(400).json({ error: `Role '${roleName}' does not exist` });
     }
 
-    // Find user
+    // Get user by ID
     const user = await User.findByPk(id, { transaction: t });
     if (!user) {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Optional: capture old record for logs
-    req.body._previousData = user.toJSON();
-
-    // Update roleId using raw SQL
+    // Update the user's roleId
     await sequelize.query(
-      `UPDATE Users SET roleId = :roleId WHERE id = :id`,
+      `UPDATE Users SET roleId = :newRoleId WHERE id = :userId`,
       {
-        replacements: { roleId: role.id, id },
+        replacements: { newRoleId: role.id, userId: id },
         type: sequelize.QueryTypes.UPDATE,
         transaction: t,
       }
     );
 
-    // Fetch updated user (include role + permissions)
+    // Fetch updated user with role
     const updatedUser = await User.findByPk(id, {
       include: [
         {
           model: Role,
-          as: "role",                    // << IMPORTANT alias
-          attributes: ["name", "permissions"],
+          as: "role",
+          attributes: ["id", "name", "permissions"],
         },
       ],
       transaction: t,
@@ -413,20 +409,21 @@ exports.updateUserRole = async (req, res) => {
     await t.commit();
 
     return res.json({
-      message: "Role updated successfully",
+      message: "User role updated successfully",
       user: {
         id: updatedUser.id,
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         email: updatedUser.email,
-        role: updatedUser.role.name,         // << NEW
-        permissions: updatedUser.role.permissions, // << NEW
+        roleId: updatedUser.role.id,
+        role: updatedUser.role.name,
+        permissions: updatedUser.role.permissions,
       },
     });
 
   } catch (error) {
     await t.rollback();
-    console.error("Error updating user role:", error);
+    console.error("Update user role error:", error);
     return res.status(500).json({ error: "Failed to update user role" });
   }
 };
