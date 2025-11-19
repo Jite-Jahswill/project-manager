@@ -247,19 +247,22 @@ exports.getUserById = async (req, res) => {
 // UPDATE USER (raw SQL → manual old data)
 // ---------------------------------------------------------------------
 exports.updateUser = async (req, res) => {
-  const t = await sequelize.transaction();
+  const t = await db.sequelize.transaction(); 
   try {
     const { id } = req.params;
     const { firstName, lastName, email, phoneNumber } = req.body;
-    const image = req.uploadedFiles?.[0]?.firebaseUrl;
 
+    // uploaded image URL from firebase
+    const image = req.uploadedFiles?.[0]?.firebaseUrl || null;
+
+    // Fetch old user
     const user = await User.findByPk(id, { transaction: t });
     if (!user) {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    // CAPTURE OLD DATA FOR AUDIT
+    // Set audit previous data
     req.body._previousData = user.toJSON();
 
     // Uniqueness checks
@@ -270,6 +273,7 @@ exports.updateUser = async (req, res) => {
         return res.status(409).json({ error: "Email already in use" });
       }
     }
+
     if (phoneNumber && phoneNumber !== user.phoneNumber) {
       const exists = await User.findOne({ where: { phoneNumber }, transaction: t });
       if (exists) {
@@ -278,37 +282,55 @@ exports.updateUser = async (req, res) => {
       }
     }
 
-    await sequelize.query(
-      `UPDATE Users
-       SET firstName = :firstName,
-           lastName = :lastName,
-           email = :email,
-           phoneNumber = :phoneNumber,
-           image = COALESCE(:image, image)
-       WHERE id = :id`,
+    // RAW SQL UPDATE
+    await db.sequelize.query(
+      `
+      UPDATE Users
+      SET 
+        firstName   = :firstName,
+        lastName    = :lastName,
+        email       = :email,
+        phoneNumber = :phoneNumber,
+        image       = CASE 
+                        WHEN :image IS NOT NULL THEN :image
+                        ELSE image
+                      END,
+        updatedAt   = NOW()
+      WHERE id = :id
+      `,
       {
         replacements: {
+          id,
           firstName: firstName || user.firstName,
           lastName: lastName || user.lastName,
           email: email || user.email,
           phoneNumber: phoneNumber || user.phoneNumber,
-          image,
-          id,
+          image: image, // null means "skip"
         },
-        type: sequelize.QueryTypes.UPDATE,
-        transaction: t,
+        type: db.sequelize.QueryTypes.UPDATE,
+        transaction: t
       }
     );
 
+    // Fetch updated user
     const updated = await User.findByPk(id, {
-      include: [{ model: Role, attributes: ["name"] }],
-      attributes: { exclude: ["password", "otp", "otpExpiresAt"] },
+      include: [
+        {
+          model: Role,
+          as: "role",
+          attributes: ["id", "name", "permissions"],
+        },
+      ],
+      attributes: {
+        exclude: ["password", "otp", "otpExpiresAt"],
+      },
       transaction: t,
     });
 
     await t.commit();
-    res.json({
-      message: "User updated",
+
+    return res.json({
+      message: "User updated successfully",
       user: {
         id: updated.id,
         firstName: updated.firstName,
@@ -316,41 +338,55 @@ exports.updateUser = async (req, res) => {
         email: updated.email,
         phoneNumber: updated.phoneNumber,
         image: updated.image,
-        role: updated.Role?.name,
+        role: updated.role?.name || null,
+        permissions: updated.role?.permissions || [],
       },
     });
   } catch (error) {
     await t.rollback();
     console.error("Update user error:", error);
-    res.status(500).json({ error: "Update failed" });
+    return res.status(500).json({ error: "Update failed", details: error.message });
   }
 };
+
 
 // ---------------------------------------------------------------------
 // UPDATE USER ROLE
 // ---------------------------------------------------------------------
+
 exports.updateUserRole = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
     const { role: roleName } = req.body;
-    if (!roleName) return res.status(400).json({ error: "Role name required" });
 
-    const role = await Role.findOne({ where: { name: roleName }, transaction: t });
+    if (!roleName) {
+      await t.rollback();
+      return res.status(400).json({ error: "Role name is required" });
+    }
+
+    // Get role
+    const role = await Role.findOne({
+      where: { name: roleName },
+      transaction: t,
+    });
+
     if (!role) {
       await t.rollback();
       return res.status(400).json({ error: `Role '${roleName}' not found` });
     }
 
+    // Get user
     const user = await User.findByPk(id, { transaction: t });
     if (!user) {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    // CAPTURE OLD DATA
+    // Save old data for logs (if needed later)
     req.body._previousData = user.toJSON();
 
+    // Update using raw SQL
     await sequelize.query(
       `UPDATE Users SET roleId = :roleId WHERE id = :id`,
       {
@@ -360,32 +396,38 @@ exports.updateUserRole = async (req, res) => {
       }
     );
 
-    await sendMail({
-      to: user.email,
-      subject: "Role Updated",
-      html: `<p>Hello ${user.firstName},</p><p>Your role is now <strong>${role.name}</strong>.</p>`,
-    });
+    // Send role update email
+    // await sendMail({
+    //   to: user.email,
+    //   subject: "Role Updated",
+    //   html: `
+    //     <p>Hello ${user.firstName},</p>
+    //     <p>Your role has been updated to <strong>${role.name}</strong>.</p>
+    //   `,
+    // });
 
-    const updated = await User.findByPk(id, {
+    // Fetch updated record
+    const updatedUser = await User.findByPk(id, {
       include: [{ model: Role, attributes: ["name"] }],
       transaction: t,
     });
 
     await t.commit();
-    res.json({
-      message: "Role updated",
+
+    return res.json({
+      message: "Role updated successfully",
       user: {
-        id: updated.id,
-        firstName: updated.firstName,
-        lastName: updated.lastName,
-        email: updated.email,
-        role: updated.Role.name,
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        role: updatedUser.Role.name,
       },
     });
   } catch (error) {
     await t.rollback();
-    console.error("Update role error:", error);
-    res.status(500).json({ error: "Failed to update role" });
+    console.error("Error updating user role:", error);
+    return res.status(500).json({ error: "Failed to update user role" });
   }
 };
 
