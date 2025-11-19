@@ -357,6 +357,7 @@ exports.updateUser = async (req, res) => {
 
 exports.updateUserRole = async (req, res) => {
   const t = await sequelize.transaction();
+
   try {
     const { id } = req.params;
     const { role: roleName } = req.body;
@@ -366,7 +367,7 @@ exports.updateUserRole = async (req, res) => {
       return res.status(400).json({ error: "Role name is required" });
     }
 
-    // Get role
+    // Find role by name
     const role = await Role.findOne({
       where: { name: roleName },
       transaction: t,
@@ -377,17 +378,17 @@ exports.updateUserRole = async (req, res) => {
       return res.status(400).json({ error: `Role '${roleName}' not found` });
     }
 
-    // Get user
+    // Find user
     const user = await User.findByPk(id, { transaction: t });
     if (!user) {
       await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Save old data for logs (if needed later)
+    // Optional: capture old record for logs
     req.body._previousData = user.toJSON();
 
-    // Update using raw SQL
+    // Update roleId using raw SQL
     await sequelize.query(
       `UPDATE Users SET roleId = :roleId WHERE id = :id`,
       {
@@ -397,19 +398,15 @@ exports.updateUserRole = async (req, res) => {
       }
     );
 
-    // Send role update email
-    // await sendMail({
-    //   to: user.email,
-    //   subject: "Role Updated",
-    //   html: `
-    //     <p>Hello ${user.firstName},</p>
-    //     <p>Your role has been updated to <strong>${role.name}</strong>.</p>
-    //   `,
-    // });
-
-    // Fetch updated record
+    // Fetch updated user (include role + permissions)
     const updatedUser = await User.findByPk(id, {
-      include: [{ model: Role, attributes: ["name"] }],
+      include: [
+        {
+          model: Role,
+          as: "role",                    // << IMPORTANT alias
+          attributes: ["name", "permissions"],
+        },
+      ],
       transaction: t,
     });
 
@@ -422,9 +419,11 @@ exports.updateUserRole = async (req, res) => {
         firstName: updatedUser.firstName,
         lastName: updatedUser.lastName,
         email: updatedUser.email,
-        role: updatedUser.Role.name,
+        role: updatedUser.role.name,         // << NEW
+        permissions: updatedUser.role.permissions, // << NEW
       },
     });
+
   } catch (error) {
     await t.rollback();
     console.error("Error updating user role:", error);
