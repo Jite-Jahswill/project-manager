@@ -548,7 +548,7 @@ module.exports = (app) => {
    * /api/auth/users/{id}/role:
    *   put:
    *     summary: Update user role
-   *     description: Updates the role of a user by ID. Accessible to authenticated users.
+   *     description: Updates the role of a user by ID.
    *     tags: [Auth]
    *     security:
    *       - bearerAuth: []
@@ -571,64 +571,18 @@ module.exports = (app) => {
    *             properties:
    *               role:
    *                 type: string
-   *                 enum: [superadmin, customer]
-   *                 example: "customer"
+   *                 example: "superadmin"
    *     responses:
    *       200:
    *         description: User role updated successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "User role updated successfully"
-   *                 user:
-   *                   $ref: '#/components/schemas/User'
    *       400:
    *         description: Invalid input
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Invalid role"
    *       401:
-   *         description: Unauthorized - Invalid or missing token
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 message:
-   *                   type: string
-   *                   example: "Unauthorized"
+   *         description: Unauthorized
    *       404:
    *         description: User not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "User not found"
    *       500:
    *         description: Internal server error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 error:
-   *                   type: string
-   *                   example: "Failed to update user role"
-   *                 details:
-   *                   type: string
-   *                   example: "Database error"
    */
   router.put("/users/:id/role", verifyToken, isSuperAdmin, hasPermission("user:update"),  authController.updateUserRole);
 
