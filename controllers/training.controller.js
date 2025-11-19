@@ -121,7 +121,7 @@ exports.getTrainingById = async (req, res) => {
       include: [{
         model: User,
         as: "attendees",
-        attributes: ["id", "firstName", "lastName", "email", "department"]
+        attributes: ["id", "firstName", "lastName", "email"]
       }]
     });
 
