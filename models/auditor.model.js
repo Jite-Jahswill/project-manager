@@ -1,7 +1,7 @@
 // models/audit.model.js
 module.exports = (sequelize, DataTypes) => {
-  const Audit = sequelize.define(
-    "Audit",
+  const Auditor = sequelize.define(
+    "Auditor",
     {
       id: {
         type: DataTypes.INTEGER,
@@ -27,13 +27,13 @@ module.exports = (sequelize, DataTypes) => {
     }
   );
 
-  Audit.associate = (models) => {
-    Audit.belongsToMany(models.User, {
-      through: "AuditAssignments",
+  Auditor.associate = (models) => {
+    Auditor.belongsToMany(models.User, {
+      through: "AuditorAssignments",
       as: "inspectors",
       foreignKey: "auditId",
     });
   };
 
-  return Audit;
+  return Auditor;
 };
