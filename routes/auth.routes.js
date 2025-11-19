@@ -548,6 +548,84 @@ module.exports = (app) => {
    * /api/auth/users/{id}/role:
    *   put:
    *     summary: Update user role
+   *     description: Change a user's role by assigning a new roleId (e.g. 1 = customer, 4 = admin).
+   *     tags: [Auth]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the user whose role will be updated
+   *         example: 1
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - roleId
+   *             properties:
+   *               roleId:
+   *                 type: integer
+   *                 description: The new role ID to assign (must match an existing role's ID)
+   *                 example: 4
+   *     responses:
+   *       200:
+   *         description: User role updated successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 message:
+   *                   type: string
+   *                   example: "User role updated successfully"
+   *                 user:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                       example: 1
+   *                     firstName:
+   *                       type: string
+   *                       example: "John"
+   *                     lastName:
+   *                       type: string
+   *                       example: "Doe"
+   *                     email:
+   *                       type: string
+   *                       example: "john@example.com"
+   *                     roleId:
+   *                       type: integer
+   *                       example: 4
+   *                     role:
+   *                       type: string
+   *                       example: "admin"
+   *                     permissions:
+   *                       type: array
+   *                       items:
+   *                         type: string
+   *                       example: ["messaging:sendMessage", "messaging:createGroup"]
+   *       400:
+   *         description: Invalid roleId provided
+   *       401:
+   *         description: Unauthorized
+   *       404:
+   *         description: User not found
+   *       500:
+   *         description: Internal server error
+   */
+   router.put("/users/:id/role", verifyToken, isSuperAdmin, hasPermission("user:update"),  authController.updateUserRole);
+  
+  /**
+   * @swagger
+   * /api/auth/users/{id}/role:
+   *   put:
+   *     summary: Update user role
    *     description: Change a user's role by assigning a new role name (e.g. 'customer', 'admin', 'superadmin').
    *     tags: [Auth]
    *     security:
@@ -643,7 +721,7 @@ module.exports = (app) => {
    *                   type: string
    *                   example: "Failed to update user role"
    */
-  router.put("/users/:id/role", verifyToken, isSuperAdmin, hasPermission("user:update"),  authController.updateUserRole);
+  router.put("/users/:id/user-role", verifyToken, isSuperAdmin, hasPermission("user:update"),  authController.updateUserRoleByRolename);
 
   /**
    * @swagger
