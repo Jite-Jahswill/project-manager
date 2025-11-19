@@ -9,7 +9,7 @@ module.exports = (sequelize, DataTypes) => {
         autoIncrement: true,
       },
       title: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.STRING,
         allowNull: false,
       },
       date: {
@@ -17,24 +17,19 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
       },
       area: {
-        type: DataTypes.STRING(255),
+        type: DataTypes.STRING,
         allowNull: false,
       },
-      // Free-text inspector names (supports multiple)
-      inspectorNames: {
-        type: DataTypes.JSON, // stores array of strings
+      // Store inspectors as JSON array of names (since not required to be Users)
+      inspectors: {
+        type: DataTypes.JSON,
         allowNull: false,
-        defaultValue: [],
-        comment: "List of inspector names (internal or external)",
+        defaultValue: [], // e.g: ["John Doe", "Jane Smith"]
       },
     },
     {
       tableName: "Audits",
       timestamps: true,
-      indexes: [
-        { fields: ["date"] },
-        { fields: ["area"] },
-      ],
     }
   );
 
