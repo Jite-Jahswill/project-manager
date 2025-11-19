@@ -1,47 +1,59 @@
 // controllers/hseReports.controller.js
-const { HSEReport, Risk, Training, Auditor, User, sequelize } = require("../models");
+const { sequelize } = require("../models");
 
 exports.getHseAnalytics = async (req, res) => {
   try {
-    const [results] = await sequelize.query(`
-      -- 1. Incident Summary
+    // 1. INCIDENT SUMMARY
+    const [incidentSummary] = await sequelize.query(`
       SELECT 
         COUNT(*) as totalIncidents,
         SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as openIncidents,
         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pendingIncidents,
         SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closedIncidents
       FROM HSEReports;
+    `);
 
-      -- 2. High Risk Count
+    // 2. HIGH RISK COUNT
+    const [highRisk] = await sequelize.query(`
       SELECT COUNT(*) as highRisks
-      FROM Risks 
+      FROM Risks
       WHERE severity IN ('High', 'Critical');
+    `);
 
-      -- 3. Training Compliance
+    // 3. TRAINING COMPLIANCE
+    const [trainingStats] = await sequelize.query(`
       SELECT 
         COUNT(*) as totalTrainings,
         SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completedTrainings,
         ROUND(
           COALESCE(SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 0)
         ) as compliancePercentage,
-        SUM(CASE WHEN status = 'Urgent' OR (nextTrainingDate < CURDATE() AND status != 'Completed') THEN 1 ELSE 0 END) as overdueTrainings
+        SUM(CASE WHEN status = 'Urgent' 
+            OR (nextTrainingDate < CURDATE() AND status != 'Completed') 
+        THEN 1 ELSE 0 END) as overdueTrainings
       FROM Trainings;
+    `);
 
-      -- 4. Upcoming Audits (next 7 days)
+    // 4. UPCOMING AUDITS
+    const [upcomingAudits] = await sequelize.query(`
       SELECT COUNT(*) as upcomingAudits
-      FROM Audits 
+      FROM Audits
       WHERE date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY);
+    `);
 
-      -- 5. Monthly Incident Trend (last 12 months)
+    // 5. MONTHLY INCIDENT TREND
+    const [monthlyTrend] = await sequelize.query(`
       SELECT 
         DATE_FORMAT(createdAt, '%Y-%m') as month,
         COUNT(*) as incidents
-      FROM HSEReports 
+      FROM HSEReports
       WHERE createdAt >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
       GROUP BY DATE_FORMAT(createdAt, '%Y-%m')
       ORDER BY month;
+    `);
 
-      -- 6. Top 5 Hazards
+    // 6. TOP 5 HAZARDS
+    const [topHazards] = await sequelize.query(`
       SELECT hazard, COUNT(*) as count
       FROM Risks
       GROUP BY hazard
@@ -49,14 +61,7 @@ exports.getHseAnalytics = async (req, res) => {
       LIMIT 5;
     `);
 
-    const [
-      incidentSummary,
-      highRisk,
-      trainingStats,
-      upcomingAudits,
-      monthlyTrend,
-      topHazards
-    ] = results;
+    // ==== RESPONSE ====
 
     res.json({
       success: true,
@@ -69,7 +74,10 @@ exports.getHseAnalytics = async (req, res) => {
         },
         risks: {
           highRiskCount: Number(highRisk[0]?.highRisks || 0),
-          topHazards: topHazards.map(h => ({ hazard: h.hazard, count: Number(h.count) }))
+          topHazards: topHazards.map(h => ({
+            hazard: h.hazard,
+            count: Number(h.count)
+          }))
         },
         training: {
           total: Number(trainingStats[0]?.totalTrainings || 0),
