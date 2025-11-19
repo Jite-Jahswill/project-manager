@@ -137,7 +137,7 @@ module.exports = (app) => {
    *       400:
    *         description: Invalid recipient or self-chat
    */
-  router.post("/direct/:recipientId", verifyToken, messagingController.getOrCreatePrivateChat);
+  router.post("/direct/:recipientId", verifyToken, hasPermission("messaging:openDirect"), messagingController.getOrCreatePrivateChat);
 
   // ===================================================================
   // 2. CREATE GROUP
@@ -175,7 +175,7 @@ module.exports = (app) => {
    *       400:
    *         description: Need name + 2+ others
    */
-  router.post("/group", verifyToken, messagingController.createGroup);
+  router.post("/group", verifyToken, hasPermission("messaging:createGroup"), messagingController.createGroup);
 
   // ===================================================================
   // 3. GET ALL MY CONVERSATIONS
@@ -197,7 +197,7 @@ module.exports = (app) => {
    *               type: array
    *               items: { $ref: '#/components/schemas/Conversation' }
    */
-  router.get("/conversations", verifyToken, messagingController.getMyConversations);
+  router.get("/conversations", verifyToken, hasPermission("messaging:getConversations"), messagingController.getMyConversations);
 
   // ===================================================================
   // 4. SEND MESSAGE (text, file, poll, reply)
@@ -256,6 +256,7 @@ module.exports = (app) => {
     "/:conversationId/message",
     verifyToken,
     upload,
+    hasPermission("messaging:sendMessage"),
     uploadToFirebase,
     messagingController.sendMessage
   );
@@ -287,7 +288,7 @@ module.exports = (app) => {
    *               type: array
    *               items: { $ref: '#/components/schemas/Message' }
    */
-  router.get("/:conversationId/messages", verifyToken, messagingController.getMessages);
+  router.get("/:conversationId/messages", verifyToken, hasPermission("messaging:getMessages"), messagingController.getMessages);
 
   // ===================================================================
   // 6. EDIT MESSAGE
@@ -320,7 +321,7 @@ module.exports = (app) => {
    *           application/json:
    *             schema: { $ref: '#/components/schemas/Message' }
    */
-  router.put("/message/:messageId", verifyToken, messagingController.editMessage);
+  router.put("/message/:messageId", verifyToken, hasPermission("messaging:editMessage"), messagingController.editMessage);
 
   // ===================================================================
   // 7. DELETE MESSAGE (soft)
@@ -354,7 +355,7 @@ module.exports = (app) => {
    *       200:
    *         description: Deleted
    */
-  router.delete("/message/:messageId", verifyToken, messagingController.deleteMessage);
+  router.delete("/message/:messageId", verifyToken, hasPermission("messaging:deleteMessage"), messagingController.deleteMessage);
 
   // ===================================================================
   // 8. ADD MEMBER TO GROUP
@@ -383,7 +384,7 @@ module.exports = (app) => {
    *     responses:
    *       200: { description: Member added }
    */
-  router.post("/group/:conversationId/member", verifyToken, messagingController.addMember);
+  router.post("/group/:conversationId/member", verifyToken, hasPermission("messaging:addMember"), messagingController.addMember);
 
   // ===================================================================
   // 9. REMOVE MEMBER FROM GROUP
@@ -407,7 +408,7 @@ module.exports = (app) => {
    *     responses:
    *       200: { description: Member removed }
    */
-  router.delete("/group/:conversationId/member/:memberId", verifyToken, messagingController.removeMember);
+  router.delete("/group/:conversationId/member/:memberId", verifyToken, hasPermission("messaging:removeMember"), messagingController.removeMember);
 
   // ===================================================================
   // 10. DELETE GROUP (creator only)
@@ -427,7 +428,7 @@ module.exports = (app) => {
    *     responses:
    *       200: { description: Group deleted }
    */
-  router.delete("/group/:conversationId", verifyToken, messagingController.deleteGroup);
+  router.delete("/group/:conversationId", verifyToken, hasPermission("messaging:deleteGroup"), messagingController.deleteGroup);
 
   // ===================================================================
   // 11. EDIT GROUP NAME (creator only)
@@ -460,7 +461,7 @@ module.exports = (app) => {
    *           application/json:
    *             schema: { $ref: '#/components/schemas/Conversation' }
    */
-  router.put("/group/:conversationId", verifyToken, messagingController.editGroup);
+  router.put("/group/:conversationId", verifyToken, hasPermission("messaging:editGroup"), messagingController.editGroup);
 
   // ===================================================================
   // MOUNT
