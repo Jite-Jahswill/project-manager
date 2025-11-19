@@ -16,16 +16,16 @@ exports.submitExpense = async (req, res) => {
     await t.commit();
 
     // Notify Finance Team
-    await sendMail({
-      to: "finance@company.com",
-      subject: `New Payment Request: ${expense.requestId}`,
-      html: `<h3>New Expense Submitted</h3>
-             <p><strong>Request ID:</strong> ${expense.requestId}</p>
-             <p><strong>Vendor:</strong> ${vendor}</p>
-             <p><strong>Amount:</strong> $${parseFloat(amount).toLocaleString()}</p>
-             <p><strong>Category:</strong> ${category}</p>
-             <p><strong>Submitted by:</strong> ${req.user.firstName} ${req.user.lastName}</p>`
-    });
+    // await sendMail({
+    //   to: "finance@company.com",
+    //   subject: `New Payment Request: ${expense.requestId}`,
+    //   html: `<h3>New Expense Submitted</h3>
+    //          <p><strong>Request ID:</strong> ${expense.requestId}</p>
+    //          <p><strong>Vendor:</strong> ${vendor}</p>
+    //          <p><strong>Amount:</strong> $${parseFloat(amount).toLocaleString()}</p>
+    //          <p><strong>Category:</strong> ${category}</p>
+    //          <p><strong>Submitted by:</strong> ${req.user.firstName} ${req.user.lastName}</p>`
+    // });
 
     res.status(201).json(expense);
   } catch (err) {
@@ -61,15 +61,15 @@ exports.approveExpense = async (req, res) => {
     await t.commit();
 
     // Notify submitter
-    const submitter = await User.findByPk(updated.submittedBy);
-    await sendMail({
-      to: submitter.email,
-      subject: `Payment Approved: ${updated.requestId}`,
-      html: `<h3>Your payment request has been APPROVED</h3>
-             <p><strong>Amount:</strong> $${parseFloat(updated.amount).toLocaleString()}</p>
-             <p><strong>Vendor:</strong> ${updated.vendor}</p>
-             <p>Payment will be processed shortly.</p>`
-    });
+    // const submitter = await User.findByPk(updated.submittedBy);
+    // await sendMail({
+    //   to: submitter.email,
+    //   subject: `Payment Approved: ${updated.requestId}`,
+    //   html: `<h3>Your payment request has been APPROVED</h3>
+    //          <p><strong>Amount:</strong> $${parseFloat(updated.amount).toLocaleString()}</p>
+    //          <p><strong>Vendor:</strong> ${updated.vendor}</p>
+    //          <p>Payment will be processed shortly.</p>`
+    // });
 
     res.json({ message: "Expense approved", expense: updated });
   } catch (err) {
@@ -101,14 +101,14 @@ exports.rejectExpense = async (req, res) => {
 
     await t.commit();
 
-    const submitter = await User.findByPk(updated.submittedBy);
-    await sendMail({
-      to: submitter.email,
-      subject: `Payment Rejected: ${updated.requestId}`,
-      html: `<h3>Your payment request was rejected</h3>
-             <p><strong>Reason:</strong> ${reason || "Not specified"}</p>
-             <p>Please contact Finance for clarification.</p>`
-    });
+    // const submitter = await User.findByPk(updated.submittedBy);
+    // await sendMail({
+    //   to: submitter.email,
+    //   subject: `Payment Rejected: ${updated.requestId}`,
+    //   html: `<h3>Your payment request was rejected</h3>
+    //          <p><strong>Reason:</strong> ${reason || "Not specified"}</p>
+    //          <p>Please contact Finance for clarification.</p>`
+    // });
 
     res.json({ message: "Expense rejected" });
   } catch (err) {
