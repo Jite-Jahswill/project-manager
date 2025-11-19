@@ -1,6 +1,7 @@
 // controllers/auth.controller.js
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const db = require("../models");
 const { User, Role, sequelize } = require("../models");
 const sendMail = require("../utils/mailer");
 const crypto = require("crypto");
