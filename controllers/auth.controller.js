@@ -65,18 +65,18 @@ exports.register = async (req, res) => {
       { transaction: t }
     );
 
-    await sendMail({
-      to: user.email,
-      subject: "Welcome! Verify Your Email",
-      html: `
-        <p>Hello ${user.firstName},</p>
-        <p>Your account has been created.</p>
-        <p><strong>Email:</strong> ${user.email}</p>
-        <p><strong>Password:</strong> ${autoPassword}</p>
-        <p><strong>OTP:</strong> ${otp} (expires in 10 mins)</p>
-        <p>Best,<br>Team</p>
-      `,
-    });
+    // await sendMail({
+    //   to: user.email,
+    //   subject: "Welcome! Verify Your Email",
+    //   html: `
+    //     <p>Hello ${user.firstName},</p>
+    //     <p>Your account has been created.</p>
+    //     <p><strong>Email:</strong> ${user.email}</p>
+    //     <p><strong>Password:</strong> ${autoPassword}</p>
+    //     <p><strong>OTP:</strong> ${otp} (expires in 10 mins)</p>
+    //     <p>Best,<br>Team</p>
+    //   `,
+    // });
 
     await t.commit();
     res.status(201).json({
