@@ -212,22 +212,38 @@ exports.deleteProposal = async (req, res) => {
     const { id } = req.params;
     const userId = req.user.id;
 
-    const [deleted] = await sequelize.query(
-      `DELETE FROM Proposals 
-       WHERE id = :id AND submittedBy = :userId AND status IN ('Draft', 'Rejected')
-       RETURNING id, proposalId, title`,
-      { replacements: { id, userId }, type: sequelize.QueryTypes.DELETE, transaction: t }
-    );
+    // First: find the proposal to check ownership + status
+    const proposal = await Proposal.findOne({
+      where: {
+        id,
+        submittedBy: userId,
+        status: ["Draft", "Rejected"]  // Only allow delete if Draft or Rejected
+      },
+      transaction: t
+    });
 
-    if (!deleted || deleted.length === 0) {
+    if (!proposal) {
       await t.rollback();
-      return res.status(403).json({ message: "Cannot delete – not yours or already processed" });
+      return res.status(403).json({
+        message: "Cannot delete: Proposal not found, not yours, or already processed"
+      });
     }
 
+    // Now safely delete
+    await proposal.destroy({ transaction: t });
     await t.commit();
-    res.json({ message: "Proposal deleted successfully", deleted: deleted[0] });
+
+    res.json({
+      message: "Proposal deleted successfully",
+      deleted: {
+        id: proposal.id,
+        proposalId: proposal.proposalId,
+        title: proposal.title
+      }
+    });
   } catch (err) {
     await t.rollback();
-    res.status(500).json({ error: err.message });
+    console.error("Delete proposal error:", err);
+    res.status(500).json({ error: "Failed to delete proposal" });
   }
 };
