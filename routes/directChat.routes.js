@@ -286,6 +286,89 @@ module.exports = (app) => {
     directChatController.deleteMessage
   );
 
+  /**
+   * @swagger
+   * tags:
+   *   - name: Direct Chat
+   *     description: Real-time 1-on-1 messaging with unread tracking, edit/delete, file support
+   *
+   * components:
+   *   securitySchemes:
+   *     bearerAuth:
+   *       type: http
+   *       scheme: bearer
+   *       bearerFormat: JWT
+   *
+   * /api/chat/unread:
+   *   get:
+   *     summary: Get total unread direct messages count (global badge)
+   *     description: |
+   *       Returns the total number of unread messages across **all** conversations for the authenticated user.
+   *       Perfect for the red badge in the top navbar or bell icon.
+   *     tags: [Direct Chat]
+   *     security: [bearerAuth: []]
+   *     responses:
+   *       200:
+   *         description: Total unread count
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: true
+   *                 unreadCount:
+   *                   type: integer
+   *                   example: 27
+   *                   description: Total unread messages (excludes soft-deleted)
+   *                 fetchedAt:
+   *                   type: string
+   *                   format: date-time
+   *                   example: "2025-08-10T14:23:11.000Z"
+   *       401:
+   *         description: Unauthorized – invalid or missing token
+   *       500:
+   *         description: Server error
+   *
+   * /api/chat/unread/{otherUserId}:
+   *   get:
+   *     summary: Get unread count for a specific conversation
+   *     description: |
+   *       Returns how many unread messages the current user has from a **specific sender**.
+   *       Ideal for showing unread badges next to each contact in the chat list.
+   *     tags: [Direct Chat]
+   *     security: [bearerAuth: []]
+   *     parameters:
+   *       - in: path
+   *         name: otherUserId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: User ID of the person you're chatting with
+   *         example: 42
+   *     responses:
+   *       200:
+   *         description: Unread count for this conversation
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 unreadCount:
+   *                   type: integer
+   *                   example: 5
+   *                   description: Number of unread messages from this user
+   *       400:
+   *         description: Invalid otherUserId
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Server error
+   */
+  router.get("/unread", verifyToken, directChatController.getUnreadCount);
+  router.get("/unread/:otherUserId", verifyToken, directChatController.getConversationUnreadCount);
+
   // ===================================================================
   // MOUNT ROUTER
   // ===================================================================
