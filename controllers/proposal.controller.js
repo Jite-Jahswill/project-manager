@@ -128,34 +128,67 @@ exports.updateProposalStatus = async (req, res) => {
   }
 };
 
-// GET ALL + FILTER BY STATUS
+// ADD THESE TO YOUR EXISTING proposal.controller.js
+
+// GET SINGLE PROPOSAL BY ID
+exports.getProposalById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [proposal] = await sequelize.query(
+      `SELECT p.*, 
+              u1.firstName AS authorFirstName, u1.lastName AS authorLastName,
+              u2.firstName AS approverFirstName, u2.lastName AS approverLastName
+       FROM Proposals p
+       LEFT JOIN Users u1 ON p.submittedBy = u1.id
+       LEFT JOIN Users u2 ON p.approvedBy = u2.id
+       WHERE p.id = :id`,
+      { replacements: { id }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!proposal) return res.status(404).json({ message: "Proposal not found" });
+    res.json(proposal);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// FULLY SEARCHABLE GET ALL
 exports.getAllProposals = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { search, status, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
-    let where = "";
+    let where = [];
     let reps = { limit: parseInt(limit), offset };
+
+    if (search) {
+      where.push(`(p.title LIKE :search OR p.clientName LIKE :search OR p.proposalId LIKE :search)`);
+      reps.search = `%${search}%`;
+    }
     if (status) {
-      where = `WHERE p.status = :status`;
+      where.push(`p.status = :status`);
       reps.status = status;
     }
 
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+
     const [proposals, [{ total }]] = await Promise.all([
       sequelize.query(
-        `SELECT p.*, u1.firstName AS authorFirstName, u1.lastName AS authorLastName,
+        `SELECT p.*, 
+                u1.firstName AS authorFirstName, u1.lastName AS authorLastName,
                 u2.firstName AS approverFirstName, u2.lastName AS approverLastName
          FROM Proposals p
          LEFT JOIN Users u1 ON p.submittedBy = u1.id
          LEFT JOIN Users u2 ON p.approvedBy = u2.id
-         ${where}
+         ${whereClause}
          ORDER BY p.createdAt DESC
          LIMIT :limit OFFSET :offset`,
         { replacements: reps, type: sequelize.QueryTypes.SELECT }
       ),
-      sequelize.query(`SELECT COUNT(*) as total FROM Proposals p ${where}`, {
-        replacements: reps, type: sequelize.QueryTypes.SELECT
-      })
+      sequelize.query(
+        `SELECT COUNT(*) as total FROM Proposals p ${whereClause}`,
+        { replacements: reps, type: sequelize.QueryTypes.SELECT }
+      )
     ]);
 
     res.json({
@@ -168,6 +201,33 @@ exports.getAllProposals = async (req, res) => {
       }
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// DELETE PROPOSAL (only Draft or Rejected)
+exports.deleteProposal = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const [deleted] = await sequelize.query(
+      `DELETE FROM Proposals 
+       WHERE id = :id AND submittedBy = :userId AND status IN ('Draft', 'Rejected')
+       RETURNING id, proposalId, title`,
+      { replacements: { id, userId }, type: sequelize.QueryTypes.DELETE, transaction: t }
+    );
+
+    if (!deleted || deleted.length === 0) {
+      await t.rollback();
+      return res.status(403).json({ message: "Cannot delete – not yours or already processed" });
+    }
+
+    await t.commit();
+    res.json({ message: "Proposal deleted successfully", deleted: deleted[0] });
+  } catch (err) {
+    await t.rollback();
     res.status(500).json({ error: err.message });
   }
 };
