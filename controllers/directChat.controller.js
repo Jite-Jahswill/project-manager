@@ -163,3 +163,51 @@ exports.deleteMessage = async (req, res) => {
     res.status(500).json({ error: "Failed to delete message", details: err.message });
   }
 };
+
+// FETCH UNREAD MESSAGE COUNT FOR CURRENT USER
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const unreadCount = await DirectChat.count({
+      where: {
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false  // Don't count soft-deleted messages
+      }
+    });
+
+    res.json({
+      success: true,
+      unreadCount: Number(unreadCount),
+      fetchedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error("getUnreadCount error:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Failed to fetch unread count" 
+    });
+  }
+};
+
+// GET UNREAD COUNT FOR SPECIFIC CONVERSATION (e.g. badge on chat list)
+exports.getConversationUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { otherUserId } = req.params;
+
+    const count = await DirectChat.count({
+      where: {
+        senderId: otherUserId,
+        receiverId: userId,
+        isRead: false,
+        isDeleted: false
+      }
+    });
+
+    res.json({ unreadCount: Number(count) });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch conversation unread count" });
+  }
+};
