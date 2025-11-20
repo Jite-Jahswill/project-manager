@@ -127,6 +127,7 @@ require("./routes/training.routes")(app);
 require("./routes/hseReports.routes")(app);
 require("./routes/finance.routes")(app);
 require("./routes/proposal.routes")(app);
+require("./routes/hr.routes")(app);
 // In your main server.js or app.js
 app.use("/uploads", express.static("uploads"));
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
