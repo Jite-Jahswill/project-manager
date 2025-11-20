@@ -37,6 +37,7 @@ db.Training = require("./training.model")(sequelize, DataTypes);
 db.FinanceExpense = require("./financeExpense.model")(sequelize, DataTypes);
 db.TrainingAttendees = require("./trainingAttendee.model")(sequelize, DataTypes);
 db.Proposal = require("./proposal.model")(sequelize, DataTypes);
+db.Employee = require("./employee.model")(sequelize, DataTypes);
 
 // Run model-defined associations (if any in .associate)
 Object.keys(db).forEach((modelName) => {
