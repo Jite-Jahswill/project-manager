@@ -173,6 +173,7 @@ exports.deleteAudit = async (req, res) => {
     const audit = await Auditor.findByPk(id);
     if (!audit) return res.status(404).json({ message: "Audit not found" });
 
+    req.body = req.body || {};
     req.body._deletedData = audit.toJSON();
     await audit.destroy({ transaction: t });
     await t.commit();
