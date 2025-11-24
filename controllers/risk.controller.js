@@ -200,10 +200,14 @@ exports.deleteRisk = async (req, res) => {
     const risk = await Risk.findByPk(id);
     if (!risk) return res.status(404).json({ message: "Risk not found" });
 
-    req.body._deletedData = risk.toJSON();
+    // Ensure req.body exists before modifying it
+    req.body = req.body || {}; // Initialize req.body if it's undefined
+    req.body._deletedData = risk.toJSON();  // Now it's safe to set _deletedData
+
     await risk.destroy({ transaction: t });
     await t.commit();
 
+    // Optional: Notify admins about the deletion
     // await notifyAdmins("Risk Deleted", `
     //   <h3>Risk Removed from Register</h3>
     //   <p><strong>Hazard:</strong> ${risk.hazard}</p>
@@ -217,3 +221,4 @@ exports.deleteRisk = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
