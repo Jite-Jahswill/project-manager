@@ -274,6 +274,7 @@ exports.deleteTraining = async (req, res) => {
     const training = await Training.findByPk(id);
     if (!training) return res.status(404).json({ message: "Training not found" });
 
+    req.body = req.body || {};
     req.body._deletedData = training.toJSON();
 
     await sequelize.query(
