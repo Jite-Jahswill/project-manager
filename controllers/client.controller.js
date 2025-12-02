@@ -197,6 +197,7 @@ module.exports = {
       // AUDIT: CREATE → responseData has client.id
       return res.status(201).json({
         message: "Client created",
+        autoPassword,
         client: {
           id: client.id,
           firstName: client.firstName,
