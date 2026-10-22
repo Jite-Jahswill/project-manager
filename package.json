@@ -1,0 +1,15 @@
+{
+  "name": "ventidoc",
+  "private": true,
+  "packageManager": "pnpm@10.34.6",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "api": "pnpm --filter @ventidoc/api",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm -r test:e2e"
+  }
+}

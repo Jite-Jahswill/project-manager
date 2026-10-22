@@ -1,0 +1,115 @@
+import { ALL_PERMISSION_KEYS, PermissionKey } from './permission-registry';
+
+/**
+ * Starter roles copied into every new organization. After creation they are
+ * ordinary, editable roles owned by that organization; changing a template here
+ * does not modify existing organizations.
+ *
+ * The Owner role is the exception: it is a locked system role whose holders have
+ * every permission (see permission-evaluator.ts), so it stores no permission rows.
+ */
+export interface RoleTemplate {
+  key: string;
+  name: string;
+  description: string;
+  permissions: readonly PermissionKey[];
+}
+
+export const OWNER_TEMPLATE_KEY = 'owner';
+
+const except = (...excluded: PermissionKey[]) => ALL_PERMISSION_KEYS.filter((k) => !excluded.includes(k));
+
+export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
+  {
+    key: 'org_admin',
+    name: 'Organization administrator',
+    description: 'Runs the organization day to day. No payroll approval or sensitive HR data by default.',
+    permissions: except('hr.employee.read_sensitive', 'hr.payroll.approve', 'hr.payroll.export', 'hr.payroll.prepare'),
+  },
+  {
+    key: 'branch_manager',
+    name: 'Branch manager',
+    description: 'Manages operations of the branches they are assigned to.',
+    permissions: [
+      'organization.branch.read', 'organization.member.read',
+      'inventory.product.read', 'inventory.stock.read', 'inventory.stock.adjust', 'inventory.stock.transfer',
+      'inventory.stock.approve_adjustment',
+      'purchasing.supplier.read', 'purchasing.order.create', 'purchasing.order.approve', 'purchasing.order.receive',
+      'sales.sale.read', 'sales.sale.create', 'sales.sale.refund', 'sales.payment.confirm', 'sales.customer.read',
+      'logistics.shipment.read', 'finance.expense.create', 'hr.employee.read', 'reports.operational.read',
+    ],
+  },
+  {
+    key: 'inventory_manager',
+    name: 'Inventory manager',
+    description: 'Owns the product catalog and stock control.',
+    permissions: [
+      'organization.branch.read',
+      'inventory.product.read', 'inventory.product.create', 'inventory.product.update', 'inventory.product.archive',
+      'inventory.stock.read', 'inventory.stock.adjust', 'inventory.stock.transfer', 'inventory.stock.approve_adjustment',
+      'purchasing.supplier.read', 'purchasing.supplier.manage', 'purchasing.order.create', 'purchasing.order.receive',
+      'reports.operational.read',
+    ],
+  },
+  {
+    key: 'storekeeper',
+    name: 'Storekeeper',
+    description: 'Counts, receives and adjusts stock at assigned branches. Adjustments may require approval.',
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'inventory.stock.adjust', 'purchasing.order.receive'],
+  },
+  {
+    key: 'cashier',
+    name: 'Cashier',
+    description: 'Records sales and payments at assigned branches.',
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.payment.confirm', 'sales.customer.read'],
+  },
+  {
+    key: 'sales_rep',
+    name: 'Sales representative',
+    description: 'Sells and manages customer relationships.',
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.customer.read', 'sales.customer.manage'],
+  },
+  {
+    key: 'accountant',
+    name: 'Accountant',
+    description: 'Financial reporting, expenses and reconciliation.',
+    permissions: [
+      'organization.branch.read', 'sales.sale.read', 'finance.report.read', 'finance.expense.create',
+      'finance.expense.approve', 'finance.ledger.reconcile', 'reports.operational.read',
+    ],
+  },
+  {
+    key: 'hr_manager',
+    name: 'HR manager',
+    description: 'Employee records including sensitive HR data. No payroll approval by default.',
+    permissions: ['organization.member.read', 'hr.employee.read', 'hr.employee.read_sensitive', 'hr.employee.manage', 'hr.payroll.read'],
+  },
+  {
+    key: 'payroll_officer',
+    name: 'Payroll officer',
+    description: 'Prepares payroll. Approval is a separate permission (separation of duties).',
+    permissions: ['hr.employee.read', 'hr.employee.read_sensitive', 'hr.payroll.read', 'hr.payroll.prepare'],
+  },
+  {
+    key: 'auditor',
+    name: 'Auditor',
+    description: 'Read-only access including financial reports and the audit log.',
+    permissions: [
+      'organization.settings.read', 'organization.branch.read', 'organization.member.read', 'organization.role.read',
+      'security.audit.read', 'inventory.product.read', 'inventory.stock.read', 'sales.sale.read', 'finance.report.read',
+      'reports.operational.read',
+    ],
+  },
+  {
+    key: 'logistics_officer',
+    name: 'Logistics officer',
+    description: 'Dispatches and tracks shipments.',
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'inventory.stock.transfer', 'logistics.shipment.read', 'logistics.shipment.manage'],
+  },
+  {
+    key: 'viewer',
+    name: 'Read-only viewer',
+    description: 'Views non-sensitive operational data.',
+    permissions: ['organization.branch.read', 'inventory.product.read', 'inventory.stock.read', 'sales.sale.read', 'reports.operational.read'],
+  },
+];

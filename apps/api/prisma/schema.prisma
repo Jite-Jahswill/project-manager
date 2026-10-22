@@ -1,0 +1,587 @@
+// Ventidoc data model.
+//
+// Conventions (see docs/architecture/03-data-model.md):
+// - Every tenant-owned table carries organization_id and is protected by
+//   PostgreSQL Row-Level Security (policies live in hand-written SQL migrations).
+// - Child rows reference parents through composite (id, organization_id) foreign
+//   keys so the database itself rejects cross-tenant relationships.
+// - Money is stored as integer minor units (BigInt) plus an ISO-4217 currency code.
+// - Ledger-style tables (audit_events, stock_movements) are append-only for the
+//   application role.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity & authentication (global, not tenant-owned)
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String     @unique // always stored lower-cased and trimmed
+  emailVerifiedAt  DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  displayName      String     @map("display_name")
+  status           UserStatus @default(ACTIVE)
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz(3)
+  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  credential    UserCredential?
+  sessions      Session[]
+  actionTokens  UserActionToken[]
+  memberships   OrganizationMembership[]
+  platformAdmin PlatformAdmin?
+
+  @@map("users")
+}
+
+/// Password hashes, isolated from every other table. Only the ventidoc_auth role
+/// can read or write this table; the main application role (ventidoc_app) has no
+/// privileges on it. Application code must use CredentialStore, never Prisma
+/// (lint-enforced): the Prisma client connects as ventidoc_app.
+model UserCredential {
+  userId       String   @id @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_credentials")
+}
+
+enum ClientType {
+  WEB
+  MOBILE
+}
+
+/// One login on one device. Refresh tokens rotate within a session; reuse of a
+/// rotated token revokes the whole session.
+model Session {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  clientType  ClientType @map("client_type")
+  deviceName  String?    @map("device_name")
+  ipAddress   String?    @map("ip_address")
+  userAgent   String?    @map("user_agent")
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt  DateTime   @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  expiresAt   DateTime   @map("expires_at") @db.Timestamptz(3)
+  revokedAt   DateTime?  @map("revoked_at") @db.Timestamptz(3)
+  revokeReason String?   @map("revoke_reason")
+  /// Last password re-entry on this session; privileged actions require it to be recent.
+  reauthenticatedAt DateTime? @map("reauthenticated_at") @db.Timestamptz(3)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model RefreshToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String    @map("session_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") // SHA-256 of the opaque token
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(3)
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+}
+
+enum UserActionPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model UserActionToken {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String            @map("user_id") @db.Uuid
+  purpose    UserActionPurpose
+  tokenHash  String            @unique @map("token_hash")
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt  DateTime          @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime?         @map("consumed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("user_action_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Platform administration RBAC (separate from organization RBAC)
+// ---------------------------------------------------------------------------
+
+model PlatformPermission {
+  key         String  @id
+  description String
+  /// Highly privileged operations require recent re-authentication / MFA.
+  privileged  Boolean @default(false)
+
+  roles PlatformRolePermission[]
+
+  @@map("platform_permissions")
+}
+
+model PlatformRole {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  permissions PlatformRolePermission[]
+  admins      PlatformAdminRole[]
+
+  @@map("platform_roles")
+}
+
+model PlatformRolePermission {
+  roleId        String @map("role_id") @db.Uuid
+  permissionKey String @map("permission_key")
+
+  role       PlatformRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission PlatformPermission @relation(fields: [permissionKey], references: [key])
+
+  @@id([roleId, permissionKey])
+  @@map("platform_role_permissions")
+}
+
+enum PlatformAdminStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model PlatformAdmin {
+  userId    String              @id @map("user_id") @db.Uuid
+  status    PlatformAdminStatus @default(ACTIVE)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy String?             @map("created_by") @db.Uuid
+
+  user  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles PlatformAdminRole[]
+
+  @@map("platform_admins")
+}
+
+model PlatformAdminRole {
+  adminUserId String @map("admin_user_id") @db.Uuid
+  roleId      String @map("role_id") @db.Uuid
+
+  admin PlatformAdmin @relation(fields: [adminUserId], references: [userId], onDelete: Cascade)
+  role  PlatformRole  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, roleId])
+  @@map("platform_admin_roles")
+}
+
+// ---------------------------------------------------------------------------
+// Organizations, memberships, branches
+// ---------------------------------------------------------------------------
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Organization {
+  id              String             @id @db.Uuid // generated by the API so tenant context can be set before insert
+  name            String
+  slug            String             @unique
+  status          OrganizationStatus @default(ACTIVE)
+  defaultCurrency String             @default("USD") @map("default_currency") @db.Char(3)
+  createdByUserId String             @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships  OrganizationMembership[]
+  branches     Branch[]
+  roles        Role[]
+  invitations  OrganizationInvitation[]
+  subscription OrganizationSubscription?
+  products     Product[]
+
+  @@map("organizations")
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+model OrganizationMembership {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  status         MembershipStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User                           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  roles        MembershipRole[]
+  overrides    MembershipPermissionOverride[]
+
+  @@unique([organizationId, userId])
+  @@unique([id, organizationId])
+  @@index([userId])
+  @@map("organization_memberships")
+}
+
+enum BranchStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Branch {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String
+  code           String
+  status         BranchStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization    Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roleAssignments MembershipRole[]
+  overrides       MembershipPermissionOverride[]
+  stockBalances   StockBalance[]
+  stockMovements  StockMovement[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId])
+  @@map("branches")
+}
+
+model OrganizationInvitation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  email           String
+  roleId          String?   @map("role_id") @db.Uuid
+  branchId        String?   @map("branch_id") @db.Uuid
+  tokenHash       String    @unique @map("token_hash")
+  invitedByUserId String    @map("invited_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role?        @relation(fields: [roleId, organizationId], references: [id, organizationId])
+
+  @@index([organizationId, email])
+  @@map("organization_invitations")
+}
+
+// ---------------------------------------------------------------------------
+// Organization RBAC
+// ---------------------------------------------------------------------------
+
+enum PermissionSensitivity {
+  STANDARD
+  RESTRICTED
+}
+
+enum PermissionScope {
+  ORGANIZATION
+  BRANCH
+}
+
+/// Catalog of organization permissions. Rows are synced from the code registry
+/// (src/authz/permission-registry.ts); the FK from role_permissions guarantees a
+/// role can only hold permissions that actually exist.
+model Permission {
+  key         String                @id
+  module      String
+  resource    String
+  action      String
+  scope       PermissionScope
+  sensitivity PermissionSensitivity
+  description String
+
+  rolePermissions RolePermission[]
+  overrides       MembershipPermissionOverride[]
+
+  @@map("permissions")
+}
+
+model Role {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String?
+  /// System roles (Owner) cannot be edited or deleted.
+  isSystem       Boolean  @default(false) @map("is_system")
+  /// The starter template this role was created from, if any.
+  templateKey    String?  @map("template_key")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  assignments  MembershipRole[]
+  invitations  OrganizationInvitation[]
+
+  @@unique([organizationId, name])
+  @@unique([id, organizationId])
+  @@map("roles")
+}
+
+model RolePermission {
+  organizationId String @map("organization_id") @db.Uuid
+  roleId         String @map("role_id") @db.Uuid
+  permissionKey  String @map("permission_key")
+
+  role       Role       @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key])
+
+  @@id([roleId, permissionKey])
+  @@index([organizationId])
+  @@map("role_permissions")
+}
+
+/// Assigns a role to a membership, organization-wide (branch_id NULL) or for one branch.
+/// This is also the branch assignment record: a member works at a branch by holding a role there.
+model MembershipRole {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  membershipId    String   @map("membership_id") @db.Uuid
+  roleId          String   @map("role_id") @db.Uuid
+  branchId        String?  @map("branch_id") @db.Uuid
+  assignedByUserId String? @map("assigned_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  membership OrganizationMembership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  role       Role                   @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  branch     Branch?                @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, membershipId])
+  @@map("membership_roles")
+}
+
+enum OverrideEffect {
+  GRANT
+  DENY
+}
+
+/// User-specific exception to role-derived permissions. Precedence: DENY > GRANT > roles.
+model MembershipPermissionOverride {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String         @map("organization_id") @db.Uuid
+  membershipId    String         @map("membership_id") @db.Uuid
+  permissionKey   String         @map("permission_key")
+  effect          OverrideEffect
+  branchId        String?        @map("branch_id") @db.Uuid
+  reason          String
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt       DateTime?      @map("expires_at") @db.Timestamptz(3)
+
+  membership OrganizationMembership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  permission Permission             @relation(fields: [permissionKey], references: [key])
+  branch     Branch?                @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@index([organizationId, membershipId])
+  @@map("membership_permission_overrides")
+}
+
+// ---------------------------------------------------------------------------
+// Subscriptions & entitlements
+// ---------------------------------------------------------------------------
+
+model Plan {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  prices        PlanPrice[]
+  entitlements  PlanEntitlement[]
+  subscriptions OrganizationSubscription[]
+
+  @@map("plans")
+}
+
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+model PlanPrice {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId      String          @map("plan_id") @db.Uuid
+  currency    String          @db.Char(3)
+  amountMinor BigInt          @map("amount_minor")
+  interval    BillingInterval
+  isActive    Boolean         @default(true) @map("is_active")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, currency, interval])
+  @@map("plan_prices")
+}
+
+/// A feature flag (enabled) or a numeric limit (limitValue; NULL = unlimited).
+model PlanEntitlement {
+  planId     String  @map("plan_id") @db.Uuid
+  key        String
+  enabled    Boolean @default(true)
+  limitValue Int?    @map("limit_value")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@id([planId, key])
+  @@map("plan_entitlements")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  GRACE
+  RESTRICTED
+  CANCELED
+  EXPIRED
+}
+
+model OrganizationSubscription {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String             @unique @map("organization_id") @db.Uuid
+  planId             String             @map("plan_id") @db.Uuid
+  status             SubscriptionStatus
+  currentPeriodStart DateTime           @map("current_period_start") @db.Timestamptz(3)
+  currentPeriodEnd   DateTime           @map("current_period_end") @db.Timestamptz(3)
+  trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(3)
+  graceEndsAt        DateTime?          @map("grace_ends_at") @db.Timestamptz(3)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan         Plan         @relation(fields: [planId], references: [id])
+
+  @@map("organization_subscriptions")
+}
+
+// ---------------------------------------------------------------------------
+// Audit (append-only)
+// ---------------------------------------------------------------------------
+
+enum ActorType {
+  USER
+  PLATFORM_ADMIN
+  SYSTEM
+}
+
+model AuditEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  occurredAt     DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  /// NULL for identity/platform events that belong to no organization.
+  organizationId String?   @map("organization_id") @db.Uuid
+  branchId       String?   @map("branch_id") @db.Uuid
+  actorType      ActorType @map("actor_type")
+  actorUserId    String?   @map("actor_user_id") @db.Uuid
+  action         String
+  resourceType   String    @map("resource_type")
+  resourceId     String?   @map("resource_id")
+  before         Json?
+  after          Json?
+  metadata       Json?
+  ipAddress      String?   @map("ip_address")
+  userAgent      String?   @map("user_agent")
+  requestId      String?   @map("request_id")
+
+  @@index([organizationId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// Inventory (first vertical slice)
+// ---------------------------------------------------------------------------
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Product {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  sku            String
+  name           String
+  unit           String        @default("each")
+  status         ProductStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stockBalances  StockBalance[]
+  stockMovements StockMovement[]
+
+  @@unique([organizationId, sku])
+  @@unique([id, organizationId])
+  @@map("products")
+}
+
+/// Current on-hand quantity per (branch, product). Only changed together with a
+/// stock_movements insert inside the same transaction.
+model StockBalance {
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  productId      String   @map("product_id") @db.Uuid
+  quantity       Decimal  @default(0) @db.Decimal(18, 3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  branch  Branch  @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product Product @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@id([branchId, productId])
+  @@index([organizationId])
+  @@map("stock_balances")
+}
+
+enum StockMovementType {
+  ADJUSTMENT
+}
+
+model StockMovement {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  branchId       String            @map("branch_id") @db.Uuid
+  productId      String            @map("product_id") @db.Uuid
+  type           StockMovementType
+  quantityDelta  Decimal           @map("quantity_delta") @db.Decimal(18, 3)
+  balanceAfter   Decimal           @map("balance_after") @db.Decimal(18, 3)
+  reason         String
+  actorUserId    String            @map("actor_user_id") @db.Uuid
+  idempotencyKey String            @map("idempotency_key")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  branch  Branch  @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product Product @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, branchId, productId, createdAt])
+  @@map("stock_movements")
+}

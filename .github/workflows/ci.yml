@@ -1,0 +1,59 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-superuser
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # CI-only throwaway credentials for an ephemeral database.
+      PGHOST: 127.0.0.1
+      PGPORT: "5434"
+      PGPASSWORD: ci-superuser
+      POSTGRES_USER: postgres
+      VENTIDOC_MIGRATOR_PASSWORD: ci-migrator
+      VENTIDOC_APP_PASSWORD: ci-app
+      VENTIDOC_AUTH_PASSWORD: ci-auth
+      NODE_ENV: test
+      APP_PUBLIC_URL: http://localhost:3001
+      JWT_ACCESS_SECRET: ci-only-jwt-secret-that-is-at-least-32-bytes-long
+      DATABASE_URL: postgresql://ventidoc_app:ci-app@127.0.0.1:5434/ventidoc_test
+      AUTH_DATABASE_URL: postgresql://ventidoc_auth:ci-auth@127.0.0.1:5434/ventidoc_test
+      MIGRATION_DATABASE_URL: postgresql://ventidoc_migrator:ci-migrator@127.0.0.1:5434/ventidoc_test
+      TEST_DATABASE_URL: postgresql://ventidoc_app:ci-app@127.0.0.1:5434/ventidoc_test
+      TEST_MIGRATION_DATABASE_URL: postgresql://ventidoc_migrator:ci-migrator@127.0.0.1:5434/ventidoc_test
+      TEST_AUTH_DATABASE_URL: postgresql://ventidoc_auth:ci-auth@127.0.0.1:5434/ventidoc_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create database roles
+        run: sh docker/postgres/init/01-roles.sh
+      - run: pnpm api typecheck
+      - run: pnpm api lint
+      - run: pnpm api build
+      - run: pnpm api test
+      - run: pnpm api test:e2e
+      - name: Migration guard (protected objects + schema drift)
+        run: pnpm api db:check-migrations
+      - name: RBAC matrix is up to date
+        run: pnpm api docs:rbac && git diff --exit-code docs/architecture/rbac-matrix.md
+      - run: pnpm audit --prod --audit-level high
