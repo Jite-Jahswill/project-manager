@@ -7,6 +7,8 @@ export interface AuthIdentity {
   userId: string;
   sessionId: string;
   reauthenticatedAt: Date | null;
+  /** When this session completed a second factor (null = password-only session). */
+  mfaVerifiedAt: Date | null;
 }
 
 /** Request metadata recorded on audit events. Never contains credentials. */

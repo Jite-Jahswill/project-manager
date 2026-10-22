@@ -85,5 +85,7 @@ Platform permissions never grant access to organization business records.
 | `platform.support_access.request` |  | ● | ● |  |  |  |
 | `platform.support_access.approve` | yes | ● |  |  |  |  |
 | `platform.security.read` |  | ● |  |  | ● |  |
+| `platform.user_mfa.recovery.request` | yes | ● |  |  |  |  |
+| `platform.user_mfa.recovery.approve` | yes | ● |  |  |  |  |
 | `platform.audit.read` |  | ● |  |  | ● |  |
 | `platform.health.read` |  | ● |  |  | ● |  |

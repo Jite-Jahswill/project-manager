@@ -2,7 +2,7 @@
 import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../src/database/prisma.service';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
-import { bearer, createOrg, createTestApp, http, resetDatabase, signUp, TestOrg, TestUser } from './support/harness';
+import { bearer, createOrg, createTestApp, enableMfa, http, resetDatabase, signUp, TestOrg, TestUser } from './support/harness';
 
 describe('Platform administration', () => {
   let app: INestApplication;
@@ -16,6 +16,7 @@ describe('Platform administration', () => {
     await http(app).post(`/v1/orgs/${org.id}/products`).set(bearer(org.owner)).send({ sku: 'PRIV', name: 'Private' }).expect(201);
     admin = await signUp(app, 'super');
     await bootstrapSuperAdmin(app.get(PrismaService), admin.email);
+    await enableMfa(app, admin);
   });
   afterAll(() => app.close());
 

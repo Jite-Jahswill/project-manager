@@ -34,6 +34,9 @@ jobs:
       APP_PUBLIC_URL: http://localhost:3001
       JWT_ACCESS_SECRET: ci-only-jwt-secret-that-is-at-least-32-bytes-long
       ABUSE_PROTECTION_SECRET: ci-only-abuse-protection-secret-at-least-32-bytes
+      # Disposable CI key (32 bytes, base64). Never reuse.
+      MFA_ENCRYPTION_KEYS: ci:Y2ktb25seS1tZmEta2V5LW5ldmVyLXJldXNlLTMyYnk=
+      MFA_ENCRYPTION_ACTIVE_KEY_ID: ci
       # Redis is started by a step below (service containers cannot pass --requirepass).
       REDIS_URL: redis://:ci-redis@127.0.0.1:6380
       TEST_REDIS_URL: redis://:ci-redis@127.0.0.1:6380/1

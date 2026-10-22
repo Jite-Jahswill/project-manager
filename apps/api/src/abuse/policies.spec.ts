@@ -19,7 +19,7 @@ describe('rate-limit policies', () => {
 
   it('every credential or mail-sending policy fails closed', () => {
     for (const name of Object.keys(DEFAULT_POLICIES) as (keyof typeof DEFAULT_POLICIES)[]) {
-      if (/^(login|register|forgot|reset|resend_verification|reauth|invite|platform)\./.test(name)) {
+      if (/^(login|register|forgot|reset|resend_verification|reauth|invite|platform|mfa|mfa_recovery)\./.test(name)) {
         expect({ name, mode: DEFAULT_POLICIES[name].onRedisFailure }).toEqual({ name, mode: 'closed' });
       }
     }

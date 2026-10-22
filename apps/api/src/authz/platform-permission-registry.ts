@@ -37,6 +37,8 @@ const definitions = [
   { key: 'platform.support_access.request', privileged: false, description: 'Request time-limited access to an organization' },
   { key: 'platform.support_access.approve', privileged: true, description: 'Approve support-access requests' },
   { key: 'platform.security.read', privileged: false, description: 'View security events' },
+  { key: 'platform.user_mfa.recovery.request', privileged: true, description: "Request a user's two-step verification recovery (needs a second administrator's approval)" },
+  { key: 'platform.user_mfa.recovery.approve', privileged: true, description: 'Approve or reject another administrator\'s two-step verification recovery request' },
   { key: 'platform.audit.read', privileged: false, description: 'Read platform-wide audit logs' },
   { key: 'platform.health.read', privileged: false, description: 'View platform health and operational monitoring' },
 ] as const satisfies readonly PlatformPermissionDefinition[];

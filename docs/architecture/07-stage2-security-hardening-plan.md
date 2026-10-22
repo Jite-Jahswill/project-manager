@@ -34,7 +34,7 @@ Dependency policy (unchanged): pin exact versions published at least two weeks b
 - Webhooks for bounces/complaints → suppress the address, audit it. Verify webhook signatures.
 - Deployment checklist: SPF, DKIM, DMARC on the sending domain; links built only from `APP_PUBLIC_URL` (never from request `Host`).
 
-### 2.3 Multi-factor authentication (TOTP + recovery codes)
+### 2.3 Multi-factor authentication (TOTP + recovery codes): **implemented (stage 2B, uncommitted, under review)**: see [../security/mfa.md](../security/mfa.md). The design below was the plan; mfa.md is authoritative.
 
 - Tables (migration + RLS/grants):
   - `user_mfa_factors (id, user_id, type, secret_encrypted, confirmed_at, last_used_step)` and `user_recovery_codes (user_id, code_hash, used_at)`.

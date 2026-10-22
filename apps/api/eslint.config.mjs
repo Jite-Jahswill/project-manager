@@ -15,6 +15,10 @@ export default tseslint.config(
         { property: '$executeRawUnsafe', message: 'Use the $executeRaw tagged template (parameterized).' },
         // The Prisma client runs as ventidoc_app, which has no access to password hashes.
         { property: 'userCredential', message: 'Password hashes are only accessible through CredentialStore.' },
+        // MFA secret material: ventidoc_auth only, through MfaStore.
+        { property: 'userMfaFactor', message: 'MFA secrets are only accessible through MfaStore.' },
+        { property: 'userMfaEnrollment', message: 'MFA secrets are only accessible through MfaStore.' },
+        { property: 'userMfaRecoveryCode', message: 'Recovery codes are only accessible through MfaStore.' },
       ],
     },
   },

@@ -44,6 +44,8 @@ Inputs are reloaded from the database on every request (memberships, role assign
 
 - Separate registry (`platform-permission-registry.ts`), tables (`platform_*`), loader and guard (`@RequirePlatformPermission`).
 - **No platform permission grants business-data access.** Platform endpoints run in `asPlatform` scope, where RLS exposes only organization metadata, subscriptions and audit events. A super administrator gets `403` on every `/v1/orgs/:orgId/*` route (tested).
+- **MFA:** every platform route requires an MFA-verified session, and MFA is mandatory for every active platform administrator ([mfa.md](../security/mfa.md)). Organization owners must also use MFA: `OrgAccessGuard` refuses owner access from a session without a verified second factor.
+- Administrative MFA recovery is **two-person**: `platform.user_mfa.recovery.request` and `platform.user_mfa.recovery.approve` (both privileged), with separation of duties enforced in the database (mfa.md §8).
 - **Privileged** platform permissions (marked in the registry) require a password re-entry on the current session within 10 minutes (`POST /v1/auth/reauthenticate`, `step_up_required` otherwise). MFA will join this requirement.
 - **Bootstrap**: `pnpm api bootstrap:super-admin --email <verified user> --confirm`. It works only while no active super administrator exists. It needs shell plus DB credentials, has no HTTP endpoint and no default password, and is audited.
 

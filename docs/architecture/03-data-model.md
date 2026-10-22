@@ -45,6 +45,8 @@ erDiagram
 |---|---|---|---|
 | Identity | `users` | global | unique `email` (CHECK lower/trimmed); lockout counters; `password_changed_at` |
 | | `user_credentials` | global, **ventidoc_auth only** | PK/FK `user_id`; argon2id `password_hash`; the app role has no privilege |
+| | `user_mfa_factors`, `user_mfa_enrollments`, `user_mfa_recovery_codes` | global, **ventidoc_auth only** | AES-256-GCM secrets (`v1:` CHECK), `last_used_step` replay guard, SHA-256 recovery-code hashes unique per user |
+| | `mfa_challenges` | global | pending second-factor step: token hash (unique), 5-min expiry, attempts, `consumed_at` |
 | | `sessions` | global | per device; `revoked_at`, `expires_at`, `reauthenticated_at` (step-up) |
 | | `refresh_tokens` | global | unique `token_hash` (SHA-256); `used_at` for reuse detection |
 | | `user_action_tokens` | global | unique `token_hash`; purpose = EMAIL_VERIFICATION / PASSWORD_RESET |

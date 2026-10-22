@@ -104,7 +104,7 @@ A disposable database migrated from scratch from the committed migration files, 
 
 | Item | Severity | Gate |
 |---|---|---|
-| MFA (TOTP + recovery codes; mandatory for platform admins and organization owners) | High | **Release blocker** |
+| MFA (TOTP + recovery codes; mandatory for platform admins and organization owners) | High | **Implemented in stage 2B** (uncommitted, under review): [mfa.md](mfa.md). Remains a release blocker until real email, KMS-held keys and two-person administrative reset exist (mfa.md §11). |
 | Real transactional email for verification, reset and invitations (provider, SPF/DKIM, bounce handling) | High | **Release blocker** (accounts can't be verified without it) |
 | Distributed (Redis) rate limiting + correct proxy trust / client-IP derivation | High | **Implemented in stage 2A** (uncommitted, under review): [rate-limiting-and-abuse-protection.md](rate-limiting-and-abuse-protection.md). Remains a release blocker until a production HA/TLS Redis and the real `TRUSTED_PROXIES` are configured. |
 | Production configuration: secret manager, TLS to PostgreSQL and Redis, cookie domain, CORS origins, `NODE_ENV=production` acceptance tests | High | **Release blocker** |

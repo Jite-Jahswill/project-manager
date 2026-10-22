@@ -40,6 +40,9 @@ export class OrgAccessGuard implements CanActivate {
     const orgId = req.params.orgId;
     const access = typeof orgId === 'string' ? await this.authz.load(req.auth.userId, orgId) : null;
     if (!access) throw Errors.forbidden();
+    // Organization owners must act from an MFA-verified session (also covers a user
+    // who became owner during this session).
+    if (access.isOwner && !req.auth.mfaVerifiedAt) throw Errors.mfaRequired();
 
     if (requirement.permission) {
       let branchId: string | undefined;

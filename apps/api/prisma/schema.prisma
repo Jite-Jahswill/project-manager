@@ -38,10 +38,20 @@ model User {
   failedLoginCount Int        @default(0) @map("failed_login_count")
   lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz(3)
   passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  /// Non-secret flag mirrored from user_mfa_factors (authoritative). Lets AuthGuard
+  /// enforce MFA without reading the restricted tables on every request.
+  mfaEnabledAt      DateTime?  @map("mfa_enabled_at") @db.Timestamptz(3)
   createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   credential    UserCredential?
+  mfaFactor     UserMfaFactor?
+  mfaEnrollment UserMfaEnrollment?
+  recoveryCodes UserMfaRecoveryCode[]
+  mfaChallenges MfaChallenge[]
+  mfaRecoveryTargeted  MfaRecoveryRequest[] @relation("MfaRecoveryTarget")
+  mfaRecoveryRequested MfaRecoveryRequest[] @relation("MfaRecoveryRequester")
+  mfaRecoveryDecided   MfaRecoveryRequest[] @relation("MfaRecoveryDecider")
   sessions      Session[]
   actionTokens  UserActionToken[]
   memberships   OrganizationMembership[]
@@ -62,6 +72,106 @@ model UserCredential {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_credentials")
+}
+
+/// Confirmed TOTP factor. ventidoc_auth only (MfaStore); the secret is AES-256-GCM
+/// encrypted with a key outside the database (MFA_ENCRYPTION_KEYS).
+model UserMfaFactor {
+  userId           String   @id @map("user_id") @db.Uuid
+  secretCiphertext String   @map("secret_ciphertext")
+  confirmedAt      DateTime @map("confirmed_at") @db.Timestamptz(3)
+  /// Highest TOTP time step ever accepted; codes for this step or earlier are replays.
+  lastUsedStep     BigInt   @default(0) @map("last_used_step")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_mfa_factors")
+}
+
+/// Enrollment in progress (not yet proven). ventidoc_auth only.
+model UserMfaEnrollment {
+  userId           String   @id @map("user_id") @db.Uuid
+  secretCiphertext String   @map("secret_ciphertext")
+  /// SHA-256 of the one-time code emailed for a FIRST enrollment (proof of inbox control).
+  emailCodeHash    String?  @map("email_code_hash")
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz(3)
+  attempts         Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_mfa_enrollments")
+}
+
+/// Single-use recovery codes; only SHA-256 hashes of 80-bit random codes. ventidoc_auth only.
+model UserMfaRecoveryCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+  @@map("user_mfa_recovery_codes")
+}
+
+/// Pending second-factor step after a correct password. Opaque, hashed, short-lived,
+/// single-use; deliberately not a session, access token or refresh token.
+model MfaChallenge {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String     @map("user_id") @db.Uuid
+  tokenHash  String     @unique @map("token_hash")
+  clientType ClientType @map("client_type")
+  deviceName String?    @map("device_name")
+  ipAddress  String?    @map("ip_address")
+  userAgent  String?    @map("user_agent")
+  expiresAt  DateTime   @map("expires_at") @db.Timestamptz(3)
+  attempts   Int        @default(0)
+  consumedAt DateTime?  @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_challenges")
+}
+
+enum MfaRecoveryStatus {
+  PENDING
+  APPROVED
+  EXECUTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+/// Two-person administrative MFA recovery (docs/security/mfa.md §8). Requester and
+/// approver must be different platform administrators, neither may be the target;
+/// enforced by CHECK constraints, an immutability trigger and RLS (platform scope only).
+model MfaRecoveryRequest {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  targetUserId String            @map("target_user_id") @db.Uuid
+  requestedBy  String            @map("requested_by") @db.Uuid
+  reason       String
+  status       MfaRecoveryStatus @default(PENDING)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime          @map("expires_at") @db.Timestamptz(3)
+  decidedBy    String?           @map("decided_by") @db.Uuid
+  decidedAt    DateTime?         @map("decided_at") @db.Timestamptz(3)
+  decisionNote String?           @map("decision_note")
+  executedAt   DateTime?         @map("executed_at") @db.Timestamptz(3)
+
+  target    User  @relation("MfaRecoveryTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  requester User  @relation("MfaRecoveryRequester", fields: [requestedBy], references: [id], onDelete: Restrict)
+  decider   User? @relation("MfaRecoveryDecider", fields: [decidedBy], references: [id], onDelete: Restrict)
+
+  @@index([status, expiresAt])
+  @@index([targetUserId])
+  @@map("mfa_recovery_requests")
 }
 
 enum ClientType {
@@ -85,6 +195,8 @@ model Session {
   revokeReason String?   @map("revoke_reason")
   /// Last password re-entry on this session; privileged actions require it to be recent.
   reauthenticatedAt DateTime? @map("reauthenticated_at") @db.Timestamptz(3)
+  /// Set when this session was established (or upgraded) with a verified second factor.
+  mfaVerifiedAt     DateTime? @map("mfa_verified_at") @db.Timestamptz(3)
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]

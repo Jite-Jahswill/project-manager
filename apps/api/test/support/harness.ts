@@ -6,6 +6,7 @@ import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/bootstrap-app';
 import { MailService } from '../../src/mail/mail.service';
+import { currentStep, totpAt } from '../../src/mfa/totp';
 
 export const PASSWORD = 'correct-horse-battery-staple';
 
@@ -61,11 +62,38 @@ export async function createTestApp(
     const moduleRef = await Test.createTestingModule({ imports: [AppModule, ...extraImports] }).compile();
     const app = moduleRef.createNestApplication({ logger: ['error'] });
     configureApp(app);
-    // Listen once on a random loopback port; supertest otherwise opens a server per request.
-    await app.listen(0, '127.0.0.1');
+    try {
+      // Listen once on a random loopback port; supertest otherwise opens a server per request.
+      await app.listen(0, '127.0.0.1');
+    } catch (e) {
+      // A refused startup must not leave Redis/PostgreSQL connections open. Nest does not
+      // run destroy hooks for an application that never finished initializing, so the
+      // known resources are released explicitly.
+      await releaseResources(app);
+      throw e;
+    }
     return app;
   } finally {
     process.env = saved;
+  }
+}
+
+async function releaseResources(app: INestApplication): Promise<void> {
+  const { RedisService } = await import('../../src/abuse/redis.service');
+  const { AuthDb } = await import('../../src/auth/auth-db');
+  const { PrismaService } = await import('../../src/database/prisma.service');
+  const attempts: (() => unknown)[] = [
+    () => app.get(RedisService).client.disconnect(),
+    () => app.get(AuthDb).pool.end(),
+    () => app.get(PrismaService).$disconnect(),
+    () => app.close(),
+  ];
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -84,6 +112,19 @@ export function tokenFromMail(app: INestApplication, to: string, path: string): 
   return decodeURIComponent(match[1]);
 }
 
+/** Waits (polling) for a captured mail to `to` matching `predicate`. */
+export async function waitForMail(
+  app: INestApplication, to: string, predicate: (m: { subject: string; text: string }) => boolean, timeoutMs = 8000,
+): Promise<{ to: string; subject: string; text: string }> {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    const found = app.get(MailService).captured.filter((m) => m.to === to && predicate(m)).at(-1);
+    if (found) return found;
+    if (Date.now() > end) throw new Error(`No mail to ${to} matching the predicate within ${timeoutMs} ms`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 let counter = 0;
 export function uniqueEmail(label: string): string {
   counter += 1;
@@ -97,14 +138,80 @@ export async function signUp(app: INestApplication, label: string): Promise<Test
   return login(app, email);
 }
 
+export interface MfaState {
+  secret: string;
+  recoveryCodes: string[];
+  lastStep: number;
+}
+
+/** Authenticator state of test users who enabled MFA (what their phone would hold). */
+export const mfaDevices = new Map<string, MfaState>();
+
+/** A TOTP code for a step not yet used by this user (current or next), as a real authenticator would show. */
+export function nextTotp(email: string): string {
+  const state = mfaDevices.get(email);
+  if (!state) throw new Error(`${email} has no MFA`);
+  const now = currentStep();
+  const step = Math.max(now, state.lastStep + 1);
+  if (step > now + 1) throw new Error('TOTP steps exhausted for this 30 s window; use a recovery code');
+  state.lastStep = step;
+  return totpAt(state.secret, step * 30_000);
+}
+
+/**
+ * Like nextTotp, but when both usable steps of this window are spent (replay
+ * protection), waits for the next 30 s step, as a real user would.
+ */
+export async function freshTotp(email: string): Promise<string> {
+  for (;;) {
+    try {
+      return nextTotp(email);
+    } catch {
+      const msToNext = 30_000 - (Date.now() % 30_000) + 50;
+      await new Promise((r) => setTimeout(r, msToNext));
+    }
+  }
+}
+
 export async function login(app: INestApplication, email: string): Promise<TestUser> {
   const res = await http(app).post('/v1/auth/login').send({ email, password: PASSWORD, clientType: 'MOBILE' }).expect(200);
-  return { email, userId: res.body.user.id, token: res.body.accessToken, refreshToken: res.body.refreshToken, sessionId: res.body.sessionId };
+  if (!res.body.mfaRequired) {
+    return { email, userId: res.body.user.id, token: res.body.accessToken, refreshToken: res.body.refreshToken, sessionId: res.body.sessionId };
+  }
+  const state = mfaDevices.get(email);
+  if (!state) throw new Error(`${email} requires MFA but the harness has no authenticator for it`);
+  let second: { code?: string; recoveryCode?: string };
+  try {
+    second = { code: nextTotp(email) };
+  } catch {
+    second = { recoveryCode: state.recoveryCodes.pop() };
+  }
+  const v = await http(app).post('/v1/auth/mfa/verify').send({ mfaToken: res.body.mfaToken, ...second }).expect(200);
+  return { email, userId: v.body.user.id, token: v.body.accessToken, refreshToken: v.body.refreshToken, sessionId: v.body.sessionId };
+}
+
+/**
+ * Enables MFA for `user` through the real API: step-up (the session's login counts),
+ * emailed setup code, TOTP from the returned secret, confirmation. The given session
+ * becomes MFA-verified; the user's other sessions are revoked by the API.
+ */
+export async function enableMfa(app: INestApplication, user: { email: string; token: string }): Promise<MfaState> {
+  const start = await http(app).post('/v1/auth/mfa/enrollment').set(bearer(user)).send({}).expect(200);
+  const mail = app.get(MailService).captured.filter((m) => m.to === user.email && m.subject.includes('setup code')).at(-1);
+  const emailCode = mail?.text.match(/\b(\d{8})\b/)?.[1];
+  const step = currentStep();
+  const confirm = await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(user))
+    .send({ code: totpAt(start.body.secret, step * 30_000), ...(emailCode ? { emailCode } : {}) }).expect(200);
+  const state = { secret: start.body.secret as string, recoveryCodes: [...(confirm.body.recoveryCodes as string[])], lastStep: step };
+  mfaDevices.set(user.email, state);
+  return state;
 }
 
 export async function createOrg(app: INestApplication, owner: TestUser, label: string): Promise<TestOrg> {
   const slug = `${label}-${Date.now().toString(36)}-${++counter}`.toLowerCase();
   const res = await http(app).post('/v1/organizations').set(bearer(owner)).send({ name: label, slug }).expect(201);
+  // Owners must use MFA (docs/security/mfa.md); set it up as a real owner would.
+  if (!mfaDevices.has(owner.email)) await enableMfa(app, owner);
   const branches = await http(app).get(`/v1/orgs/${res.body.id}/branches`).set(bearer(owner)).expect(200);
   return { id: res.body.id, mainBranchId: branches.body[0].id, owner };
 }

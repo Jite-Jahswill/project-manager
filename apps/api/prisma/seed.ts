@@ -26,6 +26,12 @@ export async function seed(databaseUrl: string): Promise<void> {
       const data = { description: p.description, privileged: p.privileged };
       await prisma.platformPermission.upsert({ where: { key: p.key }, create: { key: p.key, ...data }, update: data });
     }
+    // Platform permissions are code-owned: drop any no longer in the registry (and their
+    // grants), so a removed capability (e.g. single-administrator MFA reset) disappears.
+    const platformKeys = [...PLATFORM_PERMISSIONS.keys()];
+    await prisma.platformRolePermission.deleteMany({ where: { permissionKey: { notIn: platformKeys } } });
+    await prisma.platformPermission.deleteMany({ where: { key: { notIn: platformKeys } } });
+
     for (const t of PLATFORM_ROLE_TEMPLATES) {
       const isSystem = t.name === SUPER_ADMIN_ROLE_NAME;
       const role = await prisma.platformRole.upsert({

@@ -42,6 +42,7 @@ describe('Route guard coverage', () => {
     expect(publicRoutes).toEqual([
       'GET /health',
       'POST /v1/auth/login',
+      'POST /v1/auth/mfa/verify',
       'POST /v1/auth/password/forgot',
       'POST /v1/auth/password/reset',
       'POST /v1/auth/refresh',

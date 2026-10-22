@@ -19,6 +19,10 @@ export const Errors = {
   notFound: (what = 'Resource') => new ApiError(HttpStatus.NOT_FOUND, 'not_found', `${what} not found`),
   conflict: (code: string, message: string) => new ApiError(HttpStatus.CONFLICT, code, message),
   badRequest: (code: string, message: string) => new ApiError(HttpStatus.BAD_REQUEST, code, message),
+  // Same code whether MFA must be completed (enrolled) or set up (not enrolled yet); the message differs.
+  mfaRequired: (message = 'Multi-factor authentication is required for this account') =>
+    new ApiError(HttpStatus.FORBIDDEN, 'mfa_required', message),
+  invalidMfa: () => new ApiError(HttpStatus.UNAUTHORIZED, 'invalid_mfa', 'The verification code or sign-in step is invalid or has expired'),
   stepUpRequired: () =>
     new ApiError(HttpStatus.FORBIDDEN, 'step_up_required', 'Re-enter your password to perform this action'),
   entitlementLimit: (key: string) =>

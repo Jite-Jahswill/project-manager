@@ -7,6 +7,8 @@ const base = {
   AUTH_DATABASE_URL: 'postgresql://ventidoc_auth:pw@localhost:5434/ventidoc',
   REDIS_URL: 'redis://:pw@127.0.0.1:6380',
   ABUSE_PROTECTION_SECRET: 'y'.repeat(48),
+  MFA_ENCRYPTION_KEYS: `k1:${Buffer.alloc(32, 7).toString('base64')}`,
+  MFA_ENCRYPTION_ACTIVE_KEY_ID: 'k1',
   APP_PUBLIC_URL: 'http://localhost:3001',
 };
 
@@ -58,6 +60,18 @@ describe('config validation', () => {
     expect(() => loadConfig({ ...prodish, JWT_ACCESS_SECRET: 'ci-only-jwt-secret-that-is-at-least-32-bytes-long' })).toThrow(/JWT_ACCESS_SECRET.*disposable/);
     expect(() => loadConfig({ ...prodish, ABUSE_PROTECTION_SECRET: 'ci-only-abuse-protection-secret-at-least-32-bytes' })).toThrow(/ABUSE_PROTECTION_SECRET.*disposable/);
     expect(() => loadConfig({ ...prodish, REDIS_URL: 'rediss://:ci-redis@redis.internal:6380' })).toThrow(/disposable CI\/example password/);
+  });
+
+  it('validates the MFA key ring', () => {
+    expect(() => loadConfig({ ...base, MFA_ENCRYPTION_KEYS: undefined })).toThrow(/MFA_ENCRYPTION_KEYS/);
+    expect(() => loadConfig({ ...base, MFA_ENCRYPTION_KEYS: 'k1:c2hvcnQ=' })).toThrow(/32 random bytes/);
+    expect(() => loadConfig({ ...base, MFA_ENCRYPTION_ACTIVE_KEY_ID: 'k2' })).toThrow(/ACTIVE_KEY_ID/);
+    expect(() => loadConfig({ ...base, MFA_ENCRYPTION_KEYS: `K!:${Buffer.alloc(32).toString('base64')}` })).toThrow(/key id/);
+    const k = Buffer.alloc(32, 1).toString('base64');
+    expect(() => loadConfig({ ...base, MFA_ENCRYPTION_KEYS: `k1:${k},k1:${k}` })).toThrow(/duplicate/);
+    const c = loadConfig({ ...base, MFA_ENCRYPTION_KEYS: `k1:${k},k2:${Buffer.alloc(32, 2).toString('base64')}`, MFA_ENCRYPTION_ACTIVE_KEY_ID: 'k2' });
+    expect([...c.mfaKeyRing.keys.keys()]).toEqual(['k1', 'k2']);
+    expect(c.mfaKeyRing.activeKeyId).toBe('k2');
   });
 
   it('refuses production until production transports exist', () => {

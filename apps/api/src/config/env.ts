@@ -1,5 +1,6 @@
 import { TrustedProxies } from '../abuse/client-ip';
 import { PolicyTable, resolvePolicies } from '../abuse/policies';
+import { MfaKeyRing, parseKeyRing } from '../mfa/mfa-crypto';
 
 /**
  * Validated runtime configuration. The process refuses to start with missing or
@@ -29,6 +30,8 @@ export interface AppConfig {
   rateLimitIpv6Prefix: number;
   rateLimitKeyPrefix: string;
   rateLimitPolicies: PolicyTable;
+  /** AES-256-GCM keys for TOTP secrets at rest; never stored in the database. */
+  mfaKeyRing: MfaKeyRing;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -112,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitIpv6Prefix,
     rateLimitKeyPrefix,
     rateLimitPolicies: resolvePolicies(env.RATE_LIMIT_OVERRIDES),
+    mfaKeyRing: parseKeyRing(required(env, 'MFA_ENCRYPTION_KEYS'), required(env, 'MFA_ENCRYPTION_ACTIVE_KEY_ID')),
   };
 
   if (nodeEnv === 'production') {
@@ -126,12 +130,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
  */
 export function productionBlockers(config: AppConfig): string[] {
   const problems = [
-    'a real mail transport is not implemented (stage 2B)',
-    'MFA is not implemented (stage 2B)',
+    'a real mail transport is not implemented',
+    'MFA recovery approvers need a documented out-of-band identity-verification procedure (docs/security/mfa.md §8)',
+    'MFA_ENCRYPTION_KEYS must be supplied by a secret manager/KMS, not a plain environment file',
   ];
   // Disposable values from CI (.github/workflows/ci.yml) or the example file must never reach production.
   for (const [name, value] of [['JWT_ACCESS_SECRET', config.jwtAccessSecret], ['ABUSE_PROTECTION_SECRET', config.abuseProtectionSecret]] as const) {
     if (/ci-only|change_me|changeme|example|test-secret/i.test(value)) problems.push(`${name} is a disposable CI/example value`);
+  }
+  for (const [id, k] of config.mfaKeyRing.keys) {
+    if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`MFA_ENCRYPTION_KEYS key "${id}" is a disposable CI/example value`);
   }
   const redis = new URL(config.redisUrl);
   if (redis.protocol !== 'rediss:') problems.push('REDIS_URL must use TLS (rediss://)');

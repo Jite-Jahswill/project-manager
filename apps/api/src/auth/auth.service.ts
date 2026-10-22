@@ -13,6 +13,7 @@ import { credentialEpoch, DeviceTokenService } from '../abuse/device-token.servi
 import type { PolicyName } from '../abuse/policies';
 import { RateLimiter } from '../abuse/rate-limiter.service';
 import { CredentialStore } from './credential-store';
+import { MfaService } from '../mfa/mfa.service';
 import { PasswordService } from './password.service';
 
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60_000;
@@ -22,6 +23,24 @@ export interface AccessTokenClaims {
   sub: string;
   sid: string;
 }
+
+export const MFA_CHALLENGE_TTL_MS = 5 * 60_000;
+export const MFA_CHALLENGE_MAX_ATTEMPTS = 5;
+
+/** First login step for MFA accounts: no session, no tokens. */
+export interface MfaChallengeResult {
+  mfaRequired: true;
+  mfaToken: string;
+  mfaTokenExpiresAt: Date;
+}
+
+export interface SessionResult extends IssuedTokens {
+  mfaRequired: false;
+  deviceToken: string;
+  user: { id: string; email: string; displayName: string };
+}
+
+export type LoginResult = MfaChallengeResult | SessionResult;
 
 export interface IssuedTokens {
   accessToken: string;
@@ -43,6 +62,7 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly limiter: RateLimiter,
     private readonly devices: DeviceTokenService,
+    private readonly mfa: MfaService,
   ) {}
 
   /**
@@ -100,7 +120,7 @@ export class AuthService {
   async login(
     input: { email: string; password: string; clientType: ClientType; deviceName?: string; deviceToken?: string },
     meta: RequestMeta,
-  ): Promise<IssuedTokens & { deviceToken: string; user: { id: string; email: string; displayName: string } }> {
+  ): Promise<LoginResult> {
     const email = normalizeEmail(input.email);
     const network = `ip:${rateLimitNetwork(meta.ipAddress, this.config.rateLimitIpv6Prefix)}`;
     const account = `email:${email}`;
@@ -154,29 +174,108 @@ export class AuthService {
       await this.credentials.upgrade(user.id, storedHash, await this.passwords.hash(input.password));
     }
 
+    // A correct password alone never creates a session for an account with MFA:
+    // it yields a short-lived, single-purpose challenge for the second factor.
+    if (await this.mfa.hasFactor(user.id)) {
+      if (!user.mfaEnabledAt) await this.prisma.user.update({ where: { id: user.id }, data: { mfaEnabledAt: new Date() } });
+      return this.createMfaChallenge(user.id, input, meta, !!device);
+    }
+    if (user.mfaEnabledAt) await this.prisma.user.update({ where: { id: user.id }, data: { mfaEnabledAt: null } });
+    return this.startSession(user, input.clientType, input.deviceName ?? null, meta, { mfaVerified: false, deviceId: device?.deviceId, method: 'password' });
+  }
+
+  /**
+   * Second step of an MFA login. The challenge token is the only input from the first
+   * step; nothing else (user ID, client type) is taken from the request.
+   */
+  async completeMfaLogin(
+    input: { mfaToken: string; code?: string; recoveryCode?: string; deviceToken?: string },
+    meta: RequestMeta,
+  ): Promise<SessionResult & { clientType: ClientType }> {
+    // mfa.verify.ip is applied by the route (RateLimit decorator).
+    const challenge = await this.prisma.mfaChallenge.findUnique({ where: { tokenHash: hashToken(input.mfaToken) } });
+    if (!challenge || challenge.consumedAt || challenge.expiresAt <= new Date() || challenge.attempts >= MFA_CHALLENGE_MAX_ATTEMPTS) {
+      throw Errors.invalidMfa();
+    }
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: challenge.userId } });
+    if (user.status !== 'ACTIVE') throw Errors.invalidMfa();
+    // Defense in depth for review A-2: a challenge never outlives the password that created it.
+    if (user.passwordChangedAt && challenge.createdAt <= user.passwordChangedAt) throw Errors.invalidMfa();
+
+    const device = this.devices.recognize(input.deviceToken, user);
+    const reserved: [PolicyName, string][] = device
+      ? [['mfa.verify.device', `device:${device.deviceId}`]]
+      : [['mfa.verify.user', `user:${user.id}`], ['mfa.verify.daily', `user:${user.id}`]];
+    for (const [policy, subject] of reserved) await this.limiter.enforce(policy, subject);
+
+    const method = await this.mfa.verifySecondFactor(user.id, { code: input.code, recoveryCode: input.recoveryCode }, meta);
+    if (!method) {
+      await this.prisma.mfaChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { attempts: { increment: 1 } } });
+      await this.audit.record(null, { action: 'auth.mfa.verification_failed', resourceType: 'user', resourceId: user.id, metadata: { recognizedDevice: !!device } }, meta);
+      throw Errors.invalidMfa();
+    }
+    // Single use, even under concurrent requests.
+    const claimed = await this.prisma.mfaChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null, expiresAt: { gt: new Date() } },
+      data: { consumedAt: new Date() },
+    });
+    if (claimed.count !== 1) throw Errors.invalidMfa();
+    await Promise.all(reserved.map(([policy, subject]) => this.limiter.refund(policy, subject)));
+
+    const result = await this.startSession(user, challenge.clientType, challenge.deviceName, meta, { mfaVerified: true, deviceId: device?.deviceId, method });
+    return { ...result, clientType: challenge.clientType };
+  }
+
+  private async createMfaChallenge(
+    userId: string, input: { clientType: ClientType; deviceName?: string }, meta: RequestMeta, recognizedDevice: boolean,
+  ): Promise<MfaChallengeResult> {
+    // Bounds challenges an attacker who knows the password can create. Recognized devices
+    // of this user skip it (their login and MFA budgets are per device), so such an
+    // attacker cannot lock the owner out of sign-in (review M-1).
+    if (!recognizedDevice) await this.limiter.enforce('mfa.challenge.user', `user:${userId}`);
+    const token = `vdmfa_${randomToken()}`;
+    const expiresAt = new Date(Date.now() + MFA_CHALLENGE_TTL_MS);
+    await this.prisma.mfaChallenge.create({
+      data: {
+        userId, tokenHash: hashToken(token), clientType: input.clientType, deviceName: input.deviceName ?? null,
+        ipAddress: meta.ipAddress, userAgent: meta.userAgent, expiresAt,
+      },
+    });
+    await this.audit.record(null, { action: 'auth.login.mfa_challenge', resourceType: 'user', resourceId: userId, actorUserId: userId, metadata: { recognizedDevice } }, meta);
+    return { mfaRequired: true, mfaToken: token, mfaTokenExpiresAt: expiresAt };
+  }
+
+  /** The one place sessions are created (password-only or MFA-verified). */
+  private async startSession(
+    user: { id: string; email: string; displayName: string; passwordChangedAt: Date | null },
+    clientType: ClientType, deviceName: string | null, meta: RequestMeta,
+    opts: { mfaVerified: boolean; deviceId?: string; method: 'password' | 'totp' | 'recovery' },
+  ): Promise<SessionResult> {
     const now = new Date();
     const refreshTokenExpiresAt = new Date(now.getTime() + this.config.refreshTokenTtlDays * 86_400_000);
     const session = await this.prisma.session.create({
       data: {
         userId: user.id,
-        clientType: input.clientType,
-        deviceName: input.deviceName ?? null,
+        clientType,
+        deviceName,
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
         expiresAt: refreshTokenExpiresAt,
         // A fresh password login counts as recent authentication for step-up checks.
         reauthenticatedAt: now,
+        mfaVerifiedAt: opts.mfaVerified ? now : null,
       },
       select: { id: true },
     });
     const tokens = await this.issueTokens(user.id, session.id, refreshTokenExpiresAt);
     await this.audit.record(null, {
       action: 'auth.login.succeeded', resourceType: 'session', resourceId: session.id, actorUserId: user.id,
-      metadata: { clientType: input.clientType, recognizedDevice: !!device },
+      metadata: { clientType, recognizedDevice: !!opts.deviceId, secondFactor: opts.mfaVerified ? opts.method : null },
     }, meta);
     return {
+      mfaRequired: false,
       ...tokens,
-      deviceToken: this.devices.issue(user.id, credentialEpoch(user), device?.deviceId),
+      deviceToken: this.devices.issue(user.id, credentialEpoch(user), opts.deviceId),
       user: { id: user.id, email: user.email, displayName: user.displayName },
     };
   }
@@ -189,7 +288,7 @@ export class AuthService {
   async refresh(rawToken: string, meta: RequestMeta): Promise<IssuedTokens> {
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: hashToken(rawToken) },
-      include: { session: { include: { user: { select: { status: true } } } } },
+      include: { session: { include: { user: { select: { status: true, mfaEnabledAt: true } } } } },
     });
     if (!record) throw Errors.unauthenticated();
     const { session } = record;
@@ -204,6 +303,11 @@ export class AuthService {
       throw Errors.unauthenticated();
     }
     if (session.revokedAt || session.expiresAt <= now || record.expiresAt <= now || session.user.status !== 'ACTIVE') {
+      throw Errors.unauthenticated();
+    }
+    // A password-only session can never be renewed for an account that now has MFA.
+    if (session.user.mfaEnabledAt && !session.mfaVerifiedAt) {
+      await this.revokeSession(session.id, 'mfa_required');
       throw Errors.unauthenticated();
     }
 
@@ -269,11 +373,18 @@ export class AuthService {
         data: { passwordChangedAt: now, emailVerifiedAt: now },
       }),
       this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'password_reset' } }),
+      // Pending MFA challenges prove the OLD password: void them (review A-2).
+      this.prisma.mfaChallenge.updateMany({ where: { userId, consumedAt: null }, data: { consumedAt: now } }),
     ]);
     if (!(await this.credentials.update(userId, passwordHash))) await this.credentials.create(userId, passwordHash);
     // Recovery path: inbox control lifts the distributed-attack bucket on this account,
     // so the owner can sign in from a new device right away. Best effort if Redis is down.
     await this.limiter.reset('login.account', `email:${email}`).catch(() => undefined);
+    // A reset also cuts off anyone who knew the old password, so the MFA budgets they may
+    // have exhausted are restored for the owner (review M-1).
+    for (const policy of ['mfa.challenge.user', 'mfa.verify.user', 'mfa.verify.daily'] as const) {
+      await this.limiter.reset(policy, `user:${userId}`).catch(() => undefined);
+    }
     await this.audit.record(null, { action: 'auth.password_reset.completed', resourceType: 'user', resourceId: userId, actorUserId: userId }, meta);
   }
 

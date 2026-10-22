@@ -52,6 +52,8 @@ pnpm api docs:rbac            # regenerate docs/architecture/rbac-matrix.md
 
 Integration tests refuse to run against a database whose name doesn't end in `_test`, and abort with `BLOCKED` if the Redis test service is unreachable.
 
+Multi-factor authentication (mandatory for platform administrators and organization owners), keys and recovery: [docs/security/mfa.md](docs/security/mfa.md).
+
 Rate limiting, client-IP trust (`TRUSTED_PROXIES`) and Redis requirements: [docs/security/rate-limiting-and-abuse-protection.md](docs/security/rate-limiting-and-abuse-protection.md).
 
 ## Security model in one paragraph

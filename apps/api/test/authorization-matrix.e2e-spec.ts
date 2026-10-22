@@ -18,7 +18,7 @@ import { PrismaService } from '../src/database/prisma.service';
 import { PLATFORM_PERMISSION } from '../src/authz/platform-access.guard';
 import { PLATFORM_ROLE_TEMPLATES } from '../src/authz/platform-permission-registry';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
-import { addMember, bearer, createOrg, createTestApp, http, pools, resetDatabase, setPlan, signUp, TestOrg, TestUser } from './support/harness';
+import { addMember, bearer, createOrg, createTestApp, enableMfa, http, pools, resetDatabase, setPlan, signUp, TestOrg, TestUser } from './support/harness';
 import { DiscoveredRoute, discoverRoutes, fillPath } from './support/routes';
 
 /** Valid request bodies, so foreign-ID requests get past validation and reach the authorization logic. */
@@ -35,6 +35,9 @@ const SAMPLE_BODIES: Record<string, object> = {
   'PATCH /v1/orgs/:orgId/products/:productId': { name: 'Renamed by sweep' },
   'POST /v1/orgs/:orgId/branches/:branchId/stock/adjustments': { quantityDelta: '1', reason: 'sweep test' },
   'PATCH /v1/platform/organizations/:organizationId/status': { status: 'ACTIVE' },
+  'POST /v1/platform/mfa-recovery-requests': { reason: 'sweep: identity verified out of band (ticket SWEEP-1)' },
+  'POST /v1/platform/mfa-recovery-requests/:requestId/approve': {},
+  'POST /v1/platform/mfa-recovery-requests/:requestId/reject': { note: 'sweep rejection' },
 };
 
 const TENANT_TABLES = [
@@ -73,6 +76,11 @@ describe('Authorization sweeps', () => {
     };
   });
   afterAll(() => app.close());
+
+  const sendWith = (route: DiscoveredRoute, path: string, user: { token: string }, extra: object) => {
+    const verb = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
+    return http(app)[verb](path).set(bearer(user)).send({ ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}), ...extra });
+  };
 
   const send = (route: DiscoveredRoute, path: string, user: { token: string }) => {
     const verb = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
@@ -168,11 +176,21 @@ describe('Authorization sweeps', () => {
           await tx.platformAdminRole.create({ data: { adminUserId: user.userId, roleId: role.id } });
         }
       });
+      // Platform administrators must use MFA; enroll like a real admin would.
+      await enableMfa(app, user);
       return user;
     }
 
+    /** Disposable target for the MFA-reset route (never org A/B users, whose sessions the sweep relies on). */
+    let resetTarget: TestUser;
+    // A random request ID: the sweep checks authorization, so "not found" (404) after
+    // passing the guards counts as authorized, exactly like any other non-401/403 outcome.
+    const platformParams = () => ({ organizationId: a.id, userId: resetTarget.userId, requestId: '7c0d3a1e-1111-4222-8333-444455556666' });
+
     beforeAll(async () => {
-      await bootstrapSuperAdmin(app.get(PrismaService), (await signUp(app, 'sweep-super')).email);
+      const superAdmin = await signUp(app, 'sweep-super');
+      await bootstrapSuperAdmin(app.get(PrismaService), superAdmin.email);
+      resetTarget = await signUp(app, 'sweep-mfa-target');
     });
 
     it('covers every platform route', () => {
@@ -186,8 +204,13 @@ describe('Authorization sweeps', () => {
         const mismatches: string[] = [];
         for (const r of platformRoutes()) {
           const key = Reflect.getMetadata(PLATFORM_PERMISSION, r.handler) as string;
-          const res = await send(r, fillPath(r.path, { organizationId: a.id }), admin);
-          const allowed = res.status >= 200 && res.status < 300;
+          const path = fillPath(r.path, platformParams());
+          const res = r.path.startsWith('/v1/platform/mfa-recovery-requests')
+            ? await sendWith(r, path, admin, { targetUserId: resetTarget.userId })
+            : await send(r, path, admin);
+          // Authorized = got past authentication and authorization (business outcomes such
+          // as 404/409 still count as authorized; 401/403 do not).
+          const allowed = res.status !== 401 && res.status !== 403;
           if (allowed !== (permissions as readonly string[]).includes(key)) mismatches.push(`${r.method} ${r.path} (${key}) -> ${res.status}`);
         }
         expect(mismatches).toEqual([]);
@@ -199,7 +222,7 @@ describe('Authorization sweeps', () => {
     it('an administrator record with no roles has no platform privileges', async () => {
       const admin = await makeAdmin('plat-norole', []);
       for (const r of platformRoutes()) {
-        const res = await send(r, fillPath(r.path, { organizationId: a.id }), admin);
+        const res = await send(r, fillPath(r.path, platformParams()), admin);
         expect({ route: r.path, status: res.status }).toEqual({ route: r.path, status: 403 });
       }
     });
@@ -207,7 +230,7 @@ describe('Authorization sweeps', () => {
     it('a suspended administrator has no platform privileges, even with every role', async () => {
       const admin = await makeAdmin('plat-suspended', PLATFORM_ROLE_TEMPLATES.map((t) => t.name), 'SUSPENDED');
       for (const r of [...platformRoutes(), routes.find((x) => x.path === '/v1/platform/me')!]) {
-        const res = await send(r, fillPath(r.path, { organizationId: a.id }), admin);
+        const res = await send(r, fillPath(r.path, platformParams()), admin);
         expect({ route: r.path, status: res.status }).toEqual({ route: r.path, status: 403 });
       }
     });

@@ -26,6 +26,8 @@ export class PlatformAccessGuard implements CanActivate {
 
     const access = await this.authz.load(req.auth.userId);
     if (!access || !access.permissions.has(key)) throw Errors.forbidden();
+    // Every platform permission requires an MFA-verified session.
+    if (!req.auth.mfaVerifiedAt) throw Errors.mfaRequired();
 
     if (PLATFORM_PERMISSIONS.get(key)?.privileged) {
       const at = req.auth.reauthenticatedAt;

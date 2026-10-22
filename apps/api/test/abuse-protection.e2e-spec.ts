@@ -10,7 +10,7 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../src/database/prisma.service';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
 import {
-  bearer, createOrg, createTestApp, http, login, PASSWORD, resetDatabase, signUp, TestUser, tokenFromMail, uniqueEmail,
+  bearer, createOrg, createTestApp, enableMfa, http, login, PASSWORD, resetDatabase, signUp, TestUser, tokenFromMail, uniqueEmail,
 } from './support/harness';
 import { redisTarget, redisUrlVia, TcpProxy, waitFor } from './support/tcp-proxy';
 
@@ -248,6 +248,7 @@ describe('Authentication abuse protection', () => {
         const org = await createOrg(app, owner, 'plat-target-org');
         const admin = await signUp(app, 'plat-limited');
         await bootstrapSuperAdmin(app.get(PrismaService), admin.email);
+        await enableMfa(app, admin);
         const s: number[] = [];
         for (let i = 0; i < 3; i++) s.push((await http(app).patch(`/v1/platform/organizations/${org.id}/status`).set(bearer(admin)).send({ status: 'ACTIVE' })).status);
         expect(s).toEqual([200, 200, 429]);

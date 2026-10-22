@@ -1,6 +1,6 @@
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
-import { APP_CONFIG, AppConfig } from '../config/env';
+import { AuthDb } from './auth-db';
 
 /**
  * The only code that can read or write password hashes.
@@ -13,11 +13,11 @@ import { APP_CONFIG, AppConfig } from '../config/env';
  * The surface is deliberately tiny: four fixed, parameterized statements.
  */
 @Injectable()
-export class CredentialStore implements OnModuleDestroy {
+export class CredentialStore {
   private readonly pool: Pool;
 
-  constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    this.pool = new Pool({ connectionString: config.authDatabaseUrl, max: 5 });
+  constructor(db: AuthDb) {
+    this.pool = db.pool;
   }
 
   async getHash(userId: string): Promise<string | null> {
@@ -47,9 +47,5 @@ export class CredentialStore implements OnModuleDestroy {
       'UPDATE user_credentials SET password_hash = $3, updated_at = now() WHERE user_id = $1 AND password_hash = $2',
       [userId, oldHash, newHash],
     );
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
   }
 }

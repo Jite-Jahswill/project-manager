@@ -6,7 +6,8 @@ import { Errors } from '../common/errors';
 import type { VentidocRequest } from '../common/request-context';
 import { AuthService } from './auth.service';
 import { ACCESS_COOKIE, CSRF_COOKIE, CSRF_HEADER } from './cookies';
-import { IS_PUBLIC } from './decorators';
+import { IS_PUBLIC, MFA_EXEMPT } from './decorators';
+import { MfaPolicyService } from '../mfa/mfa-policy.service';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -25,6 +26,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly auth: AuthService,
     private readonly prisma: PrismaService,
+    private readonly mfaPolicy: MfaPolicyService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -46,13 +48,26 @@ export class AuthGuard implements CanActivate {
 
     const session = await this.prisma.session.findFirst({
       where: { id: claims.sid, userId: claims.sub, revokedAt: null, expiresAt: { gt: new Date() }, user: { status: 'ACTIVE' } },
-      select: { reauthenticatedAt: true, createdAt: true, user: { select: { passwordChangedAt: true } } },
+      select: { reauthenticatedAt: true, mfaVerifiedAt: true, createdAt: true, user: { select: { passwordChangedAt: true, mfaEnabledAt: true } } },
     });
     if (!session) throw Errors.unauthenticated();
     // Backstop to explicit revocation: no session older than the last password change is honoured.
     if (session.user.passwordChangedAt && session.user.passwordChangedAt > session.createdAt) throw Errors.unauthenticated();
 
-    req.auth = { userId: claims.sub, sessionId: claims.sid, reauthenticatedAt: session.reauthenticatedAt };
+    req.auth = { userId: claims.sub, sessionId: claims.sid, reauthenticatedAt: session.reauthenticatedAt, mfaVerifiedAt: session.mfaVerifiedAt };
+
+    // MFA enforcement for sessions that did not complete a second factor:
+    //  - the account has MFA: such a session must not exist (signed in before MFA was
+    //    turned on elsewhere, or a bug): reject outright;
+    //  - MFA is mandatory for this user (platform admin / organization owner) but not
+    //    set up yet: only the enrollment allowlist is reachable.
+    if (!session.mfaVerifiedAt) {
+      if (session.user.mfaEnabledAt) throw Errors.unauthenticated();
+      const exempt = this.reflector.getAllAndOverride<boolean>(MFA_EXEMPT, [context.getHandler(), context.getClass()]);
+      if (!exempt && (await this.mfaPolicy.requiresMfa(claims.sub))) {
+        throw Errors.mfaRequired('Set up two-step verification to continue (POST /v1/auth/mfa/enrollment)');
+      }
+    }
     return true;
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 import { Auth, AuthIdentity, Meta, RequestMeta } from '../common/request-context';
@@ -8,6 +8,8 @@ import { TenantDb } from '../database/tenant-db.service';
 import { AuditQueryDto } from '../organizations/dto/organization.dto';
 import { RequirePlatformPermission } from '../authz/platform-access.guard';
 import { PlatformAuthzService } from '../authz/platform-authz.service';
+import { MfaRecoveryService } from '../mfa/mfa-recovery.service';
+import { ApproveMfaRecoveryDto, CreateMfaRecoveryRequestDto, ListMfaRecoveryQuery, RejectMfaRecoveryDto } from '../mfa/dto/mfa.dto';
 
 class OrganizationStatusDto {
   @IsIn(['ACTIVE', 'SUSPENDED']) status!: 'ACTIVE' | 'SUSPENDED';
@@ -24,6 +26,7 @@ export class PlatformController {
     private readonly db: TenantDb,
     private readonly authz: PlatformAuthzService,
     private readonly audit: AuditService,
+    private readonly recovery: MfaRecoveryService,
   ) {}
 
   @Get('me')
@@ -62,6 +65,39 @@ export class PlatformController {
       }, meta);
       return after;
     });
+  }
+
+  // Two-person administrative MFA recovery (docs/security/mfa.md §8). All routes are
+  // privileged: the administrator's own MFA, a recent password re-entry and rate limits.
+  @Post('mfa-recovery-requests') @RequirePlatformPermission('platform.user_mfa.recovery.request')
+  requestRecovery(@Auth() identity: AuthIdentity, @Body() dto: CreateMfaRecoveryRequestDto, @Meta() meta: RequestMeta) {
+    return this.recovery.request(identity.userId, dto.targetUserId, dto.reason.trim(), meta);
+  }
+
+  @Get('mfa-recovery-requests') @RequirePlatformPermission('platform.user_mfa.recovery.approve')
+  listRecovery(@Auth() identity: AuthIdentity, @Query() q: ListMfaRecoveryQuery) {
+    return this.recovery.list(identity.userId, q.status);
+  }
+
+  @Post('mfa-recovery-requests/:requestId/approve') @HttpCode(200) @RequirePlatformPermission('platform.user_mfa.recovery.approve')
+  approveRecovery(
+    @Auth() identity: AuthIdentity, @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Body() dto: ApproveMfaRecoveryDto, @Meta() meta: RequestMeta,
+  ) {
+    return this.recovery.approve(identity.userId, requestId, dto.targetUserId, meta);
+  }
+
+  @Post('mfa-recovery-requests/:requestId/reject') @HttpCode(200) @RequirePlatformPermission('platform.user_mfa.recovery.approve')
+  rejectRecovery(
+    @Auth() identity: AuthIdentity, @Param('requestId', ParseUUIDPipe) requestId: string,
+    @Body() dto: RejectMfaRecoveryDto, @Meta() meta: RequestMeta,
+  ) {
+    return this.recovery.reject(identity.userId, requestId, dto.note.trim(), meta);
+  }
+
+  @Post('mfa-recovery-requests/:requestId/cancel') @HttpCode(204) @RequirePlatformPermission('platform.user_mfa.recovery.request')
+  cancelRecovery(@Auth() identity: AuthIdentity, @Param('requestId', ParseUUIDPipe) requestId: string, @Meta() meta: RequestMeta) {
+    return this.recovery.cancel(identity.userId, requestId, meta);
   }
 
   @Get('audit-events') @RequirePlatformPermission('platform.audit.read')

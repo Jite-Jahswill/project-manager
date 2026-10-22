@@ -6,10 +6,11 @@ import { PrismaService } from '../database/prisma.service';
 import { randomToken } from '../common/crypto';
 import { Errors } from '../common/errors';
 import { Auth, AuthIdentity, Meta, RequestMeta, VentidocRequest } from '../common/request-context';
-import { AuthService, IssuedTokens } from './auth.service';
+import { AuthService, IssuedTokens, SessionResult } from './auth.service';
+import { MfaLoginDto } from '../mfa/dto/mfa.dto';
 import { assertCsrf } from './auth.guard';
 import { clearAuthCookies, DEVICE_COOKIE, REFRESH_COOKIE, setAuthCookies, setDeviceCookie } from './cookies';
-import { Public } from './decorators';
+import { AllowWithoutMfa, Public } from './decorators';
 import { RateLimit } from '../abuse/rate-limit.guard';
 import { EmailDto, LoginDto, ReauthenticateDto, RefreshDto, RegisterDto, ResetPasswordDto, TokenDto } from './dto/auth.dto';
 
@@ -47,11 +48,25 @@ export class AuthController {
   async login(@Body() dto: LoginDto, @Req() req: VentidocRequest, @Meta() meta: RequestMeta, @Res({ passthrough: true }) res: Response) {
     const deviceToken = dto.clientType === 'WEB' ? (req.cookies?.[DEVICE_COOKIE] as string | undefined) : dto.deviceToken;
     const result = await this.auth.login({ ...dto, deviceToken }, meta);
-    if (dto.clientType === 'WEB') {
+    // MFA accounts: no cookies, no tokens; only the single-purpose challenge.
+    if (result.mfaRequired) return { mfaRequired: true, mfaToken: result.mfaToken, mfaTokenExpiresAt: result.mfaTokenExpiresAt };
+    return this.completeSession(dto.clientType, result, res);
+  }
+
+  /** Second step of an MFA login (TOTP or recovery code). Same delivery rules as login. */
+  @Public() @RateLimit('mfa.verify.ip', 'ip') @Post('mfa/verify') @HttpCode(200)
+  async verifyMfa(@Body() dto: MfaLoginDto, @Req() req: VentidocRequest, @Meta() meta: RequestMeta, @Res({ passthrough: true }) res: Response) {
+    const deviceToken = dto.deviceToken ?? (req.cookies?.[DEVICE_COOKIE] as string | undefined);
+    const result = await this.auth.completeMfaLogin({ ...dto, deviceToken }, meta);
+    return this.completeSession(result.clientType, result, res);
+  }
+
+  private completeSession(clientType: 'WEB' | 'MOBILE', result: SessionResult, res: Response) {
+    if (clientType === 'WEB') {
       setDeviceCookie(res, this.config, result.deviceToken);
-      return { user: result.user, ...this.deliver('WEB', result, res) };
+      return { mfaRequired: false, user: result.user, ...this.deliver('WEB', result, res) };
     }
-    return { user: result.user, ...this.deliver('MOBILE', result, res), deviceToken: result.deviceToken };
+    return { mfaRequired: false, user: result.user, ...this.deliver('MOBILE', result, res), deviceToken: result.deviceToken };
   }
 
   @Public() @RateLimit('refresh.ip', 'ip') @Post('refresh') @HttpCode(200)
@@ -63,13 +78,13 @@ export class AuthController {
     return this.deliver('WEB', await this.auth.refresh(cookie, meta), res);
   }
 
-  @Post('logout') @HttpCode(204)
+  @Post('logout') @AllowWithoutMfa() @HttpCode(204)
   async logout(@Auth() identity: AuthIdentity, @Meta() meta: RequestMeta, @Res({ passthrough: true }) res: Response) {
     await this.auth.logout(identity.sessionId, identity.userId, meta);
     clearAuthCookies(res, this.config);
   }
 
-  @Post('reauthenticate') @RateLimit('reauth.session', 'session') @RateLimit('reauth.user', 'user') @HttpCode(204)
+  @Post('reauthenticate') @AllowWithoutMfa() @RateLimit('reauth.session', 'session') @RateLimit('reauth.user', 'user') @HttpCode(204)
   async reauthenticate(@Auth() identity: AuthIdentity, @Body() dto: ReauthenticateDto, @Meta() meta: RequestMeta) {
     await this.auth.reauthenticate(identity.userId, identity.sessionId, dto.password, meta);
   }
@@ -85,7 +100,7 @@ export class AuthController {
     await this.auth.resetPassword(dto.token, dto.newPassword, meta);
   }
 
-  @Get('me')
+  @Get('me') @AllowWithoutMfa()
   async me(@Auth() identity: AuthIdentity) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: identity.userId },
@@ -94,13 +109,13 @@ export class AuthController {
     return { ...user, sessionId: identity.sessionId };
   }
 
-  @Get('sessions')
+  @Get('sessions') @AllowWithoutMfa()
   async sessions(@Auth() identity: AuthIdentity) {
     const sessions = await this.auth.listSessions(identity.userId);
     return sessions.map((s) => ({ ...s, current: s.id === identity.sessionId }));
   }
 
-  @Delete('sessions/:sessionId') @HttpCode(204)
+  @Delete('sessions/:sessionId') @AllowWithoutMfa() @HttpCode(204)
   async revoke(@Auth() identity: AuthIdentity, @Param('sessionId', ParseUUIDPipe) sessionId: string, @Meta() meta: RequestMeta) {
     await this.auth.revokeOwnSession(identity.userId, sessionId, meta);
   }
