@@ -106,12 +106,12 @@ A disposable database migrated from scratch from the committed migration files, 
 |---|---|---|
 | MFA (TOTP + recovery codes; mandatory for platform admins and organization owners) | High | **Release blocker** |
 | Real transactional email for verification, reset and invitations (provider, SPF/DKIM, bounce handling) | High | **Release blocker** (accounts can't be verified without it) |
-| Distributed (Redis) rate limiting + correct proxy trust / client-IP derivation | High | **Release blocker** (per-instance limits are bypassable behind a load balancer) |
+| Distributed (Redis) rate limiting + correct proxy trust / client-IP derivation | High | **Implemented in stage 2A** (uncommitted, under review): [rate-limiting-and-abuse-protection.md](rate-limiting-and-abuse-protection.md). Remains a release blocker until a production HA/TLS Redis and the real `TRUSTED_PROXIES` are configured. |
 | Production configuration: secret manager, TLS to PostgreSQL and Redis, cookie domain, CORS origins, `NODE_ENV=production` acceptance tests | High | **Release blocker** |
 | Step-up re-authentication for organization-level sensitive actions (ownership transfer, restricted-permission grants, exports, payroll approval) | Medium-High | **Release blocker for any module exposing restricted data**; required in Stage 2 |
 | CI never executed on GitHub | Medium | **Blocker for the merge process** (run once a remote exists) |
 | API process holds both DB credentials (hash exposure on RCE) | Medium | Later stage; required before regulated data |
-| Lockout can be triggered by anyone who knows an email | Medium | Stage 2 (risk-based throttling once MFA exists) |
+| Lockout can be triggered by anyone who knows an email | Medium | **Fixed in stage 2A**: DB lockout removed; layered limits + recognized devices |
 | Unlimited organizations/trials per user | Medium | Blocker for public self-service sign-up |
 | Field-level DTO split; audit stores references, not values, for restricted resources | High when HR/payroll/finance ship | **Gate for those modules** |
 | File, job, export and WebSocket isolation (mandatory tests 2 and 7) | High when built | **Gate for those features** |

@@ -1,10 +1,8 @@
 import { Module, OnApplicationBootstrap } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_CONFIG, AppConfig, loadConfig } from './config/env';
+import { APP_CONFIG, loadConfig } from './config/env';
+import { AbuseModule } from './abuse/abuse.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
-import { AUTH_RATE_LIMITED } from './auth/decorators';
 import { AuthzModule } from './authz/authz.module';
 import { PERMISSIONS } from './authz/permission-registry';
 import { DatabaseModule } from './database/database.module';
@@ -27,22 +25,8 @@ class ConfigModule {}
 @Module({
   imports: [
     { module: ConfigModule, global: true },
-    // In-memory counters: correct for a single instance only. Moving to Redis
-    // storage is required before running more than one API instance.
-    ThrottlerModule.forRootAsync({
-      inject: [APP_CONFIG],
-      useFactory: (config: AppConfig) => ({
-        throttlers: [
-          { name: 'default', ttl: 60_000, limit: 600 },
-          {
-            name: 'auth',
-            ttl: 60_000,
-            limit: config.authRateLimitPerMinute,
-            skipIf: (ctx) => !Reflect.getMetadata(AUTH_RATE_LIMITED, ctx.getHandler()),
-          },
-        ],
-      }),
-    }),
+    // Registered before AuthModule: the global coarse rate limit runs before session lookups.
+    AbuseModule,
     DatabaseModule,
     AuditModule,
     MailModule,
@@ -54,8 +38,6 @@ class ConfigModule {}
     PlatformModule,
   ],
   controllers: [HealthController],
-  // Throttler first, so rejected floods never reach the database.
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements OnApplicationBootstrap {
   constructor(private readonly prisma: PrismaService) {}

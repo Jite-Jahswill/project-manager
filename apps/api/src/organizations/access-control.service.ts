@@ -10,6 +10,7 @@ import { can, EffectiveAccess, notAppliedAtBranch } from '../authz/permission-ev
 import { PERMISSIONS, PermissionKey } from '../authz/permission-registry';
 import { OWNER_TEMPLATE_KEY } from '../authz/role-templates';
 import { MailService } from '../mail/mail.service';
+import { RateLimiter } from '../abuse/rate-limiter.service';
 import { PrismaService } from '../database/prisma.service';
 import { EntitlementService } from '../subscriptions/entitlement.service';
 import { ENTITLEMENTS } from '../subscriptions/entitlements';
@@ -43,6 +44,7 @@ export class AccessControlService {
     private readonly mail: MailService,
     private readonly entitlements: EntitlementService,
     private readonly authz: OrgAuthzService,
+    private readonly limiter: RateLimiter,
   ) {}
 
   // ---------------------------------------------------------------- members
@@ -68,6 +70,11 @@ export class AccessControlService {
   async invite(access: EffectiveAccess, dto: InviteMemberDto, meta: RequestMeta) {
     const email = normalizeEmail(dto.email);
     const secret = randomToken();
+    // Invitations send mail: limited per organization and per inviter. `access` comes from
+    // OrgAccessGuard, so outsiders can never consume an organization's allowance; checked
+    // before the transaction so a slow Redis never holds the organization lock.
+    await this.limiter.enforce('invite.org', `org:${access.organizationId}`);
+    await this.limiter.enforce('invite.user', `user:${access.userId}`);
     const result = await this.db.inOrg(access, async (tx) => {
       const actor = await this.lockAndReload(tx, access, 'organization.member.manage');
       await this.assertMemberSlotAvailable(tx, actor.organizationId);

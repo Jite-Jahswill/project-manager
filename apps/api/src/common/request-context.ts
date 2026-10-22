@@ -17,6 +17,8 @@ export interface RequestMeta {
 }
 
 export interface VentidocRequest extends Request {
+  /** Client address resolved with explicit proxy trust (abuse/client-ip.ts). Never use req.ip. */
+  clientIp?: string | null;
   auth?: AuthIdentity;
   orgAccess?: EffectiveAccess;
   requestId?: string;
@@ -24,7 +26,7 @@ export interface VentidocRequest extends Request {
 
 export function requestMeta(req: VentidocRequest): RequestMeta {
   return {
-    ipAddress: req.ip ?? null,
+    ipAddress: req.clientIp ?? null,
     userAgent: req.get('user-agent')?.slice(0, 512) ?? null,
     requestId: req.requestId ?? null,
   };

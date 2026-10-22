@@ -5,16 +5,20 @@ import helmet from 'helmet';
 import { APP_CONFIG, AppConfig } from './config/env';
 import { ApiExceptionFilter } from './common/exception.filter';
 import { requestIdMiddleware } from './common/request-id.middleware';
+import { clientIpMiddleware } from './abuse/client-ip.middleware';
+import { TrustedProxies } from './abuse/client-ip';
 
 /** Shared by main.ts and the integration tests, so tests exercise the real HTTP pipeline. */
 export function configureApp(app: INestApplication): AppConfig {
   const config = app.get<AppConfig>(APP_CONFIG);
   const express = app as NestExpressApplication;
-  express.set('trust proxy', config.trustProxy ? 1 : false);
+  // Proxy trust is handled explicitly by clientIpMiddleware (TRUSTED_PROXIES); Express must not interpret forwarding headers.
+  express.set('trust proxy', false);
   express.disable('x-powered-by');
   app.use(helmet());
   app.use(cookieParser());
   app.use(requestIdMiddleware);
+  app.use(clientIpMiddleware(new TrustedProxies(config.trustedProxies)));
   app.enableCors({
     origin: config.webOrigins,
     credentials: true,

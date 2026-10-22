@@ -35,13 +35,7 @@ describe('Authentication and sessions', () => {
     expect(bad.body).toEqual(unknown.body);
   });
 
-  it('locks the account after repeated failures, even for the correct password', async () => {
-    const user = await signUp(app, 'lockout');
-    for (let i = 0; i < 5; i++) {
-      await http(app).post('/v1/auth/login').send({ email: user.email, password: 'wrong-password-123', clientType: 'MOBILE' }).expect(401);
-    }
-    await http(app).post('/v1/auth/login').send({ email: user.email, password: PASSWORD, clientType: 'MOBILE' }).expect(401);
-  });
+  // Account-lockout and rate-limit behavior: see abuse-protection.e2e-spec.ts (stage 2A replaced the DB lockout).
 
   it('rotates refresh tokens and revokes the session when an old token is reused', async () => {
     const user = await signUp(app, 'rotate');
@@ -93,20 +87,5 @@ describe('Authentication and sessions', () => {
     const user = await signUp(app, 'claims');
     const payload = JSON.parse(Buffer.from(user.token.split('.')[1], 'base64url').toString());
     expect(Object.keys(payload).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'sid', 'sub', 'typ']);
-  });
-
-  it('rate-limits credential endpoints per client', async () => {
-    const limited = await createTestApp({ AUTH_RATE_LIMIT_PER_MINUTE: '3' });
-    try {
-      const statuses: number[] = [];
-      for (let i = 0; i < 5; i++) {
-        const r = await http(limited).post('/v1/auth/password/forgot').send({ email: uniqueEmail('rl') });
-        statuses.push(r.status);
-      }
-      expect(statuses.slice(0, 3)).toEqual([202, 202, 202]);
-      expect(statuses.slice(3)).toEqual([429, 429]);
-    } finally {
-      await limited.close();
-    }
   });
 });

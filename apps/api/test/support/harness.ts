@@ -1,5 +1,6 @@
 import { DynamicModule, INestApplication, Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
@@ -53,7 +54,9 @@ export async function createTestApp(
   extraImports: (Type | DynamicModule)[] = [],
 ): Promise<INestApplication> {
   const saved = { ...process.env };
-  Object.assign(process.env, env);
+  // Every app instance gets its own key prefix unless a test shares one on purpose
+  // (to prove limits are shared across instances).
+  Object.assign(process.env, { RATE_LIMIT_KEY_PREFIX: `t${randomBytes(6).toString('hex')}` }, env);
   try {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule, ...extraImports] }).compile();
     const app = moduleRef.createNestApplication({ logger: ['error'] });

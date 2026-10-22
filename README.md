@@ -45,12 +45,14 @@ This works only while no super administrator exists. There is no default admin a
 pnpm api typecheck
 pnpm api lint
 pnpm api test                 # unit tests (no database)
-pnpm api test:e2e             # integration + security tests against ventidoc_test (truncated each suite)
+pnpm api test:e2e             # integration + security tests against ventidoc_test and Redis DB 1 (needs `pnpm infra:up`)
 pnpm api db:check-migrations  # protects hand-written SQL from Prisma auto-generated drops
 pnpm api docs:rbac            # regenerate docs/architecture/rbac-matrix.md
 ```
 
-Integration tests refuse to run against a database whose name doesn't end in `_test`.
+Integration tests refuse to run against a database whose name doesn't end in `_test`, and abort with `BLOCKED` if the Redis test service is unreachable.
+
+Rate limiting, client-IP trust (`TRUSTED_PROXIES`) and Redis requirements: [docs/security/rate-limiting-and-abuse-protection.md](docs/security/rate-limiting-and-abuse-protection.md).
 
 ## Security model in one paragraph
 

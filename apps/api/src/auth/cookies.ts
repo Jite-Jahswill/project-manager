@@ -6,6 +6,8 @@ export const REFRESH_COOKIE = 'vd_rt';
 /** Readable by the web app's JS and echoed in the x-csrf-token header (double-submit). */
 export const CSRF_COOKIE = 'vd_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
+export { DEVICE_COOKIE } from '../abuse/device-token.service';
+import { DEVICE_COOKIE, DEVICE_TOKEN_MAX_AGE_SECONDS } from '../abuse/device-token.service';
 
 function base(config: AppConfig): CookieOptions {
   return { secure: config.nodeEnv !== 'development', path: '/' };
@@ -34,6 +36,17 @@ export function setAuthCookies(
     httpOnly: false,
     sameSite: 'strict',
     expires: tokens.refreshExpiresAt,
+  });
+}
+
+/** "Known device" marker for login rate limiting; carries no authority. Survives logout on purpose. */
+export function setDeviceCookie(res: Response, config: AppConfig, deviceToken: string): void {
+  res.cookie(DEVICE_COOKIE, deviceToken, {
+    ...base(config),
+    httpOnly: true,
+    sameSite: 'strict',
+    path: '/v1/auth',
+    maxAge: DEVICE_TOKEN_MAX_AGE_SECONDS * 1000,
   });
 }
 

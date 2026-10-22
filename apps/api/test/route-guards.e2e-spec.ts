@@ -9,6 +9,8 @@ import { ORG_ACCESS } from '../src/authz/org-access.guard';
 import { PLATFORM_PERMISSION } from '../src/authz/platform-access.guard';
 import { createTestApp } from './support/harness';
 import { discoverRoutes } from './support/routes';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { rateLimitRules, RouteRateLimitGuard } from '../src/abuse/rate-limit.guard';
 
 describe('Route guard coverage', () => {
   let app: INestApplication;
@@ -47,5 +49,29 @@ describe('Route guard coverage', () => {
       'POST /v1/auth/verify-email',
       'POST /v1/auth/verify-email/resend',
     ]);
+  });
+
+  it('every public state-changing route has an IP-keyed rate limit (login limits itself in AuthService)', () => {
+    const missing = routes()
+      .filter((r) => r.isPublic && r.method !== 'GET' && r.path !== '/v1/auth/login')
+      .filter((r) => !rateLimitRules(r.handler).some((rule) => rule.subject === 'ip'))
+      .map((r) => `${r.method} ${r.path}`);
+    expect(missing).toEqual([]);
+  });
+
+  it('the rate-limit guard is attached at most once per route (no double charging)', () => {
+    for (const r of routes()) {
+      const guards = (Reflect.getMetadata(GUARDS_METADATA, r.handler) as unknown[] | undefined) ?? [];
+      const count = guards.filter((g) => g === RouteRateLimitGuard).length;
+      expect({ route: `${r.method} ${r.path}`, count: Math.min(count, 2) })
+        .toEqual({ route: `${r.method} ${r.path}`, count: rateLimitRules(r.handler).length ? 1 : 0 });
+    }
+  });
+
+  it('user- and session-keyed limits only appear on authenticated routes', () => {
+    const bad = routes()
+      .filter((r) => r.isPublic && rateLimitRules(r.handler).some((rule) => rule.subject === 'user' || rule.subject === 'session'))
+      .map((r) => `${r.method} ${r.path}`);
+    expect(bad).toEqual([]);
   });
 });

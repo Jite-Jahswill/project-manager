@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import type { Response } from 'express';
 import { Prisma } from '../generated/prisma/client';
 import type { VentidocRequest } from './request-context';
+import { RateLimitError } from '../abuse/rate-limiter.service';
 
 /**
  * Maps errors to safe HTTP responses. Database details (constraint names, SQL,
@@ -17,6 +18,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const req = ctx.getRequest<VentidocRequest>();
 
     if (exception instanceof HttpException) {
+      if (exception instanceof RateLimitError) res.setHeader('Retry-After', String(exception.retryAfterSeconds));
       const body = exception.getResponse();
       res.status(exception.getStatus()).json(typeof body === 'string' ? { statusCode: exception.getStatus(), message: body } : body);
       return;

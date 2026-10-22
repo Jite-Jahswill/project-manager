@@ -8,12 +8,13 @@ import { MailService } from '../mail/mail.service';
 import { hashToken, normalizeEmail, randomToken } from '../common/crypto';
 import { Errors } from '../common/errors';
 import type { RequestMeta } from '../common/request-context';
+import { rateLimitNetwork } from '../abuse/client-ip';
+import { credentialEpoch, DeviceTokenService } from '../abuse/device-token.service';
+import type { PolicyName } from '../abuse/policies';
+import { RateLimiter } from '../abuse/rate-limiter.service';
 import { CredentialStore } from './credential-store';
 import { PasswordService } from './password.service';
 
-const MAX_FAILED_LOGINS = 5;
-const LOCKOUT_BASE_MS = 15 * 60_000;
-const LOCKOUT_MAX_MS = 24 * 60 * 60_000;
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60_000;
 const PASSWORD_RESET_TTL_MS = 60 * 60_000;
 
@@ -40,6 +41,8 @@ export class AuthService {
     private readonly credentials: CredentialStore,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly limiter: RateLimiter,
+    private readonly devices: DeviceTokenService,
   ) {}
 
   /**
@@ -85,29 +88,60 @@ export class AuthService {
     await this.audit.record(null, { action: 'auth.email.verified', resourceType: 'user', resourceId: userId, actorUserId: userId }, meta);
   }
 
+  /**
+   * Password login with layered, shared (Redis) abuse limits instead of an account
+   * lockout (docs/security/rate-limiting-and-abuse-protection.md §2.2).
+   *
+   * Every bucket is a reservation taken BEFORE the password is verified and refunded
+   * when the password proves correct, so successful logins never consume capacity
+   * (many users behind one NAT can sign in) while failures always count. Keys use the
+   * normalized email, so registered and unknown addresses behave identically.
+   */
   async login(
-    input: { email: string; password: string; clientType: ClientType; deviceName?: string },
+    input: { email: string; password: string; clientType: ClientType; deviceName?: string; deviceToken?: string },
     meta: RequestMeta,
-  ): Promise<IssuedTokens & { user: { id: string; email: string; displayName: string } }> {
+  ): Promise<IssuedTokens & { deviceToken: string; user: { id: string; email: string; displayName: string } }> {
     const email = normalizeEmail(input.email);
+    const network = `ip:${rateLimitNetwork(meta.ipAddress, this.config.rateLimitIpv6Prefix)}`;
+    const account = `email:${email}`;
+    const reserved: [PolicyName, string][] = [];
+    const reserve = async (policy: PolicyName, subject: string) => {
+      await this.limiter.enforce(policy, subject);
+      reserved.push([policy, subject]);
+    };
+
+    // 1. One network guessing this account: always applies, recognized device or not.
+    await reserve('login.ip_account', `${network}|${account}`);
+
     const user = await this.prisma.user.findUnique({ where: { email } });
+    // A valid token for exactly this user under their current credentials (bearer; see DeviceTokenService).
+    const device = this.devices.recognize(input.deviceToken, user);
+    if (device) {
+      // 2a. Returning clients: their own bucket. They skip the shared per-network bucket
+      //     (an insider on a shared address cannot lock colleagues out) and the per-account
+      //     bucket (a distributed attack cannot lock the owner out).
+      await reserve('login.device', `device:${device.deviceId}`);
+    } else {
+      // 2b. Everyone else: per network (spraying many accounts) and per account (distributed guessing).
+      await reserve('login.ip', network);
+      await reserve('login.account', account);
+    }
+
     const storedHash = user ? await this.credentials.getHash(user.id) : null;
     // Always runs one argon2 verification (against a dummy hash when there is no credential).
     const passwordOk = await this.passwords.verify(storedHash, input.password);
 
-    if (!user) {
-      await this.audit.record(null, { action: 'auth.login.failed', resourceType: 'user', metadata: { reason: 'unknown_email' } }, meta);
+    if (!user || !passwordOk || !storedHash) {
+      await this.audit.record(null, {
+        action: 'auth.login.failed', resourceType: 'user', resourceId: user?.id ?? null,
+        metadata: { reason: user ? 'bad_password' : 'unknown_email', recognizedDevice: !!device },
+      }, meta);
       throw Errors.invalidCredentials();
     }
-    const now = new Date();
-    if (user.lockedUntil && user.lockedUntil > now) {
-      await this.audit.record(null, { action: 'auth.login.blocked', resourceType: 'user', resourceId: user.id, metadata: { reason: 'locked' } }, meta);
-      throw Errors.invalidCredentials();
-    }
-    if (!passwordOk || !storedHash) {
-      await this.registerFailedLogin(user.id, meta);
-      throw Errors.invalidCredentials();
-    }
+    // Correct credentials: give back every reservation (refunds never exceed a full bucket,
+    // and never erase failures recorded before this attempt).
+    await Promise.all(reserved.map(([policy, subject]) => this.limiter.refund(policy, subject)));
+
     if (user.status !== 'ACTIVE') {
       await this.audit.record(null, { action: 'auth.login.blocked', resourceType: 'user', resourceId: user.id, metadata: { reason: 'disabled' } }, meta);
       throw Errors.invalidCredentials();
@@ -119,8 +153,8 @@ export class AuthService {
     if (this.passwords.needsRehash(storedHash)) {
       await this.credentials.upgrade(user.id, storedHash, await this.passwords.hash(input.password));
     }
-    await this.prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null } });
 
+    const now = new Date();
     const refreshTokenExpiresAt = new Date(now.getTime() + this.config.refreshTokenTtlDays * 86_400_000);
     const session = await this.prisma.session.create({
       data: {
@@ -138,9 +172,13 @@ export class AuthService {
     const tokens = await this.issueTokens(user.id, session.id, refreshTokenExpiresAt);
     await this.audit.record(null, {
       action: 'auth.login.succeeded', resourceType: 'session', resourceId: session.id, actorUserId: user.id,
-      metadata: { clientType: input.clientType },
+      metadata: { clientType: input.clientType, recognizedDevice: !!device },
     }, meta);
-    return { ...tokens, user: { id: user.id, email: user.email, displayName: user.displayName } };
+    return {
+      ...tokens,
+      deviceToken: this.devices.issue(user.id, credentialEpoch(user), device?.deviceId),
+      user: { id: user.id, email: user.email, displayName: user.displayName },
+    };
   }
 
   /**
@@ -217,6 +255,7 @@ export class AuthService {
   /** Resetting a password signs out every session of the account. */
   async resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
     const userId = await this.consumeActionToken(token, 'PASSWORD_RESET');
+    const { email } = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
     const passwordHash = await this.passwords.hash(newPassword);
     const now = new Date();
     // Fail-safe ordering across the two connections: sign everything out and stamp
@@ -226,12 +265,15 @@ export class AuthService {
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
-        // Proving control of the inbox also verifies it, and clears any lockout.
-        data: { passwordChangedAt: now, failedLoginCount: 0, lockedUntil: null, emailVerifiedAt: now },
+        // Proving control of the inbox also verifies it.
+        data: { passwordChangedAt: now, emailVerifiedAt: now },
       }),
       this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now, revokeReason: 'password_reset' } }),
     ]);
     if (!(await this.credentials.update(userId, passwordHash))) await this.credentials.create(userId, passwordHash);
+    // Recovery path: inbox control lifts the distributed-attack bucket on this account,
+    // so the owner can sign in from a new device right away. Best effort if Redis is down.
+    await this.limiter.reset('login.account', `email:${email}`).catch(() => undefined);
     await this.audit.record(null, { action: 'auth.password_reset.completed', resourceType: 'user', resourceId: userId, actorUserId: userId }, meta);
   }
 
@@ -239,7 +281,8 @@ export class AuthService {
   async reauthenticate(userId: string, sessionId: string, password: string, meta: RequestMeta): Promise<void> {
     const hash = await this.credentials.getHash(userId);
     if (!hash || !(await this.passwords.verify(hash, password))) {
-      await this.registerFailedLogin(userId, meta);
+      // Limited per session and per user by the route (reauth.*); no account lock.
+      await this.audit.record(null, { action: 'auth.reauthentication.failed', resourceType: 'session', resourceId: sessionId, actorUserId: userId }, meta);
       throw Errors.invalidCredentials();
     }
     await this.prisma.session.update({ where: { id: sessionId }, data: { reauthenticatedAt: new Date() } });
@@ -282,23 +325,6 @@ export class AuthService {
 
   private async revokeSession(sessionId: string, reason: string): Promise<void> {
     await this.prisma.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: reason } });
-  }
-
-  private async registerFailedLogin(userId: string, meta: RequestMeta): Promise<void> {
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: { failedLoginCount: { increment: 1 } },
-      select: { failedLoginCount: true },
-    });
-    const failures = updated.failedLoginCount;
-    if (failures >= MAX_FAILED_LOGINS) {
-      const lockMs = Math.min(LOCKOUT_BASE_MS * 2 ** (failures - MAX_FAILED_LOGINS), LOCKOUT_MAX_MS);
-      await this.prisma.user.update({ where: { id: userId }, data: { lockedUntil: new Date(Date.now() + lockMs) } });
-    }
-    await this.audit.record(null, {
-      action: 'auth.login.failed', resourceType: 'user', resourceId: userId,
-      metadata: { reason: 'bad_password', consecutiveFailures: failures },
-    }, meta);
   }
 
   private async sendVerification(userId: string, email: string): Promise<void> {

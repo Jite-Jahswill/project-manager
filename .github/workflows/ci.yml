@@ -20,7 +20,9 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
     env:
-      # CI-only throwaway credentials for an ephemeral database.
+      # CI-only throwaway credentials for ephemeral, loopback-only containers that exist for
+      # one job. NEVER reuse any of these values elsewhere: production config refuses
+      # "ci-only"/"ci-" secrets and passwords (src/config/env.ts productionBlockers).
       PGHOST: 127.0.0.1
       PGPORT: "5434"
       PGPASSWORD: ci-superuser
@@ -31,6 +33,10 @@ jobs:
       NODE_ENV: test
       APP_PUBLIC_URL: http://localhost:3001
       JWT_ACCESS_SECRET: ci-only-jwt-secret-that-is-at-least-32-bytes-long
+      ABUSE_PROTECTION_SECRET: ci-only-abuse-protection-secret-at-least-32-bytes
+      # Redis is started by a step below (service containers cannot pass --requirepass).
+      REDIS_URL: redis://:ci-redis@127.0.0.1:6380
+      TEST_REDIS_URL: redis://:ci-redis@127.0.0.1:6380/1
       DATABASE_URL: postgresql://ventidoc_app:ci-app@127.0.0.1:5434/ventidoc_test
       AUTH_DATABASE_URL: postgresql://ventidoc_auth:ci-auth@127.0.0.1:5434/ventidoc_test
       MIGRATION_DATABASE_URL: postgresql://ventidoc_migrator:ci-migrator@127.0.0.1:5434/ventidoc_test
@@ -47,6 +53,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Create database roles
         run: sh docker/postgres/init/01-roles.sh
+      - name: Start Redis (authenticated, loopback only)
+        run: |
+          docker run -d --name redis -p 127.0.0.1:6380:6379 redis:7-alpine redis-server --requirepass ci-redis
+          for i in $(seq 1 30); do docker exec redis redis-cli -a ci-redis --no-auth-warning ping | grep -q PONG && break; sleep 1; done
+          docker exec redis redis-cli -a ci-redis --no-auth-warning ping
       - run: pnpm api typecheck
       - run: pnpm api lint
       - run: pnpm api build

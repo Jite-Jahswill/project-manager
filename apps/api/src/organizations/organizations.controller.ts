@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Auth, AuthIdentity, Meta, OrgAccess, RequestMeta } from '../common/request-context';
 import type { EffectiveAccess } from '../authz/permission-evaluator';
 import { RequireMembership, RequirePermission } from '../authz/org-access.guard';
+import { RateLimit } from '../abuse/rate-limit.guard';
 import { AccessControlService } from './access-control.service';
 import {
   AcceptInvitationDto, AuditQueryDto, CloneRoleDto, CreateBranchDto, CreateOrganizationDto, CreateOverrideDto,
@@ -29,7 +30,7 @@ export class OrganizationsController {
     return this.orgs.listForUser(identity.userId);
   }
 
-  @Post('invitations/accept') @HttpCode(200)
+  @Post('invitations/accept') @RateLimit('accept_invite.user', 'user') @HttpCode(200)
   accept(@Auth() identity: AuthIdentity, @Body() dto: AcceptInvitationDto, @Meta() meta: RequestMeta) {
     return this.access.acceptInvitation(identity.userId, dto.token, meta);
   }

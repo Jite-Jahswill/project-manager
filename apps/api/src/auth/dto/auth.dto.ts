@@ -20,6 +20,8 @@ export class LoginDto {
   @ApiProperty() @IsString() @Length(1, PASSWORD_MAX) password!: string;
   @ApiProperty({ enum: ClientTypeDto }) @IsEnum(ClientTypeDto) clientType!: ClientTypeDto;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) deviceName?: string;
+  @ApiPropertyOptional({ description: 'Mobile: the deviceToken returned by a previous login on this device (web uses a cookie).' })
+  @IsOptional() @IsString() @MaxLength(512) deviceToken?: string;
 }
 
 export class RefreshDto {

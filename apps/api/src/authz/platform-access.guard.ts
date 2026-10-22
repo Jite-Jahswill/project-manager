@@ -4,6 +4,7 @@ import { Errors } from '../common/errors';
 import type { VentidocRequest } from '../common/request-context';
 import { PLATFORM_PERMISSIONS, PlatformPermissionKey } from './platform-permission-registry';
 import { PlatformAuthzService } from './platform-authz.service';
+import { RateLimiter } from '../abuse/rate-limiter.service';
 
 export const PLATFORM_PERMISSION = 'ventidoc:platformPermission';
 /** Privileged platform actions require a password re-entry within this window. */
@@ -14,6 +15,7 @@ export class PlatformAccessGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly authz: PlatformAuthzService,
+    private readonly limiter: RateLimiter,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -28,6 +30,8 @@ export class PlatformAccessGuard implements CanActivate {
     if (PLATFORM_PERMISSIONS.get(key)?.privileged) {
       const at = req.auth.reauthenticatedAt;
       if (!at || Date.now() - at.getTime() > STEP_UP_WINDOW_MS) throw Errors.stepUpRequired();
+      // Bounds the blast radius of a compromised administrator session. Fails closed.
+      await this.limiter.enforce('platform.privileged.user', `user:${req.auth.userId}`);
     }
     return true;
   }

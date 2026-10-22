@@ -21,7 +21,7 @@
                         └──────────────────┼──────────────────┘
                                            ▼
        ┌─────────────────────────────── API (NestJS, modular monolith) ─────────────────────────────┐
-       │ ThrottlerGuard → AuthGuard (session re-checked every request) → OrgAccessGuard /           │
+       │ RateLimit (Redis) → AuthGuard (session re-checked every request) → OrgAccessGuard /           │
        │ PlatformAccessGuard (permissions loaded from DB every request) → ValidationPipe (whitelist) │
        │                                                                                             │
        │  auth │ authz │ organizations │ subscriptions │ inventory │ platform │ audit │ mail          │
