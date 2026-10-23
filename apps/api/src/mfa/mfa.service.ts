@@ -8,8 +8,10 @@ import { hashToken, safeEqual } from '../common/crypto';
 import { Errors } from '../common/errors';
 import type { AuthIdentity, RequestMeta } from '../common/request-context';
 import { PrismaService } from '../database/prisma.service';
-import { MailService } from '../mail/mail.service';
+import { EmailService } from '../email/email.service';
+import type { SecurityNotice } from '../email/events';
 import { keyIdOf, open, seal } from './mfa-crypto';
+import { missingKeyIds } from '../common/keyring';
 import { MfaPolicyService } from './mfa-policy.service';
 import { MfaStore } from './mfa.store';
 import { generateRecoveryCodes, hashRecoveryCode, normalizeRecoveryCode } from './recovery-codes';
@@ -42,7 +44,7 @@ export class MfaService implements OnApplicationBootstrap {
     private readonly credentials: CredentialStore,
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
-    private readonly mail: MailService,
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -93,13 +95,7 @@ export class MfaService implements OnApplicationBootstrap {
     if (!replacing) emailCode = String(randomInt(0, 100_000_000)).padStart(8, '0');
     const expiresAt = new Date(Date.now() + ENROLLMENT_TTL_MS);
     await this.store.putEnrollment(identity.userId, seal(this.config.mfaKeyRing, identity.userId, secret), emailCode ? hashToken(emailCode) : null, expiresAt);
-    if (emailCode) {
-      await this.mail.send({
-        to: user.email,
-        subject: 'Your Ventidoc two-step verification setup code',
-        text: `Enter this code to finish setting up two-step verification: ${emailCode}\nIt expires in 10 minutes. If you did not request this, change your password now.`,
-      });
-    }
+    if (emailCode) await this.email.enqueue({ type: 'mfa.enrollment_code', userId: identity.userId, sensitive: { code: emailCode } });
     await this.audit.record(null, {
       action: 'auth.mfa.enrollment_started', resourceType: 'user', resourceId: identity.userId, actorUserId: identity.userId,
       metadata: { replacing },
@@ -151,7 +147,7 @@ export class MfaService implements OnApplicationBootstrap {
       action: replaced ? 'auth.mfa.replaced' : 'auth.mfa.enabled', resourceType: 'user', resourceId: identity.userId,
       actorUserId: identity.userId, metadata: { otherSessionsRevoked: true },
     }, meta);
-    await this.notify(identity.userId, replaced ? 'Your two-step verification device was changed' : 'Two-step verification was turned on');
+    await this.notify(identity.userId, replaced ? 'mfa_replaced' : 'mfa_enabled');
     return { recoveryCodes: codes };
   }
 
@@ -167,7 +163,7 @@ export class MfaService implements OnApplicationBootstrap {
     const codes = generateRecoveryCodes();
     await this.store.replaceRecoveryCodes(identity.userId, codes.map((c) => hashRecoveryCode(normalizeRecoveryCode(c)!)));
     await this.audit.record(null, { action: 'auth.mfa.recovery_codes_regenerated', resourceType: 'user', resourceId: identity.userId, actorUserId: identity.userId }, meta);
-    await this.notify(identity.userId, 'New two-step verification recovery codes were generated');
+    await this.notify(identity.userId, 'recovery_codes_regenerated');
     return { recoveryCodes: codes };
   }
 
@@ -190,7 +186,7 @@ export class MfaService implements OnApplicationBootstrap {
       }),
     ]);
     await this.audit.record(null, { action: 'auth.mfa.disabled', resourceType: 'user', resourceId: identity.userId, actorUserId: identity.userId, metadata: { otherSessionsRevoked: true } }, meta);
-    await this.notify(identity.userId, 'Two-step verification was turned off');
+    await this.notify(identity.userId, 'mfa_disabled');
   }
 
   /**
@@ -212,10 +208,7 @@ export class MfaService implements OnApplicationBootstrap {
 
   /** Security notices about the user's own account. No secrets, codes or administrator identities. */
   async notifyUser(userId: string, kind: 'mfa_recovery_requested' | 'mfa_recovery_executed'): Promise<void> {
-    const text = kind === 'mfa_recovery_requested'
-      ? 'A request to reset two-step verification on your Ventidoc account was opened by Ventidoc support. If you did not contact support, reply to support immediately.'
-      : 'Two-step verification on your Ventidoc account was reset by Ventidoc support after a second administrator approved it. All your sessions were signed out. If you did not ask for this, contact support immediately.';
-    await this.notify(userId, text);
+    await this.notify(userId, kind);
   }
 
   /**
@@ -228,7 +221,7 @@ export class MfaService implements OnApplicationBootstrap {
       if (!normalized || !(await this.store.consumeRecoveryCode(userId, hashRecoveryCode(normalized)))) return null;
       const remaining = await this.store.remainingRecoveryCodes(userId);
       await this.audit.record(null, { action: 'auth.mfa.recovery_code_used', resourceType: 'user', resourceId: userId, actorUserId: userId, metadata: { remaining } }, meta);
-      await this.notify(userId, `A recovery code was used to sign in. ${remaining} recovery code(s) remain.`);
+      await this.notify(userId, 'recovery_code_used', remaining);
       return 'recovery';
     }
     const factor = await this.store.getFactor(userId);
@@ -256,17 +249,13 @@ export class MfaService implements OnApplicationBootstrap {
     }
   }
 
-  private async notify(userId: string, text: string): Promise<void> {
+  /** Enqueued (durable); a failure to enqueue is logged and never blocks the security action. */
+  private async notify(userId: string, notice: SecurityNotice, remaining?: number): Promise<void> {
     try {
-      const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
-      await this.mail.send({ to: user.email, subject: 'Ventidoc security notice', text });
+      await this.email.enqueue({ type: 'security.notice', userId, notice, ...(remaining === undefined ? {} : { remaining }) });
     } catch {
-      this.logger.warn(JSON.stringify({ event: 'mfa.notice_failed' }));
+      this.logger.warn(JSON.stringify({ event: 'mfa.notice_enqueue_failed', notice }));
     }
-  }
-}
+  }}
 
-/** Key IDs that protect at least one stored secret but are absent from the ring. */
-export function missingKeyIds(usage: Record<string, number>, ring: string[]): string[] {
-  return Object.keys(usage).filter((id) => usage[id] > 0 && !ring.includes(id)).sort();
-}
+export { missingKeyIds } from '../common/keyring';

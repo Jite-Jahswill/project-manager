@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
 import { APP_CONFIG, AppConfig } from '../config/env';
@@ -11,12 +11,16 @@ import { APP_CONFIG, AppConfig } from '../config/env';
  * the context. Direct use is reserved for identity tables (users, sessions, tokens).
  */
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnApplicationShutdown {
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
     super({ adapter: new PrismaPg({ connectionString: config.databaseUrl }) });
   }
 
-  async onModuleDestroy(): Promise<void> {
+  /**
+   * Last shutdown phase: background work (the email worker) stops in onModuleDestroy,
+   * which Nest runs first, so nothing can reconnect after this disconnect.
+   */
+  async onApplicationShutdown(): Promise<void> {
     await this.$disconnect();
   }
 }

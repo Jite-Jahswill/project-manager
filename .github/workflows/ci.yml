@@ -37,6 +37,9 @@ jobs:
       # Disposable CI key (32 bytes, base64). Never reuse.
       MFA_ENCRYPTION_KEYS: ci:Y2ktb25seS1tZmEta2V5LW5ldmVyLXJldXNlLTMyYnk=
       MFA_ENCRYPTION_ACTIVE_KEY_ID: ci
+      # Disposable CI email key (32 bytes). Never reuse.
+      EMAIL_SECRET_KEYS: ci:Y2ktb25seS1lbWFpbC1rZXktbmV2ZXItcmV1c2UtMzI=
+      EMAIL_SECRET_ACTIVE_KEY_ID: ci
       # Redis is started by a step below (service containers cannot pass --requirepass).
       REDIS_URL: redis://:ci-redis@127.0.0.1:6380
       TEST_REDIS_URL: redis://:ci-redis@127.0.0.1:6380/1

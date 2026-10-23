@@ -5,7 +5,7 @@ import { Pool } from 'pg';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/bootstrap-app';
-import { MailService } from '../../src/mail/mail.service';
+import { capturedEmails } from '../../src/email/providers/dev.adapters';
 import { currentStep, totpAt } from '../../src/mfa/totp';
 
 export const PASSWORD = 'correct-horse-battery-staple';
@@ -39,6 +39,7 @@ const DATA_TABLES = [
   'membership_permission_overrides', 'membership_roles', 'role_permissions', 'organization_invitations', 'roles',
   'branches', 'organization_memberships', 'organizations', 'platform_admin_roles', 'platform_admins',
   'refresh_tokens', 'user_action_tokens', 'sessions', 'user_credentials', 'users',
+  'email_delivery_attempts', 'email_outbox',
 ];
 
 export async function resetDatabase(): Promise<void> {
@@ -47,6 +48,34 @@ export async function resetDatabase(): Promise<void> {
     await pool.query(`TRUNCATE ${DATA_TABLES.join(', ')} CASCADE`);
   } finally {
     await pool.end();
+  }
+}
+
+/**
+ * Email configuration is durable (it is not data and resetDatabase keeps it). Suites that
+ * change it restore the seeded test baseline: CAPTURE provider active, sending on, version-1
+ * templates, the seeded sender, no extra providers, secrets or suppressions.
+ */
+export async function resetEmailConfiguration(): Promise<void> {
+  const pool = pools.migrator();
+  const auth = pools.auth();
+  try {
+    await auth.query('DELETE FROM email_provider_secrets');
+    await pool.query(`
+      UPDATE email_settings SET
+        active_provider_id = (SELECT id FROM email_providers WHERE name = 'development-capture'),
+        default_sender_id = (SELECT id FROM email_sender_identities ORDER BY created_at LIMIT 1),
+        sending_enabled = true, retry_max_attempts = 8, retry_base_delay_seconds = 30, retry_max_delay_seconds = 3600,
+        max_sends_per_minute = 10000, test_recipients = '{}'`);
+    await pool.query("DELETE FROM email_providers WHERE name <> 'development-capture'");
+    await pool.query('DELETE FROM email_sender_identities WHERE id <> (SELECT default_sender_id FROM email_settings WHERE id = 1)');
+    await pool.query("UPDATE email_sender_identities SET verified_at = NULL, verification_source = NULL");
+    await pool.query('DELETE FROM email_templates WHERE version > 1');
+    await pool.query("UPDATE email_templates SET status = 'ACTIVE'");
+    await pool.query('DELETE FROM email_suppressions');
+  } finally {
+    await pool.end();
+    await auth.end();
   }
 }
 
@@ -82,9 +111,11 @@ async function releaseResources(app: INestApplication): Promise<void> {
   const { RedisService } = await import('../../src/abuse/redis.service');
   const { AuthDb } = await import('../../src/auth/auth-db');
   const { PrismaService } = await import('../../src/database/prisma.service');
+  const { EmailWorker } = await import('../../src/email/email-worker.service');
   const attempts: (() => unknown)[] = [
+    () => app.get(EmailWorker).stop(),
     () => app.get(RedisService).client.disconnect(),
-    () => app.get(AuthDb).pool.end(),
+    () => app.get(AuthDb).onApplicationShutdown(),
     () => app.get(PrismaService).$disconnect(),
     () => app.close(),
   ];
@@ -103,22 +134,43 @@ export function bearer(user: { token: string }) {
   return { Authorization: `Bearer ${user.token}` };
 }
 
-export function tokenFromMail(app: INestApplication, to: string, path: string): string {
-  const messages = app.get(MailService).captured.filter((m) => m.to === to && m.text.includes(path));
-  const last = messages.at(-1);
-  if (!last) throw new Error(`No mail to ${to} containing ${path}`);
-  const match = last.text.match(/#token=([^\s]+)/);
-  if (!match) throw new Error('Mail has no token');
-  return decodeURIComponent(match[1]);
+const returnedTokens = new Set<string>();
+
+/**
+ * Waits for the worker to deliver a NEW mail to `to` containing `path` and returns its
+ * token. Delivery is asynchronous, so "newest mail so far" could be an older, already
+ * used token; tokens are therefore returned at most once.
+ */
+export async function tokenFromMail(_app: INestApplication, to: string, path: string, timeoutMs = 8000): Promise<string> {
+  const end = Date.now() + timeoutMs;
+  for (;;) {
+    for (const m of [...capturedEmails].reverse()) {
+      if (m.to !== to || !m.text.includes(path)) continue;
+      const match = m.text.match(/#token=([^\s]+)/);
+      const token = match ? decodeURIComponent(match[1]) : null;
+      if (token && !returnedTokens.has(token)) {
+        returnedTokens.add(token);
+        return token;
+      }
+    }
+    if (Date.now() > end) throw new Error(`No new mail to ${to} containing ${path} within ${timeoutMs} ms`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
+/** All mails captured so far for `to` (delivered asynchronously by the worker). */
+export function mailsTo(to: string) {
+  return capturedEmails.filter((m) => m.to === to);
 }
 
 /** Waits (polling) for a captured mail to `to` matching `predicate`. */
+/** Waits (polling) for a captured mail to `to` matching `predicate`. */
 export async function waitForMail(
-  app: INestApplication, to: string, predicate: (m: { subject: string; text: string }) => boolean, timeoutMs = 8000,
-): Promise<{ to: string; subject: string; text: string }> {
+  _app: INestApplication, to: string, predicate: (m: { subject: string; text: string }) => boolean, timeoutMs = 8000,
+): Promise<{ to: string; subject: string; text: string; html: string }> {
   const end = Date.now() + timeoutMs;
   for (;;) {
-    const found = app.get(MailService).captured.filter((m) => m.to === to && predicate(m)).at(-1);
+    const found = capturedEmails.filter((m) => m.to === to && predicate(m)).at(-1);
     if (found) return found;
     if (Date.now() > end) throw new Error(`No mail to ${to} matching the predicate within ${timeoutMs} ms`);
     await new Promise((r) => setTimeout(r, 25));
@@ -134,7 +186,7 @@ export function uniqueEmail(label: string): string {
 export async function signUp(app: INestApplication, label: string): Promise<TestUser> {
   const email = uniqueEmail(label);
   await http(app).post('/v1/auth/register').send({ email, password: PASSWORD, displayName: label }).expect(202);
-  await http(app).post('/v1/auth/verify-email').send({ token: tokenFromMail(app, email, '/verify-email') }).expect(200);
+  await http(app).post('/v1/auth/verify-email').send({ token: await tokenFromMail(app, email, '/verify-email') }).expect(200);
   return login(app, email);
 }
 
@@ -196,9 +248,18 @@ export async function login(app: INestApplication, email: string): Promise<TestU
  * becomes MFA-verified; the user's other sessions are revoked by the API.
  */
 export async function enableMfa(app: INestApplication, user: { email: string; token: string }): Promise<MfaState> {
+  const before = mailsTo(user.email).filter((m) => m.subject.includes('setup code')).length;
   const start = await http(app).post('/v1/auth/mfa/enrollment').set(bearer(user)).send({}).expect(200);
-  const mail = app.get(MailService).captured.filter((m) => m.to === user.email && m.subject.includes('setup code')).at(-1);
-  const emailCode = mail?.text.match(/\b(\d{8})\b/)?.[1];
+  let emailCode: string | undefined;
+  if (start.body.emailCodeRequired) {
+    // Wait for THIS enrollment's code (delivery is asynchronous).
+    const end = Date.now() + 8000;
+    while (mailsTo(user.email).filter((m) => m.subject.includes('setup code')).length <= before) {
+      if (Date.now() > end) throw new Error('setup code mail not delivered');
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    emailCode = mailsTo(user.email).filter((m) => m.subject.includes('setup code')).at(-1)!.text.match(/\b(\d{8})\b/)?.[1];
+  }
   const step = currentStep();
   const confirm = await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(user))
     .send({ code: totpAt(start.body.secret, step * 30_000), ...(emailCode ? { emailCode } : {}) }).expect(200);
@@ -236,7 +297,7 @@ export async function addMember(
   const accepted = await http(app)
     .post('/v1/invitations/accept')
     .set(bearer(user))
-    .send({ token: tokenFromMail(app, user.email, '/accept-invitation') })
+    .send({ token: await tokenFromMail(app, user.email, '/accept-invitation') })
     .expect(200);
   return { ...user, membershipId: accepted.body.membershipId };
 }

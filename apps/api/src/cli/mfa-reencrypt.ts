@@ -35,7 +35,7 @@ async function main() {
     console.log(`re-encrypted: ${done}`);
     console.log('after:', await store.keyUsage());
   } finally {
-    await db.onModuleDestroy();
+    await db.onApplicationShutdown();
   }
 }
 

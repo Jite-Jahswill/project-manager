@@ -26,7 +26,7 @@ Dependency policy (unchanged): pin exact versions published at least two weeks b
 - Client IP derivation: explicit `TRUST_PROXY` hop count / CIDR list, never "trust all"; unit-tested against spoofed `X-Forwarded-For`.
 - Replace the hard account lockout with **progressive delay + per-account limit**, so an attacker can't lock a victim out by guessing; keep an audit event and alert threshold.
 
-### 2.2 Transactional email
+### 2.2 Transactional email: **implemented (stage 2C)**: see [08-email-platform.md](08-email-platform.md) and [../security/email.md](../security/email.md). Delivery uses a PostgreSQL outbox, not BullMQ/Redis (decision in 08 §8.3).
 
 - `MailTransport` interface with a provider implementation (decision needed: Amazon SES, Postmark or SMTP via nodemailer) and the existing `log`/`capture` for dev and test.
 - Send through a **BullMQ queue** (Redis from 2.1): retries with backoff, idempotency key per message, dead-letter on permanent failure. Requests never block on the provider.

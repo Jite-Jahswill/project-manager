@@ -9,7 +9,7 @@ import { isUuid, OrgAuthzService } from '../authz/org-authz.service';
 import { can, EffectiveAccess, notAppliedAtBranch } from '../authz/permission-evaluator';
 import { PERMISSIONS, PermissionKey } from '../authz/permission-registry';
 import { OWNER_TEMPLATE_KEY } from '../authz/role-templates';
-import { MailService } from '../mail/mail.service';
+import { EmailService } from '../email/email.service';
 import { RateLimiter } from '../abuse/rate-limiter.service';
 import { PrismaService } from '../database/prisma.service';
 import { EntitlementService } from '../subscriptions/entitlement.service';
@@ -41,7 +41,7 @@ export class AccessControlService {
     private readonly db: TenantDb,
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly mail: MailService,
+    private readonly email: EmailService,
     private readonly entitlements: EntitlementService,
     private readonly authz: OrgAuthzService,
     private readonly limiter: RateLimiter,
@@ -95,21 +95,20 @@ export class AccessControlService {
         select: INVITATION_SELECT,
       });
       const org = await tx.organization.findUniqueOrThrow({ where: { id: actor.organizationId }, select: { name: true } });
+      const inviter = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { displayName: true } });
       await this.audit.record(tx, {
         action: 'organization.member.invited', resourceType: 'invitation', resourceId: invitation.id,
         organizationId: actor.organizationId, actorUserId: actor.userId, after: invitation,
       }, meta);
-      return { invitation, orgName: org.name };
+      // Transactional outbox: the email exists only if the invitation commits. The token embeds
+      // the organization ID so acceptance can open the right tenant context; the secret authorizes it.
+      await this.email.enqueue({
+        type: 'org.invitation', organizationId: actor.organizationId, email, orgName: org.name, inviterName: inviter.displayName,
+        sensitive: { invitationToken: `${actor.organizationId}.${secret}` },
+      }, tx);
+      return invitation;
     });
-    // The token embeds the organization ID so acceptance can open the right tenant
-    // context; the random secret is what authorizes it.
-    const token = `${access.organizationId}.${secret}`;
-    await this.mail.send({
-      to: email,
-      subject: `You're invited to ${result.orgName} on Ventidoc`,
-      text: `Accept the invitation (valid for 7 days): ${this.mail.link('/accept-invitation', token)}`,
-    });
-    return result.invitation;
+    return result;
   }
 
   listInvitations(access: EffectiveAccess) {

@@ -697,3 +697,208 @@ model StockMovement {
   @@index([organizationId, branchId, productId, createdAt])
   @@map("stock_movements")
 }
+
+// ---------------------------------------------------------------------------
+// Email platform (Stage 2C, docs/architecture/08-email-platform.md)
+// ---------------------------------------------------------------------------
+
+enum EmailProviderKind {
+  RESEND
+  SMTP
+  LOG
+  CAPTURE
+}
+
+enum EmailProviderStatus {
+  UNVERIFIED
+  VERIFIED
+  FAILED
+}
+
+enum EmailTemplateStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum EmailJobStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  EXPIRED
+  DISCARDED
+  CANCELLED
+}
+
+enum EmailAttemptOutcome {
+  SENT
+  RETRYABLE
+  PERMANENT
+  AMBIGUOUS
+}
+
+enum EmailSuppressionReason {
+  BOUNCE
+  COMPLAINT
+  MANUAL
+}
+
+/// Single row (id = 1). Runtime email configuration managed through platform-admin APIs.
+model EmailSettings {
+  id                    Int      @id @default(1)
+  activeProviderId      String?  @map("active_provider_id") @db.Uuid
+  /// Real delivery switch. Off by default; can only be turned on for a verified provider + sender.
+  sendingEnabled        Boolean  @default(false) @map("sending_enabled")
+  defaultSenderId       String?  @map("default_sender_id") @db.Uuid
+  retryMaxAttempts      Int      @default(8) @map("retry_max_attempts")
+  retryBaseDelaySeconds Int      @default(30) @map("retry_base_delay_seconds")
+  retryMaxDelaySeconds  Int      @default(3600) @map("retry_max_delay_seconds")
+  maxSendsPerMinute     Int      @default(120) @map("max_sends_per_minute")
+  /// Addresses that may receive admin test emails, besides the requesting admin's own.
+  testRecipients        String[] @default([]) @map("test_recipients")
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+  updatedBy             String?  @map("updated_by") @db.Uuid
+
+  activeProvider EmailProvider?       @relation(fields: [activeProviderId], references: [id], onDelete: Restrict)
+  defaultSender  EmailSenderIdentity? @relation(fields: [defaultSenderId], references: [id], onDelete: Restrict)
+
+  @@map("email_settings")
+}
+
+model EmailProvider {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind             EmailProviderKind
+  name             String              @unique
+  /// Non-secret, provider-validated settings (host, port, timeouts, API base URL...).
+  settings         Json                @default("{}")
+  secretConfigured Boolean             @default(false) @map("secret_configured")
+  /// Safe indicator only (e.g. "re_…a1b2"); never the secret.
+  secretHint       String?             @map("secret_hint")
+  status           EmailProviderStatus @default(UNVERIFIED)
+  lastCheckedAt    DateTime?           @map("last_checked_at") @db.Timestamptz(3)
+  lastCheckSummary String?             @map("last_check_summary")
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy        String?             @map("created_by") @db.Uuid
+  updatedAt        DateTime            @default(now()) @map("updated_at") @db.Timestamptz(3)
+  updatedBy        String?             @map("updated_by") @db.Uuid
+
+  secret         EmailProviderSecret?
+  activeSettings EmailSettings[]
+
+  @@map("email_providers")
+}
+
+/// Encrypted provider credential (Resend API key, SMTP password). ventidoc_auth only.
+model EmailProviderSecret {
+  providerId String   @id @map("provider_id") @db.Uuid
+  ciphertext String
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  provider EmailProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("email_provider_secrets")
+}
+
+model EmailSenderIdentity {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email              String    @unique
+  displayName        String    @map("display_name")
+  replyTo            String?   @map("reply_to")
+  domain             String
+  /// Set only by a successful provider domain check, or an audited administrator attestation (SMTP).
+  verifiedAt         DateTime? @map("verified_at") @db.Timestamptz(3)
+  verificationSource String?   @map("verification_source")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy          String?   @map("created_by") @db.Uuid
+
+  defaultFor EmailSettings[]
+
+  @@map("email_sender_identities")
+}
+
+model EmailTemplate {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String
+  version     Int
+  subject     String
+  textBody    String              @map("text_body")
+  htmlBody    String              @map("html_body")
+  status      EmailTemplateStatus @default(DRAFT)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy   String?             @map("created_by") @db.Uuid
+  activatedAt DateTime?           @map("activated_at") @db.Timestamptz(3)
+  activatedBy String?             @map("activated_by") @db.Uuid
+
+  @@unique([key, version])
+  @@map("email_templates")
+}
+
+/// Transactional outbox. Written in the caller's transaction; delivered by EmailWorker.
+model EmailOutbox {
+  id                  String         @id @db.Uuid
+  eventType           String         @map("event_type")
+  templateKey         String         @map("template_key")
+  templateVersion     Int?           @map("template_version")
+  organizationId      String?        @map("organization_id") @db.Uuid
+  recipientUserId     String?        @map("recipient_user_id") @db.Uuid
+  recipientEmail      String?        @map("recipient_email")
+  /// Non-sensitive variables only; wiped at a terminal state.
+  payload             Json           @default("{}")
+  /// AES-256-GCM (EMAIL_SECRET_KEYS) for unavoidable one-time values; wiped at a terminal state.
+  sensitiveCiphertext String?        @map("sensitive_ciphertext")
+  status              EmailJobStatus @default(PENDING)
+  attempts            Int            @default(0)
+  nextAttemptAt       DateTime       @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  lockedUntil         DateTime?      @map("locked_until") @db.Timestamptz(3)
+  lockedBy            String?        @map("locked_by")
+  expiresAt           DateTime       @map("expires_at") @db.Timestamptz(3)
+  idempotencyKey      String         @unique @map("idempotency_key")
+  testSend            Boolean        @default(false) @map("test_send")
+  provider            String?
+  providerMessageId   String?        @map("provider_message_id")
+  lastErrorCode       String?        @map("last_error_code")
+  lastError           String?        @map("last_error")
+  contentWipedAt      DateTime?      @map("content_wiped_at") @db.Timestamptz(3)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime       @default(now()) @map("updated_at") @db.Timestamptz(3)
+  sentAt              DateTime?      @map("sent_at") @db.Timestamptz(3)
+
+  attemptLog EmailDeliveryAttempt[]
+
+  @@index([status, nextAttemptAt])
+  @@index([organizationId])
+  @@map("email_outbox")
+}
+
+model EmailDeliveryAttempt {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  outboxId          String              @map("outbox_id") @db.Uuid
+  organizationId    String?             @map("organization_id") @db.Uuid
+  attempt           Int
+  provider          String
+  startedAt         DateTime            @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime            @map("finished_at") @db.Timestamptz(3)
+  outcome           EmailAttemptOutcome
+  errorCode         String?             @map("error_code")
+  errorSummary      String?             @map("error_summary")
+  providerMessageId String?             @map("provider_message_id")
+  durationMs        Int                 @map("duration_ms")
+
+  outbox EmailOutbox @relation(fields: [outboxId], references: [id], onDelete: Cascade)
+
+  @@index([outboxId])
+  @@index([finishedAt])
+  @@map("email_delivery_attempts")
+}
+
+model EmailSuppression {
+  id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String                 @unique
+  reason    EmailSuppressionReason
+  note      String?
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  createdBy String?                @map("created_by") @db.Uuid
+
+  @@map("email_suppressions")
+}

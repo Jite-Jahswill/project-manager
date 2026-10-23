@@ -20,7 +20,6 @@ process.env.DATABASE_URL = testDb;
 process.env.AUTH_DATABASE_URL = testAuthDb;
 process.env.MIGRATION_DATABASE_URL = testMigrationDb;
 process.env.NODE_ENV = 'test';
-process.env.MAIL_TRANSPORT = 'capture';
 const testRedis = process.env.TEST_REDIS_URL;
 if (!testRedis || !/\/\d+$/.test(new URL(testRedis).pathname) || new URL(testRedis).pathname === '/0') {
   throw new Error('TEST_REDIS_URL must select a non-zero logical database (e.g. .../1)');
@@ -29,3 +28,8 @@ process.env.REDIS_URL = testRedis;
 // Suites not about rate limiting run with very high limits; abuse suites set realistic ones.
 process.env.RATE_LIMIT_OVERRIDES = HIGH_LIMITS;
 delete process.env.TRUSTED_PROXIES;
+// Real asynchronous delivery: an inline worker per test app, polling fast, through the
+// CAPTURE provider bootstrapped by the seed (global-setup).
+process.env.EMAIL_WORKER_MODE = 'inline';
+process.env.EMAIL_WORKER_POLL_MS = '50';
+delete process.env.EMAIL_BOOTSTRAP_DEV_PROVIDER;

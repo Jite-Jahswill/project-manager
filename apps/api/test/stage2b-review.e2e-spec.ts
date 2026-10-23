@@ -25,7 +25,7 @@ describe('Stage 2B review regressions', () => {
     expect(stale.body.mfaRequired).toBe(true);
     // The owner notices and resets the password.
     await http(app).post('/v1/auth/password/forgot').send({ email: u.email }).expect(202);
-    await http(app).post('/v1/auth/password/reset').send({ token: tokenFromMail(app, u.email, '/reset-password'), newPassword: 'owner-new-password-1' }).expect(204);
+    await http(app).post('/v1/auth/password/reset').send({ token: await tokenFromMail(app, u.email, '/reset-password'), newPassword: 'owner-new-password-1' }).expect(204);
     // The pre-reset challenge must be dead even with a valid second factor.
     await http(app).post('/v1/auth/mfa/verify').send({ mfaToken: stale.body.mfaToken, code: await freshTotp(u.email) }).expect(401);
   });

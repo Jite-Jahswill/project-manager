@@ -37,6 +37,13 @@ const definitions = [
   { key: 'platform.support_access.request', privileged: false, description: 'Request time-limited access to an organization' },
   { key: 'platform.support_access.approve', privileged: true, description: 'Approve support-access requests' },
   { key: 'platform.security.read', privileged: false, description: 'View security events' },
+  { key: 'platform.email.read', privileged: false, description: 'View email configuration (never secrets), templates and audit history' },
+  { key: 'platform.email.configure', privileged: true, description: 'Change email providers, sender identities, retry policy and production sending' },
+  { key: 'platform.email.secrets.manage', privileged: true, description: 'Set or clear email provider credentials (write-only)' },
+  { key: 'platform.email.templates.manage', privileged: true, description: 'Create and activate email template versions' },
+  { key: 'platform.email.deliveries.read', privileged: false, description: 'View delivery status, metrics and suppressions (metadata only)' },
+  { key: 'platform.email.deliveries.manage', privileged: true, description: 'Retry or cancel deliveries and manage suppressions' },
+  { key: 'platform.email.test_send', privileged: true, description: 'Send a test email to an authorized recipient' },
   { key: 'platform.user_mfa.recovery.request', privileged: true, description: "Request a user's two-step verification recovery (needs a second administrator's approval)" },
   { key: 'platform.user_mfa.recovery.approve', privileged: true, description: 'Approve or reject another administrator\'s two-step verification recovery request' },
   { key: 'platform.audit.read', privileged: false, description: 'Read platform-wide audit logs' },
@@ -71,6 +78,14 @@ export const PLATFORM_ROLE_TEMPLATES: readonly { name: string; description: stri
     name: 'Security auditor',
     description: 'Reads security events and audit logs.',
     permissions: ['platform.security.read', 'platform.audit.read', 'platform.admin.read', 'platform.health.read'],
+  },
+  {
+    name: 'Email operations',
+    description: 'Email configuration, templates and deliveries; cannot manage provider credentials.',
+    permissions: [
+      'platform.email.read', 'platform.email.configure', 'platform.email.templates.manage', 'platform.email.deliveries.read',
+      'platform.email.deliveries.manage', 'platform.email.test_send',
+    ],
   },
   {
     name: 'Content manager',

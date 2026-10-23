@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ClientType, UserActionPurpose } from '../generated/prisma/client';
+import { ClientType } from '../generated/prisma/client';
 import { APP_CONFIG, AppConfig } from '../config/env';
 import { PrismaService } from '../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { MailService } from '../mail/mail.service';
+import { EmailService } from '../email/email.service';
+import { ActionTokenService } from './action-tokens.service';
 import { hashToken, normalizeEmail, randomToken } from '../common/crypto';
 import { Errors } from '../common/errors';
 import type { RequestMeta } from '../common/request-context';
@@ -16,8 +17,6 @@ import { CredentialStore } from './credential-store';
 import { MfaService } from '../mfa/mfa.service';
 import { PasswordService } from './password.service';
 
-const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60_000;
-const PASSWORD_RESET_TTL_MS = 60 * 60_000;
 
 export interface AccessTokenClaims {
   sub: string;
@@ -59,7 +58,8 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly credentials: CredentialStore,
     private readonly audit: AuditService,
-    private readonly mail: MailService,
+    private readonly email: EmailService,
+    private readonly tokens: ActionTokenService,
     private readonly limiter: RateLimiter,
     private readonly devices: DeviceTokenService,
     private readonly mfa: MfaService,
@@ -72,15 +72,13 @@ export class AuthService {
   async register(input: { email: string; password: string; displayName: string }, meta: RequestMeta): Promise<void> {
     const email = normalizeEmail(input.email);
     const existing = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    // Same expensive work on both paths (one argon2 hash, one outbox row); delivery is
+    // asynchronous. Responses are identical whether or not the address is registered.
+    const passwordHash = await this.passwords.hash(input.password);
     if (existing) {
-      await this.mail.send({
-        to: email,
-        subject: 'Ventidoc sign-up attempt',
-        text: 'Someone tried to create a Ventidoc account with this email. If it was you, sign in or reset your password.',
-      });
+      await this.email.enqueue({ type: 'auth.signup_attempt', email });
       return;
     }
-    const passwordHash = await this.passwords.hash(input.password);
     const user = await this.prisma.user.create({
       data: { email, displayName: input.displayName.trim() },
       select: { id: true },
@@ -93,17 +91,16 @@ export class AuthService {
       throw e;
     }
     await this.audit.record(null, { action: 'auth.user.registered', resourceType: 'user', resourceId: user.id, actorUserId: user.id }, meta);
-    await this.sendVerification(user.id, email);
+    await this.email.enqueue({ type: 'auth.verify_email', userId: user.id });
   }
 
+  /** Enqueues an intent; the worker decides whether the address belongs to an unverified account. */
   async resendVerification(rawEmail: string): Promise<void> {
-    const email = normalizeEmail(rawEmail);
-    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, emailVerifiedAt: true } });
-    if (user && !user.emailVerifiedAt) await this.sendVerification(user.id, email);
+    await this.email.enqueue({ type: 'auth.verify_email_resend', email: normalizeEmail(rawEmail) });
   }
 
   async verifyEmail(token: string, meta: RequestMeta): Promise<void> {
-    const userId = await this.consumeActionToken(token, 'EMAIL_VERIFICATION');
+    const userId = await this.tokens.consume(token, 'EMAIL_VERIFICATION');
     await this.prisma.user.update({ where: { id: userId }, data: { emailVerifiedAt: new Date() } });
     await this.audit.record(null, { action: 'auth.email.verified', resourceType: 'user', resourceId: userId, actorUserId: userId }, meta);
   }
@@ -343,22 +340,17 @@ export class AuthService {
     await this.audit.record(null, { action: 'auth.session.revoked', resourceType: 'session', resourceId: sessionId, actorUserId: userId }, meta);
   }
 
-  async forgotPassword(rawEmail: string, meta: RequestMeta): Promise<void> {
-    const email = normalizeEmail(rawEmail);
-    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, status: true } });
-    if (!user || user.status !== 'ACTIVE') return;
-    const token = await this.createActionToken(user.id, 'PASSWORD_RESET', PASSWORD_RESET_TTL_MS);
-    await this.mail.send({
-      to: email,
-      subject: 'Reset your Ventidoc password',
-      text: `Reset your password (valid for 1 hour): ${this.mail.link('/reset-password', token)}`,
-    });
-    await this.audit.record(null, { action: 'auth.password_reset.requested', resourceType: 'user', resourceId: user.id }, meta);
+  /**
+   * Enqueues an intent only: the request does the same work for registered and unknown
+   * addresses. The worker resolves the account and has the token created at send time.
+   */
+  async forgotPassword(rawEmail: string, _meta: RequestMeta): Promise<void> {
+    await this.email.enqueue({ type: 'auth.password_reset', email: normalizeEmail(rawEmail) });
   }
 
   /** Resetting a password signs out every session of the account. */
   async resetPassword(token: string, newPassword: string, meta: RequestMeta): Promise<void> {
-    const userId = await this.consumeActionToken(token, 'PASSWORD_RESET');
+    const userId = await this.tokens.consume(token, 'PASSWORD_RESET');
     const { email } = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
     const passwordHash = await this.passwords.hash(newPassword);
     const now = new Date();
@@ -436,37 +428,5 @@ export class AuthService {
 
   private async revokeSession(sessionId: string, reason: string): Promise<void> {
     await this.prisma.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: reason } });
-  }
-
-  private async sendVerification(userId: string, email: string): Promise<void> {
-    const token = await this.createActionToken(userId, 'EMAIL_VERIFICATION', EMAIL_VERIFICATION_TTL_MS);
-    await this.mail.send({
-      to: email,
-      subject: 'Verify your Ventidoc email',
-      text: `Confirm your email address: ${this.mail.link('/verify-email', token)}`,
-    });
-  }
-
-  private async createActionToken(userId: string, purpose: UserActionPurpose, ttlMs: number): Promise<string> {
-    const token = randomToken();
-    await this.prisma.$transaction([
-      // Only the newest token of each purpose is valid.
-      this.prisma.userActionToken.updateMany({ where: { userId, purpose, consumedAt: null }, data: { consumedAt: new Date() } }),
-      this.prisma.userActionToken.create({
-        data: { userId, purpose, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + ttlMs) },
-      }),
-    ]);
-    return token;
-  }
-
-  private async consumeActionToken(token: string, purpose: UserActionPurpose): Promise<string> {
-    const now = new Date();
-    const record = await this.prisma.userActionToken.findUnique({ where: { tokenHash: hashToken(token) } });
-    if (!record || record.purpose !== purpose || record.consumedAt || record.expiresAt <= now) {
-      throw Errors.badRequest('invalid_token', 'The link is invalid or has expired');
-    }
-    const claimed = await this.prisma.userActionToken.updateMany({ where: { id: record.id, consumedAt: null }, data: { consumedAt: now } });
-    if (claimed.count !== 1) throw Errors.badRequest('invalid_token', 'The link is invalid or has expired');
-    return record.userId;
   }
 }

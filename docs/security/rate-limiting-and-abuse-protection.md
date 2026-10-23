@@ -100,6 +100,7 @@ Paths that send mail, verify a password, or create invitations all fail closed.
 
 - `ioredis` with `enableOfflineQueue: false` (no unbounded queue), `maxRetriesPerRequest: 0`, a command timeout (`REDIS_COMMAND_TIMEOUT_MS`, default 250 ms) and capped reconnect back-off (≤ 2 s).
 - After a failure, a 1-second circuit breaker fails fast instead of waiting on timeouts, which prevents retry storms and request pile-ups.
+- Consequence: a single Redis stall longer than the command timeout makes fail-closed endpoints (sign-in, MFA verification) return 503 for about a second. This was observed once in local testing on an overloaded workstation running Redis in Docker (Redis's `SLOWLOG` showed 25–45 ms executions of a microsecond script). Production Redis needs dedicated CPU and latency monitoring; alert on `rate_limit.redis_unavailable`.
 - Recovery is automatic on reconnect.
 - **Per-policy failure mode** (§3):
   - **closed** returns `503` (credential and mail-sending endpoints, privileged operations);
@@ -169,7 +170,7 @@ Tests (all against real PostgreSQL and a real Redis; the integration run aborts 
 - **No CAPTCHA or proof-of-work** step for anonymous high-volume abuse (e.g. registration from rotating residential proxies). Per-email limits bound the damage to any one victim.
 - **Clock:** buckets use Redis server time; Redis failover to a replica with a skewed clock could briefly shorten or lengthen windows.
 - `users.failed_login_count` / `locked_until` are deprecated but still in the schema (drop in a later migration).
-- **Timing on mail endpoints.** For registered emails, `register`, `forgot` and `resend` do more work (database writes, mail) than for unknown ones. Response codes and bodies are identical and the limits are identical, but latency differs. Stage 2B must send mail through a queue so the response path is constant.
+- **Timing on mail endpoints.** Narrowed in stage 2C: `forgot` and `resend` now do one outbox insert for every address, and `register` hashes the password on both paths ([email.md](email.md) §6). New registrations still write two extra rows; no constant-time guarantee is claimed.
 - **Unix-socket deployments** have no peer IP: every client shares the `unknown` bucket. Use TCP between the proxy and the API.
 
 ## 7. Review findings (2026-10-22, before commit)

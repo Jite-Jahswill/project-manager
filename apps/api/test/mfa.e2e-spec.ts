@@ -4,11 +4,10 @@
 import { INestApplication } from '@nestjs/common';
 import { execFileSync } from 'node:child_process';
 import { PrismaService } from '../src/database/prisma.service';
-import { MailService } from '../src/mail/mail.service';
 import { currentStep, totpAt } from '../src/mfa/totp';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
 import {
-  addMember, bearer, createOrg, createTestApp, enableMfa, freshTotp, http, login, mfaDevices, PASSWORD, pools, resetDatabase,
+  addMember, bearer, createOrg, createTestApp, enableMfa, freshTotp, http, login, mailsTo, mfaDevices, PASSWORD, pools, resetDatabase,
   roleId, signUp, TestUser, tokenFromMail,
 } from './support/harness';
 import { redisTarget, redisUrlVia, TcpProxy, waitFor } from './support/tcp-proxy';
@@ -24,8 +23,16 @@ describe('Multi-factor authentication', () => {
     http(app).post('/v1/auth/login').send({ email, password, clientType });
   const verify = (mfaToken: string, second: object, extra: object = {}) =>
     http(app).post('/v1/auth/mfa/verify').send({ mfaToken, ...second, ...extra });
-  const emailCodeFor = (email: string) =>
-    app.get(MailService).captured.filter((m) => m.to === email && m.subject.includes('setup code')).at(-1)?.text.match(/\b(\d{8})\b/)?.[1];
+  /** The newest setup code delivered to `email` (waits for the worker; `after` skips older mails). */
+  const emailCodeFor = async (email: string, after = 0) => {
+    const end = Date.now() + 8000;
+    for (;;) {
+      const mails = mailsTo(email).filter((m) => m.subject.includes('setup code'));
+      if (mails.length > after) return mails.at(-1)!.text.match(/\b(\d{8})\b/)?.[1];
+      if (Date.now() > end) throw new Error('no setup code mail');
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
 
   beforeAll(async () => {
     await resetDatabase();
@@ -46,7 +53,8 @@ describe('Multi-factor authentication', () => {
       expect(start.body).toMatchObject({ emailCodeRequired: true });
       expect(start.body.secret).toMatch(/^[A-Z2-7]{32}$/);
       expect(start.body.otpauthUri).toMatch(/^otpauth:\/\/totp\/Ventidoc:/);
-      const mail = app.get(MailService).captured.filter((m) => m.to === u.email).map((m) => m.text).join('\n');
+      await emailCodeFor(u.email);
+      const mail = mailsTo(u.email).map((m) => `${m.subject}\n${m.text}\n${m.html}`).join('\n');
       expect(mail).not.toContain(start.body.secret); // the secret is never emailed
 
       const code = totpAt(start.body.secret, Date.now());
@@ -54,7 +62,7 @@ describe('Multi-factor authentication', () => {
       await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u)).send({ code }).expect(401);
       // Not enabled yet.
       expect((await http(app).get('/v1/auth/mfa').set(bearer(u)).expect(200)).body.enabled).toBe(false);
-      const ok = await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u)).send({ code, emailCode: emailCodeFor(u.email) }).expect(200);
+      const ok = await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u)).send({ code, emailCode: await emailCodeFor(u.email) }).expect(200);
       expect(ok.body.recoveryCodes).toHaveLength(10);
       const status = await http(app).get('/v1/auth/mfa').set(bearer(u)).expect(200);
       expect(status.body).toMatchObject({ enabled: true, sessionVerified: true, recoveryCodesRemaining: 10 });
@@ -64,7 +72,7 @@ describe('Multi-factor authentication', () => {
       const u = await signUp(app, 'enroll-2');
       await http(app).post('/v1/auth/mfa/enrollment').set(bearer(u)).send({}).expect(200);
       for (let i = 0; i < 5; i++) {
-        await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u)).send({ code: '000000', emailCode: emailCodeFor(u.email) }).expect(401);
+        await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u)).send({ code: '000000', emailCode: await emailCodeFor(u.email) }).expect(401);
       }
       const status = await http(app).get('/v1/auth/mfa').set(bearer(u)).expect(200);
       expect(status.body).toMatchObject({ enabled: false, enrollmentPending: false });
@@ -75,14 +83,14 @@ describe('Multi-factor authentication', () => {
       let start = await http(app).post('/v1/auth/mfa/enrollment').set(bearer(u)).send({}).expect(200);
       await http(app).delete('/v1/auth/mfa/enrollment').set(bearer(u)).expect(204);
       await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u))
-        .send({ code: totpAt(start.body.secret, Date.now()), emailCode: emailCodeFor(u.email) }).expect(401);
+        .send({ code: totpAt(start.body.secret, Date.now()), emailCode: await emailCodeFor(u.email) }).expect(401);
 
       start = await http(app).post('/v1/auth/mfa/enrollment').set(bearer(u)).send({}).expect(200);
       const auth = pools.auth();
       try {
         await auth.query("UPDATE user_mfa_enrollments SET expires_at = now() - interval '1 second' WHERE user_id = $1", [u.userId]);
         await http(app).post('/v1/auth/mfa/enrollment/confirm').set(bearer(u))
-          .send({ code: totpAt(start.body.secret, Date.now()), emailCode: emailCodeFor(u.email) }).expect(401);
+          .send({ code: totpAt(start.body.secret, Date.now()), emailCode: await emailCodeFor(u.email) }).expect(401);
         expect((await auth.query('SELECT 1 FROM user_mfa_enrollments WHERE user_id = $1', [u.userId])).rowCount).toBe(0);
       } finally {
         await auth.end();
@@ -292,7 +300,7 @@ describe('Multi-factor authentication', () => {
       const u = await signUp(app, 'reset-mfa');
       await enableMfa(app, u);
       await http(app).post('/v1/auth/password/forgot').send({ email: u.email }).expect(202);
-      await http(app).post('/v1/auth/password/reset').send({ token: tokenFromMail(app, u.email, '/reset-password'), newPassword: 'brand-new-password-1' }).expect(204);
+      await http(app).post('/v1/auth/password/reset').send({ token: await tokenFromMail(app, u.email, '/reset-password'), newPassword: 'brand-new-password-1' }).expect(204);
       await http(app).get('/v1/auth/me').set(bearer(u)).expect(401);
       const step = await passwordStep(u.email, 'MOBILE', 'brand-new-password-1').expect(200);
       expect(step.body.mfaRequired).toBe(true);
@@ -469,7 +477,7 @@ describe('Multi-factor authentication', () => {
         // From a new device, a password reset (which also locks the attacker out) restores the budgets.
         await http(strict).post('/v1/auth/password/forgot').set('X-Forwarded-For', '203.0.113.20').send({ email: u.email }).expect(202);
         await http(strict).post('/v1/auth/password/reset').set('X-Forwarded-For', '203.0.113.20')
-          .send({ token: tokenFromMail(strict, u.email, '/reset-password'), newPassword: 'reset-after-attack-1' }).expect(204);
+          .send({ token: await tokenFromMail(strict, u.email, '/reset-password'), newPassword: 'reset-after-attack-1' }).expect(204);
         const fresh = await http(strict).post('/v1/auth/login').set('X-Forwarded-For', '203.0.113.21')
           .send({ email: u.email, password: 'reset-after-attack-1', clientType: 'MOBILE' }).expect(200);
         await http(strict).post('/v1/auth/mfa/verify').set('X-Forwarded-For', '203.0.113.21')

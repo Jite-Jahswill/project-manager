@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import Redis from 'ioredis';
 import { APP_CONFIG, AppConfig } from '../config/env';
 
@@ -12,7 +12,7 @@ import { APP_CONFIG, AppConfig } from '../config/env';
  *  - capped reconnect back-off  -> reconnects in the background, at most every 2 s
  */
 @Injectable()
-export class RedisService implements OnModuleDestroy {
+export class RedisService implements OnApplicationShutdown {
   readonly client: Redis;
   private readonly logger = new Logger('Redis');
   private lastErrorLog = 0;
@@ -57,7 +57,7 @@ export class RedisService implements OnModuleDestroy {
     this.suppressedErrors = 0;
   }
 
-  async onModuleDestroy(): Promise<void> {
+  async onApplicationShutdown(): Promise<void> {
     this.client.disconnect();
   }
 }

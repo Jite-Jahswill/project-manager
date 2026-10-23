@@ -59,7 +59,7 @@ describe('Authentication and sessions', () => {
     const user = await signUp(app, 'reset');
     const second = await login(app, user.email);
     await http(app).post('/v1/auth/password/forgot').send({ email: user.email }).expect(202);
-    const token = tokenFromMail(app, user.email, '/reset-password');
+    const token = await tokenFromMail(app, user.email, '/reset-password');
     await http(app).post('/v1/auth/password/reset').send({ token, newPassword: 'a-brand-new-password' }).expect(204);
     await http(app).get('/v1/auth/me').set(bearer(user)).expect(401);
     await http(app).get('/v1/auth/me').set(bearer(second)).expect(401);

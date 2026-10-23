@@ -43,7 +43,7 @@ describe('Security review regressions', () => {
     await http(app).post(`/v1/orgs/${a.id}/invitations`).set(bearer(a.owner))
       .send({ email: admin.email, roleId: await roleId(app, a, 'Read-only viewer') }).expect(201);
     await http(app).post('/v1/invitations/accept').set(bearer(admin))
-      .send({ token: tokenFromMail(app, admin.email, '/accept-invitation') }).expect(200);
+      .send({ token: await tokenFromMail(app, admin.email, '/accept-invitation') }).expect(200);
     // Viewer only: no member management, no role management.
     await http(app).get(`/v1/orgs/${a.id}/products`).set(bearer(admin)).expect(200);
     await http(app).get(`/v1/orgs/${a.id}/members`).set(bearer(admin)).expect(403);
@@ -78,7 +78,7 @@ describe('Security review regressions', () => {
     await http(app).post(`/v1/orgs/${c.id}/invitations`).set(bearer(c.owner)).send({ email: late.email }).expect(201);
     await setPlan(c.id, 'starter'); // limit 5, already 5 active
     const res = await http(app).post('/v1/invitations/accept').set(bearer(late))
-      .send({ token: tokenFromMail(app, late.email, '/accept-invitation') });
+      .send({ token: await tokenFromMail(app, late.email, '/accept-invitation') });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('entitlement_limit_reached');
   });
@@ -90,7 +90,7 @@ describe('Security review regressions', () => {
       .send({ email: target.email, roleId: await roleId(app, a, 'Inventory manager') }).expect(201);
     await http(app).patch(`/v1/orgs/${a.id}/members/${admin.membershipId}`).set(bearer(a.owner)).send({ status: 'REVOKED' }).expect(200);
     await http(app).post('/v1/invitations/accept').set(bearer(target))
-      .send({ token: tokenFromMail(app, target.email, '/accept-invitation') }).expect(403);
+      .send({ token: await tokenFromMail(app, target.email, '/accept-invitation') }).expect(403);
   });
 
   it('F3: pending invitations can be listed and revoked', async () => {
@@ -115,7 +115,7 @@ describe('Security review regressions', () => {
     // a.owner is also a member of b.
     await http(app).post(`/v1/orgs/${b.id}/invitations`).set(bearer(b.owner)).send({ email: a.owner.email }).expect(201);
     await http(app).post('/v1/invitations/accept').set(bearer(a.owner))
-      .send({ token: tokenFromMail(app, a.owner.email, '/accept-invitation') }).expect(200);
+      .send({ token: await tokenFromMail(app, a.owner.email, '/accept-invitation') }).expect(200);
     const res = await inAppTx({ 'app.org_id': a.id, 'app.user_id': a.owner.userId }, async (c) => ({
       memberships: (await c.query('SELECT DISTINCT organization_id FROM organization_memberships')).rows,
       orgs: (await c.query('SELECT id FROM organizations')).rows,

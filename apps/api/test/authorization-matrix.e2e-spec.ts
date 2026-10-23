@@ -38,6 +38,20 @@ const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/platform/mfa-recovery-requests': { reason: 'sweep: identity verified out of band (ticket SWEEP-1)' },
   'POST /v1/platform/mfa-recovery-requests/:requestId/approve': {},
   'POST /v1/platform/mfa-recovery-requests/:requestId/reject': { note: 'sweep rejection' },
+  // Email administration: harmless or invalid bodies; IDs are random (404). The sweep checks
+  // authorization only and must never change the shared email configuration.
+  'PATCH /v1/platform/email/settings': {},
+  'POST /v1/platform/email/sending': { enabled: 'not-a-boolean' },
+  'POST /v1/platform/email/providers': { kind: 'NOT_A_PROVIDER', name: 'sweep' },
+  'PATCH /v1/platform/email/providers/:providerId': { name: 'sweep-renamed' },
+  'PUT /v1/platform/email/providers/:providerId/secret': { secret: 're_sweepOnlyNotReal1' },
+  'POST /v1/platform/email/sender-identities': { email: 'not-an-email' },
+  'PATCH /v1/platform/email/sender-identities/:identityId': { displayName: 'sweep' },
+  'POST /v1/platform/email/sender-identities/:identityId/attest-domain': { statement: 'sweep attestation statement' },
+  'POST /v1/platform/email/templates/:key/versions': { subject: 'x' },
+  'POST /v1/platform/email/templates/:key/preview': {},
+  'POST /v1/platform/email/test-send': { to: 'not-an-email' },
+  'POST /v1/platform/email/suppressions': { email: 'not-an-email' },
 };
 
 const TENANT_TABLES = [
@@ -185,7 +199,11 @@ describe('Authorization sweeps', () => {
     let resetTarget: TestUser;
     // A random request ID: the sweep checks authorization, so "not found" (404) after
     // passing the guards counts as authorized, exactly like any other non-401/403 outcome.
-    const platformParams = () => ({ organizationId: a.id, userId: resetTarget.userId, requestId: '7c0d3a1e-1111-4222-8333-444455556666' });
+    const random = '7c0d3a1e-1111-4222-8333-444455556666';
+    const platformParams = () => ({
+      organizationId: a.id, userId: resetTarget.userId, requestId: random,
+      providerId: random, identityId: random, deliveryId: random, suppressionId: random, key: 'platform.test', version: '999',
+    });
 
     beforeAll(async () => {
       const superAdmin = await signUp(app, 'sweep-super');

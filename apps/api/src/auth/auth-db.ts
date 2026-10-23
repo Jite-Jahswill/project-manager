@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { APP_CONFIG, AppConfig } from '../config/env';
 
@@ -8,7 +8,7 @@ import { APP_CONFIG, AppConfig } from '../config/env';
  * CredentialStore and MfaStore, which issue fixed, parameterized statements.
  */
 @Injectable()
-export class AuthDb implements OnModuleDestroy {
+export class AuthDb implements OnApplicationShutdown {
   readonly pool: Pool;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
@@ -30,7 +30,13 @@ export class AuthDb implements OnModuleDestroy {
     }
   }
 
-  async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
+  /** Closed in the last shutdown phase, after background workers stopped (onModuleDestroy). */
+  async onApplicationShutdown(): Promise<void> {
+    if (!this.ended) {
+      this.ended = true;
+      await this.pool.end();
+    }
   }
+
+  private ended = false;
 }

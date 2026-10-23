@@ -9,6 +9,8 @@ const base = {
   ABUSE_PROTECTION_SECRET: 'y'.repeat(48),
   MFA_ENCRYPTION_KEYS: `k1:${Buffer.alloc(32, 7).toString('base64')}`,
   MFA_ENCRYPTION_ACTIVE_KEY_ID: 'k1',
+  EMAIL_SECRET_KEYS: `e1:${Buffer.alloc(32, 5).toString('base64')}`,
+  EMAIL_SECRET_ACTIVE_KEY_ID: 'e1',
   APP_PUBLIC_URL: 'http://localhost:3001',
 };
 
@@ -60,6 +62,16 @@ describe('config validation', () => {
     expect(() => loadConfig({ ...prodish, JWT_ACCESS_SECRET: 'ci-only-jwt-secret-that-is-at-least-32-bytes-long' })).toThrow(/JWT_ACCESS_SECRET.*disposable/);
     expect(() => loadConfig({ ...prodish, ABUSE_PROTECTION_SECRET: 'ci-only-abuse-protection-secret-at-least-32-bytes' })).toThrow(/ABUSE_PROTECTION_SECRET.*disposable/);
     expect(() => loadConfig({ ...prodish, REDIS_URL: 'rediss://:ci-redis@redis.internal:6380' })).toThrow(/disposable CI\/example password/);
+  });
+
+  it('validates the email key ring and worker mode; rejects the removed MAIL_* variables', () => {
+    expect(() => loadConfig({ ...base, EMAIL_SECRET_KEYS: undefined })).toThrow(/EMAIL_SECRET_KEYS/);
+    expect(() => loadConfig({ ...base, EMAIL_SECRET_KEYS: 'e1:c2hvcnQ=' })).toThrow(/EMAIL_SECRET_KEYS.*32 random bytes/);
+    expect(() => loadConfig({ ...base, EMAIL_SECRET_ACTIVE_KEY_ID: 'zz' })).toThrow(/EMAIL_SECRET_ACTIVE_KEY_ID/);
+    expect(() => loadConfig({ ...base, EMAIL_WORKER_MODE: 'cron' })).toThrow(/EMAIL_WORKER_MODE/);
+    expect(() => loadConfig({ ...base, MAIL_TRANSPORT: 'log' })).toThrow(/MAIL_TRANSPORT is no longer supported/);
+    expect(() => loadConfig({ ...base, MAIL_FROM: 'x' })).toThrow(/MAIL_FROM is no longer supported/);
+    expect(loadConfig(base).emailWorkerMode).toBe('inline');
   });
 
   it('validates the MFA key ring', () => {

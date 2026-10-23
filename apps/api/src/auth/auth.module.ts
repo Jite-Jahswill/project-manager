@@ -5,7 +5,6 @@ import { APP_CONFIG, AppConfig } from '../config/env';
 import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
-import { AuthDb } from './auth-db';
 import { CredentialStore } from './credential-store';
 import { PasswordService } from './password.service';
 import { MfaController } from '../mfa/mfa.controller';
@@ -21,7 +20,7 @@ import { MfaStore } from '../mfa/mfa.store';
     }),
   ],
   controllers: [AuthController, MfaController],
-  providers: [AuthDb, AuthService, PasswordService, CredentialStore, MfaStore, MfaPolicyService, MfaService, { provide: APP_GUARD, useClass: AuthGuard }],
-  exports: [AuthDb, AuthService, PasswordService, CredentialStore, MfaService, MfaPolicyService, MfaStore],
+  providers: [AuthService, PasswordService, CredentialStore, MfaStore, MfaPolicyService, MfaService, { provide: APP_GUARD, useClass: AuthGuard }],
+  exports: [AuthService, PasswordService, CredentialStore, MfaService, MfaPolicyService, MfaStore],
 })
 export class AuthModule {}

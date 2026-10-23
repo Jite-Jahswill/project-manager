@@ -183,7 +183,7 @@ Still a procedural requirement (not enforceable in code): the approver must veri
 
 ## 11. Limitations and production blockers
 
-1. **Email delivery isn't production-grade.** The first-enrollment email code and security notices depend on it (Stage 2C).
+1. **Email delivery depends on a verified sending domain.** The first-enrollment email code and security notices now go through the queued email platform (Stage 2C, [email.md](email.md)), but production sending stays off until the domain and provider are verified.
 2. **Out-of-band identity verification** before approving a recovery is a written procedure only (§8). Two-person approval is enforced.
 3. **MFA keys must come from a secret manager/KMS** with backup and rotation procedures in place (§7).
 4. **TOTP is phishable.** WebAuthn/passkeys are the recommended next factor for administrators.

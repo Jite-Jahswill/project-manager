@@ -92,7 +92,7 @@ describe('PostgreSQL row-level security (runtime role)', () => {
       expect({ policy: `${p.tablename}.${p.policyname}`, roles: p.roles }).toEqual({ policy: `${p.tablename}.${p.policyname}`, roles: ['ventidoc_app'] });
       const text = `${p.qual} ${p.with_check}`;
       // Every clause must depend on the tenant context; a bare "true" would disable isolation.
-      expect({ policy: `${p.tablename}.${p.policyname}`, keyed: /app_current_org_id\(\)|app_platform_scope\(\)/.test(text) })
+      expect({ policy: `${p.tablename}.${p.policyname}`, keyed: /app_current_org_id\(\)|app_platform_scope\(\)|app_email_worker_scope\(\)/.test(text) })
         .toEqual({ policy: `${p.tablename}.${p.policyname}`, keyed: true });
       expect(p.qual.trim()).not.toBe('true');
       expect(p.with_check.trim()).not.toBe('true');

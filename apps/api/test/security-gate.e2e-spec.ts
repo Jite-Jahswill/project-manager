@@ -85,7 +85,7 @@ describe('Security gate', () => {
       await http(app).post('/v1/auth/reauthenticate').set(bearer(user)).send({ password: 'wrong-password-here' }).expect(401);
       await http(app).post('/v1/auth/password/forgot').send({ email: user.email }).expect(202);
       await http(app).post('/v1/auth/password/reset')
-        .send({ token: tokenFromMail(app, user.email, '/reset-password'), newPassword: 'gate-new-password-1' }).expect(204);
+        .send({ token: await tokenFromMail(app, user.email, '/reset-password'), newPassword: 'gate-new-password-1' }).expect(204);
       await http(app).get('/v1/auth/me').set(bearer(user)).expect(401);
       await http(app).post('/v1/auth/login').send({ email: user.email, password: PASSWORD, clientType: 'MOBILE' }).expect(401);
       await http(app).post('/v1/auth/login').send({ email: user.email, password: 'gate-new-password-1', clientType: 'MOBILE' }).expect(200);

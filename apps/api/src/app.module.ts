@@ -9,7 +9,8 @@ import { DatabaseModule } from './database/database.module';
 import { PrismaService } from './database/prisma.service';
 import { HealthController } from './health.controller';
 import { InventoryModule } from './inventory/inventory.module';
-import { MailModule } from './mail/mail.module';
+import { EmailModule } from './email/email.module';
+import { AuthDbModule } from './auth/auth-db.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PlatformModule } from './platform/platform.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
@@ -29,7 +30,8 @@ class ConfigModule {}
     AbuseModule,
     DatabaseModule,
     AuditModule,
-    MailModule,
+    AuthDbModule,
+    EmailModule,
     SubscriptionsModule,
     AuthModule,
     AuthzModule,

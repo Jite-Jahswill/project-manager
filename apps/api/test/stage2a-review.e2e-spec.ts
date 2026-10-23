@@ -60,7 +60,7 @@ describe('Stage 2A review regressions', () => {
     const intruder = await loginFrom(strict, newIp(), victim.email, PASSWORD).expect(200);
     await http(strict).post('/v1/auth/password/forgot').set('X-Forwarded-For', newIp()).send({ email: victim.email }).expect(202);
     await http(strict).post('/v1/auth/password/reset').set('X-Forwarded-For', newIp())
-      .send({ token: tokenFromMail(strict, victim.email, '/reset-password'), newPassword: 'owner-recovered-pw1' }).expect(204);
+      .send({ token: await tokenFromMail(strict, victim.email, '/reset-password'), newPassword: 'owner-recovered-pw1' }).expect(204);
     // Exhaust the per-account bucket for unrecognized clients...
     for (let i = 0; i < 20; i++) await loginFrom(strict, newIp(), victim.email, 'guess');
     // ...the intruder's old token must no longer select the recognized-device bucket.
@@ -96,7 +96,7 @@ describe('Stage 2A review regressions', () => {
     it('email verification: still single-use and token-validated', async () => {
       const email = uniqueEmail('verify-outage');
       await http(app).post('/v1/auth/register').send({ email, password: PASSWORD, displayName: 'v' }).expect(202);
-      const token = tokenFromMail(app, email, '/verify-email');
+      const token = await tokenFromMail(app, email, '/verify-email');
       await outage();
       try {
         await http(app).post('/v1/auth/verify-email').send({ token: 'z'.repeat(43) }).expect(400);
@@ -113,7 +113,7 @@ describe('Stage 2A review regressions', () => {
       const invitee = await signUp(app, 'inv-out-invitee');
       const stranger = await signUp(app, 'inv-out-stranger');
       await http(app).post(`/v1/orgs/${org.id}/invitations`).set(bearer(owner)).send({ email: invitee.email }).expect(201);
-      const token = tokenFromMail(app, invitee.email, '/accept-invitation');
+      const token = await tokenFromMail(app, invitee.email, '/accept-invitation');
       await outage();
       try {
         await http(app).post('/v1/invitations/accept').set(bearer(stranger)).send({ token }).expect(400);

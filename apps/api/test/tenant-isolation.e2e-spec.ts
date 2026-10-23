@@ -4,7 +4,7 @@
  * IDs or body fields the client sends.
  */
 import { INestApplication } from '@nestjs/common';
-import { addMember, bearer, createOrg, createTestApp, http, resetDatabase, roleId, signUp, TestOrg } from './support/harness';
+import { addMember, bearer, createOrg, createTestApp, http, resetDatabase, roleId, signUp, TestOrg, waitForMail } from './support/harness';
 
 describe('Cross-tenant isolation through the API', () => {
   let app: INestApplication;
@@ -94,8 +94,7 @@ describe('Cross-tenant isolation through the API', () => {
   it("an invitation token for B cannot be redirected to A or used by another user", async () => {
     await http(app).post(`/v1/orgs/${b.id}/invitations`).set(bearer(b.owner)).send({ email: 'target@example.test' }).expect(201);
     const intruder = await signUp(app, 'intruder');
-    const { MailService } = await import('../src/mail/mail.service');
-    const msg = app.get(MailService).captured.filter((m) => m.to === 'target@example.test').at(-1)!;
+    const msg = await waitForMail(app, 'target@example.test', (m) => m.text.includes('/accept-invitation'));
     const token = decodeURIComponent(msg.text.match(/#token=([^\s]+)/)![1]);
     // Wrong user (email mismatch): the database hides the invitation from anyone but its
     // addressee, so the response is the same generic error as for a bogus token.

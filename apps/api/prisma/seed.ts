@@ -11,8 +11,14 @@ import { PrismaClient } from '../src/generated/prisma/client';
 import { describeKey, PERMISSIONS } from '../src/authz/permission-registry';
 import { PLATFORM_PERMISSIONS, PLATFORM_ROLE_TEMPLATES, SUPER_ADMIN_ROLE_NAME } from '../src/authz/platform-permission-registry';
 import { PLAN_SEEDS } from '../src/subscriptions/entitlements';
+import { TEMPLATE_DEFINITIONS } from '../src/email/templates';
 
-export async function seed(databaseUrl: string): Promise<void> {
+export interface SeedOptions {
+  /** Development/test only: bootstrap a LOG or CAPTURE provider, active, with sending on. Ignored in production. */
+  devEmailProvider?: 'LOG' | 'CAPTURE';
+}
+
+export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise<void> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   try {
     for (const p of PERMISSIONS.values()) {
@@ -66,8 +72,41 @@ export async function seed(databaseUrl: string): Promise<void> {
         });
       }
     }
+
+    await seedEmail(prisma, opts);
   } finally {
     await prisma.$disconnect();
+  }
+}
+
+/**
+ * Email bootstrap. Templates (version 1 from code) and an UNVERIFIED suggested sender
+ * identity; production sending stays OFF. Everything after this is managed through the
+ * platform-admin API, not environment variables.
+ */
+async function seedEmail(prisma: PrismaClient, opts: SeedOptions): Promise<void> {
+  for (const t of TEMPLATE_DEFINITIONS) {
+    if ((await prisma.emailTemplate.count({ where: { key: t.key } })) === 0) {
+      await prisma.emailTemplate.create({
+        data: { key: t.key, version: 1, subject: t.defaults.subject, textBody: t.defaults.text, htmlBody: t.defaults.html, status: 'ACTIVE', activatedAt: new Date() },
+      });
+    }
+  }
+  const suggested = (process.env.EMAIL_SUGGESTED_SENDER ?? 'no-reply@mail.havehub.com.ng').trim().toLowerCase();
+  let sender = await prisma.emailSenderIdentity.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!sender) {
+    sender = await prisma.emailSenderIdentity.create({ data: { email: suggested, displayName: 'Ventidoc', domain: suggested.split('@')[1] } });
+  }
+  const settings = await prisma.emailSettings.upsert({ where: { id: 1 }, create: { id: 1, defaultSenderId: sender.id }, update: {} });
+  if (!settings.defaultSenderId) await prisma.emailSettings.update({ where: { id: 1 }, data: { defaultSenderId: sender.id } });
+
+  const dev = opts.devEmailProvider ?? (process.env.EMAIL_BOOTSTRAP_DEV_PROVIDER as SeedOptions['devEmailProvider']);
+  if (dev && process.env.NODE_ENV !== 'production') {
+    if (!['LOG', 'CAPTURE'].includes(dev)) throw new Error('EMAIL_BOOTSTRAP_DEV_PROVIDER must be LOG or CAPTURE');
+    const name = `development-${dev.toLowerCase()}`;
+    const provider = await prisma.emailProvider.upsert({ where: { name }, create: { kind: dev, name, status: 'VERIFIED' }, update: {} });
+    // Development/test throughput: tests sign up hundreds of users a minute. Production keeps the default cap.
+    await prisma.emailSettings.update({ where: { id: 1 }, data: { activeProviderId: provider.id, sendingEnabled: true, maxSendsPerMinute: 10_000 } });
   }
 }
 

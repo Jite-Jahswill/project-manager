@@ -32,7 +32,7 @@ describe('Shared rate limiter (real Redis)', () => {
   });
 
   afterAll(async () => {
-    for (const i of created) await i.redis.onModuleDestroy();
+    for (const i of created) await i.redis.onApplicationShutdown();
     raw.disconnect();
   });
 

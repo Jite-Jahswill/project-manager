@@ -10,7 +10,7 @@ import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../src/database/prisma.service';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
 import {
-  bearer, createOrg, createTestApp, enableMfa, http, login, PASSWORD, resetDatabase, signUp, TestUser, tokenFromMail, uniqueEmail,
+  bearer, createOrg, createTestApp, enableMfa, http, login, mailsTo, PASSWORD, resetDatabase, signUp, TestUser, tokenFromMail, uniqueEmail,
 } from './support/harness';
 import { redisTarget, redisUrlVia, TcpProxy, waitFor } from './support/tcp-proxy';
 
@@ -75,7 +75,7 @@ describe('Authentication abuse protection', () => {
       // Recovery from a new device: a password reset (inbox control) clears the account bucket.
       await http(strict).post('/v1/auth/password/forgot').set('X-Forwarded-For', newIp()).send({ email: victim.email }).expect(202);
       await http(strict).post('/v1/auth/password/reset').set('X-Forwarded-For', newIp())
-        .send({ token: tokenFromMail(strict, victim.email, '/reset-password'), newPassword: 'recovered-password-1' }).expect(204);
+        .send({ token: await tokenFromMail(strict, victim.email, '/reset-password'), newPassword: 'recovered-password-1' }).expect(204);
       expect((await loginFrom(strict, newIp(), victim.email, 'recovered-password-1')).status).toBe(200);
     });
 
@@ -147,8 +147,10 @@ describe('Authentication abuse protection', () => {
       expect(await seq(victim.email)).toEqual([202, 202, 202, 429, 429]);
       expect(await seq(uniqueEmail('ghost'))).toEqual([202, 202, 202, 429, 429]);
       // Only 3 reset mails reached the victim.
-      const { MailService } = await import('../src/mail/mail.service');
-      expect(strict.get(MailService).captured.filter((m) => m.to === victim.email && m.text.includes('/reset-password'))).toHaveLength(3);
+      // Delivery is asynchronous: wait for the worker, then make sure no 4th mail follows.
+      await waitFor(() => mailsTo(victim.email).filter((m) => m.text.includes('/reset-password')).length >= 3);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(mailsTo(victim.email).filter((m) => m.text.includes('/reset-password'))).toHaveLength(3);
     });
 
     it('one network cannot request resets for many emails (forgot.ip)', async () => {

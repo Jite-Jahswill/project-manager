@@ -1,6 +1,7 @@
 import { TrustedProxies } from '../abuse/client-ip';
 import { PolicyTable, resolvePolicies } from '../abuse/policies';
 import { MfaKeyRing, parseKeyRing } from '../mfa/mfa-crypto';
+import { KeyRing, parseKeyRing as parseGenericKeyRing } from '../common/keyring';
 
 /**
  * Validated runtime configuration. The process refuses to start with missing or
@@ -17,8 +18,6 @@ export interface AppConfig {
   jwtAccessTtlSeconds: number;
   refreshTokenTtlDays: number;
   appPublicUrl: string;
-  mailTransport: 'log' | 'capture';
-  mailFrom: string;
   /** Shared rate-limiter store. */
   redisUrl: string;
   redisCommandTimeoutMs: number;
@@ -32,6 +31,13 @@ export interface AppConfig {
   rateLimitPolicies: PolicyTable;
   /** AES-256-GCM keys for TOTP secrets at rest; never stored in the database. */
   mfaKeyRing: MfaKeyRing;
+  /** AES-256-GCM keys for email provider credentials and sensitive outbox values. */
+  emailKeyRing: KeyRing;
+  /** inline = the API process also runs the delivery worker; external = `pnpm api worker`; off = none. */
+  emailWorkerMode: 'inline' | 'external' | 'off';
+  emailWorkerPollMs: number;
+  emailWorkerLeaseMs: number;
+  emailWorkerBatch: number;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -43,6 +49,8 @@ function required(env: NodeJS.ProcessEnv, key: string): string {
 /** Variables replaced in stage 2A; refusing them prevents a stale config from silently trusting every proxy. */
 const REMOVED_VARIABLES: Record<string, string> = {
   TRUST_PROXY: 'TRUSTED_PROXIES (an explicit list of proxy IPs/CIDRs)',
+  MAIL_TRANSPORT: 'the platform email configuration (docs/security/email.md); development providers are bootstrapped by EMAIL_BOOTSTRAP_DEV_PROVIDER',
+  MAIL_FROM: 'sender identities in the platform email configuration (docs/security/email.md)',
   AUTH_RATE_LIMIT_PER_MINUTE: 'RATE_LIMIT_OVERRIDES (per-policy limits)',
 };
 
@@ -72,10 +80,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('AUTH_DATABASE_URL must use the ventidoc_auth role');
   }
 
-  const mailTransport = (env.MAIL_TRANSPORT ?? 'log') as AppConfig['mailTransport'];
-  if (!['log', 'capture'].includes(mailTransport)) {
-    throw new Error(`MAIL_TRANSPORT ${mailTransport} is not implemented yet; see docs/architecture/06-implementation-plan.md`);
-  }
+  const emailWorkerMode = (env.EMAIL_WORKER_MODE ?? 'inline') as AppConfig['emailWorkerMode'];
+  if (!['inline', 'external', 'off'].includes(emailWorkerMode)) throw new Error('EMAIL_WORKER_MODE must be inline, external or off');
   for (const [name, replacement] of Object.entries(REMOVED_VARIABLES)) {
     if (env[name] !== undefined) throw new Error(`${name} is no longer supported; use ${replacement}`);
   }
@@ -105,8 +111,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     jwtAccessTtlSeconds: int(env, 'JWT_ACCESS_TTL_SECONDS', 600),
     refreshTokenTtlDays: int(env, 'REFRESH_TOKEN_TTL_DAYS', 30),
     appPublicUrl: required(env, 'APP_PUBLIC_URL'),
-    mailTransport,
-    mailFrom: env.MAIL_FROM ?? 'Ventidoc <no-reply@ventidoc.local>',
     redisUrl,
     redisCommandTimeoutMs: int(env, 'REDIS_COMMAND_TIMEOUT_MS', 250),
     redisConnectTimeoutMs: int(env, 'REDIS_CONNECT_TIMEOUT_MS', 2000),
@@ -116,6 +120,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitKeyPrefix,
     rateLimitPolicies: resolvePolicies(env.RATE_LIMIT_OVERRIDES),
     mfaKeyRing: parseKeyRing(required(env, 'MFA_ENCRYPTION_KEYS'), required(env, 'MFA_ENCRYPTION_ACTIVE_KEY_ID')),
+    emailKeyRing: parseGenericKeyRing(required(env, 'EMAIL_SECRET_KEYS'), required(env, 'EMAIL_SECRET_ACTIVE_KEY_ID'), 'EMAIL_SECRET_KEYS'),
+    emailWorkerMode,
+    emailWorkerPollMs: int(env, 'EMAIL_WORKER_POLL_MS', 1000),
+    emailWorkerLeaseMs: int(env, 'EMAIL_WORKER_LEASE_MS', 60_000),
+    emailWorkerBatch: int(env, 'EMAIL_WORKER_BATCH', 10),
   };
 
   if (nodeEnv === 'production') {
@@ -130,10 +139,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
  */
 export function productionBlockers(config: AppConfig): string[] {
   const problems = [
-    'a real mail transport is not implemented',
     'MFA recovery approvers need a documented out-of-band identity-verification procedure (docs/security/mfa.md §8)',
-    'MFA_ENCRYPTION_KEYS must be supplied by a secret manager/KMS, not a plain environment file',
+    'MFA_ENCRYPTION_KEYS and EMAIL_SECRET_KEYS must be supplied by a secret manager/KMS, not a plain environment file',
+    'hosting, HA PostgreSQL/Redis, backups and monitoring are not yet selected and validated (docs/operations/hosting.md)',
   ];
+  for (const [id, k] of config.emailKeyRing.keys) {
+    if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`EMAIL_SECRET_KEYS key "${id}" is a disposable CI/example value`);
+  }
   // Disposable values from CI (.github/workflows/ci.yml) or the example file must never reach production.
   for (const [name, value] of [['JWT_ACCESS_SECRET', config.jwtAccessSecret], ['ABUSE_PROTECTION_SECRET', config.abuseProtectionSecret]] as const) {
     if (/ci-only|change_me|changeme|example|test-secret/i.test(value)) problems.push(`${name} is a disposable CI/example value`);

@@ -5,7 +5,7 @@ import { PrismaService } from './prisma.service';
 
 export type Tx = Prisma.TransactionClient;
 
-const CONTEXT_KEYS = ['app.org_id', 'app.user_id', 'app.platform_scope', 'app.invitation_token_hash'] as const;
+const CONTEXT_KEYS = ['app.org_id', 'app.user_id', 'app.platform_scope', 'app.invitation_token_hash', 'app.email_worker'] as const;
 type ContextKey = (typeof CONTEXT_KEYS)[number];
 
 interface TxOptions {
@@ -68,6 +68,14 @@ export class TenantDb {
    */
   asPlatform<T>(userId: string, fn: (tx: Tx) => Promise<T>, opts: TxOptions = {}): Promise<T> {
     return this.run({ 'app.platform_scope': 'on', 'app.user_id': userId }, fn, opts);
+  }
+
+  /**
+   * Email delivery worker scope: read/update the outbox, write delivery attempts, read
+   * email configuration. No tenant or business data is visible in this scope.
+   */
+  asEmailWorker<T>(fn: (tx: Tx) => Promise<T>, opts: TxOptions = {}): Promise<T> {
+    return this.run({ 'app.email_worker': 'on' }, fn, opts);
   }
 
   private run<T>(settings: Partial<Record<ContextKey, string>>, fn: (tx: Tx) => Promise<T>, opts: TxOptions): Promise<T> {

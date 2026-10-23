@@ -18,5 +18,5 @@ export default async function globalSetup(): Promise<void> {
   const cwd = resolve(__dirname, '../..');
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], { cwd, env: process.env, stdio: ['ignore', 'ignore', 'inherit'] });
   const { seed } = await import('../../prisma/seed');
-  await seed(process.env.MIGRATION_DATABASE_URL as string);
+  await seed(process.env.MIGRATION_DATABASE_URL as string, { devEmailProvider: 'CAPTURE' });
 }

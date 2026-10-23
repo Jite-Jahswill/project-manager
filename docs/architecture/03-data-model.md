@@ -47,6 +47,10 @@ erDiagram
 | | `user_credentials` | global, **ventidoc_auth only** | PK/FK `user_id`; argon2id `password_hash`; the app role has no privilege |
 | | `user_mfa_factors`, `user_mfa_enrollments`, `user_mfa_recovery_codes` | global, **ventidoc_auth only** | AES-256-GCM secrets (`v1:` CHECK), `last_used_step` replay guard, SHA-256 recovery-code hashes unique per user |
 | | `mfa_challenges` | global | pending second-factor step: token hash (unique), 5-min expiry, attempts, `consumed_at` |
+| | `mfa_recovery_requests` | platform scope (forced RLS) | two-person MFA recovery; CHECKs for separation of duties, immutability trigger, one open request per target |
+| Email | `email_outbox`, `email_delivery_attempts` | forced RLS (insert by member/platform/worker; read by platform/worker only) | transactional outbox; lease columns; idempotency key (unique); sensitive values AES-256-GCM, wiped at terminal states |
+| | `email_settings` (single row), `email_providers`, `email_sender_identities`, `email_templates`, `email_suppressions` | platform-managed (RLS: read platform/worker, write platform) | runtime configuration; one ACTIVE template version per key |
+| | `email_provider_secrets` | **ventidoc_auth only** | encrypted provider credentials |
 | | `sessions` | global | per device; `revoked_at`, `expires_at`, `reauthenticated_at` (step-up) |
 | | `refresh_tokens` | global | unique `token_hash` (SHA-256); `used_at` for reuse detection |
 | | `user_action_tokens` | global | unique `token_hash`; purpose = EMAIL_VERIFICATION / PASSWORD_RESET |

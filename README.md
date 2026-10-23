@@ -25,7 +25,7 @@ pnpm api db:seed                  # sync permission catalogs and plans (no users
 pnpm api build && pnpm api start  # http://localhost:3000, OpenAPI UI at /docs
 ```
 
-Development mail is printed to the API log (`MAIL_TRANSPORT=log`). Open the verification link from there. The API **refuses to start with `NODE_ENV=production`** until a real mail transport, Redis-backed rate limiting and MFA exist.
+Development mail is printed to the API log by the email worker (development LOG provider). Open the verification link from there. The API **refuses to start with `NODE_ENV=production`** until a real mail transport, Redis-backed rate limiting and MFA exist.
 
 > `pnpm api dev` uses `nest start --watch`. Don't run the API with `tsx`: esbuild doesn't emit decorator metadata, so dependency injection fails.
 
@@ -53,6 +53,8 @@ pnpm api docs:rbac            # regenerate docs/architecture/rbac-matrix.md
 Integration tests refuse to run against a database whose name doesn't end in `_test`, and abort with `BLOCKED` if the Redis test service is unreachable.
 
 Multi-factor authentication (mandatory for platform administrators and organization owners), keys and recovery: [docs/security/mfa.md](docs/security/mfa.md).
+
+Email (queued delivery, Resend/SMTP, admin-managed configuration, DNS setup): [docs/security/email.md](docs/security/email.md). In development, emails are printed to the API log (`EMAIL_BOOTSTRAP_DEV_PROVIDER=LOG`, delivered by the inline worker). To run delivery separately: `EMAIL_WORKER_MODE=external` on the API and `pnpm api worker`. Hosting requirements: [docs/operations/hosting.md](docs/operations/hosting.md).
 
 Rate limiting, client-IP trust (`TRUSTED_PROXIES`) and Redis requirements: [docs/security/rate-limiting-and-abuse-protection.md](docs/security/rate-limiting-and-abuse-protection.md).
 
