@@ -60,14 +60,22 @@ const definitions = [
   { key: 'inventory.stock.read', scope: B, sensitivity: S, description: 'View stock levels and movements' },
   { key: 'inventory.stock.adjust', scope: B, sensitivity: S, description: 'Record stock adjustments' },
   { key: 'inventory.stock.transfer', scope: B, sensitivity: S, description: 'Transfer stock between branches' },
-  { key: 'inventory.stock.approve_adjustment', scope: B, sensitivity: S, description: 'Approve stock adjustments' },
+  { key: 'inventory.stock.approve_adjustment', scope: B, sensitivity: S, description: 'Approve stock adjustments and reverse adjustments, opening balances and counts' },
+  { key: 'inventory.stock.count', scope: B, sensitivity: S, description: 'Record physical stock counts (posts the differences)' },
+  { key: 'inventory.category.manage', scope: O, sensitivity: S, description: 'Create, rename and archive product categories' },
+  { key: 'inventory.cost.read', scope: O, sensitivity: R, description: 'View cost prices and purchase costs' },
 
   // Purchasing
   { key: 'purchasing.supplier.read', scope: O, sensitivity: S, branchAssignable: true, description: 'View suppliers' },
   { key: 'purchasing.supplier.manage', scope: O, sensitivity: S, description: 'Manage suppliers' },
-  { key: 'purchasing.order.create', scope: B, sensitivity: S, description: 'Create purchase orders' },
-  { key: 'purchasing.order.approve', scope: B, sensitivity: S, description: 'Approve purchase orders' },
+  { key: 'purchasing.order.read', scope: B, sensitivity: S, description: 'View purchase orders (costs need inventory.cost.read unless you create or approve)' },
+  { key: 'purchasing.order.create', scope: B, sensitivity: S, description: 'Create and edit draft purchase orders, issue approved ones, cancel drafts' },
+  { key: 'purchasing.order.submit', scope: B, sensitivity: S, description: 'Submit purchase orders for approval' },
+  { key: 'purchasing.order.approve', scope: B, sensitivity: S, description: 'Approve or reject purchase orders submitted by others; cancel or close approved orders' },
+  { key: 'purchasing.order.self_approve', scope: B, sensitivity: R, description: 'Approve a purchase order you submitted yourself (audited)' },
   { key: 'purchasing.order.receive', scope: B, sensitivity: S, description: 'Receive goods against purchase orders' },
+  { key: 'purchasing.return.create', scope: B, sensitivity: S, description: 'Return goods to suppliers and correct receipts' },
+  { key: 'purchasing.report.read', scope: O, sensitivity: R, description: 'View purchasing reports and supplier purchase history' },
 
   // Sales
   { key: 'sales.sale.read', scope: B, sensitivity: S, description: 'View sales' },

@@ -6,7 +6,7 @@ import type { RequestMeta } from '../common/request-context';
 import { TenantDb, Tx } from '../database/tenant-db.service';
 import { EmailService } from '../email/email.service';
 import { Prisma } from '../generated/prisma/client';
-import { decodeCursor, encodeCursor } from './cursor';
+import { decodeCursor, encodeCursor, escapeLike } from '../common/cursor';
 import {
   canTransition, ConversationClosedError, customerMayReopen, previewOf, statusAfterCustomerMessage, statusAfterStaffReply, SupportStatus,
 } from './lifecycle';
@@ -43,10 +43,6 @@ function newReference(): string {
 
 const notFound = () => Errors.notFound('Conversation');
 
-/** Escapes LIKE metacharacters (PostgreSQL's default escape character is the backslash). */
-export function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 /**
  * Customer support conversations (docs/architecture/09-support.md).

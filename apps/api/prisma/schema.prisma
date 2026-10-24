@@ -344,6 +344,7 @@ model Organization {
   subscription         OrganizationSubscription?
   products             Product[]
   supportConversations SupportConversation[]
+  productCategories    ProductCategory[]
 
   @@map("organizations")
 }
@@ -396,6 +397,13 @@ model Branch {
   stockBalances   StockBalance[]
   stockMovements  StockMovement[]
   invitations     OrganizationInvitation[]
+
+  stockCounts     StockCount[]
+  transfersOut    StockTransfer[]  @relation("TransferFrom")
+  transfersIn     StockTransfer[]  @relation("TransferTo")
+  purchaseOrders  PurchaseOrder[]
+  goodsReceipts   GoodsReceipt[]   @relation("ReceiptBranch")
+  supplierReturns SupplierReturn[] @relation("ReturnBranch")
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -655,24 +663,73 @@ model AuditEvent {
 
 enum ProductStatus {
   ACTIVE
+  /// Kept in the catalogue but not purchasable; stock can still be counted or adjusted out.
+  INACTIVE
   ARCHIVED
 }
 
-model Product {
+enum CatalogStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Product groupings (one level of parent allowed). Never deleted; archived instead.
+model ProductCategory {
   id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String        @map("organization_id") @db.Uuid
-  sku            String
   name           String
-  unit           String        @default("each")
-  status         ProductStatus @default(ACTIVE)
+  /// lower(trim(name)): uniqueness without case/space variants.
+  nameNormalized String        @map("name_normalized")
+  parentId       String?       @map("parent_id") @db.Uuid
+  status         CatalogStatus @default(ACTIVE)
+  version        Int           @default(1)
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  stockBalances  StockBalance[]
-  stockMovements StockMovement[]
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  parent       ProductCategory?  @relation("CategoryParent", fields: [parentId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  children     ProductCategory[] @relation("CategoryParent")
+  products     Product[]
+
+  @@unique([organizationId, nameNormalized])
+  @@unique([id, organizationId])
+  @@map("product_categories")
+}
+
+model Product {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  sku               String
+  name              String
+  unit              String        @default("each")
+  /// Decimal places allowed for quantities in this unit (0 = whole units). Fixed once stock exists.
+  quantityScale     Int           @default(3) @map("quantity_scale")
+  status            ProductStatus @default(ACTIVE)
+  description       String?
+  categoryId        String?       @map("category_id") @db.Uuid
+  /// Unique per organization when present (EAN/UPC or internal code).
+  barcode           String?
+  /// Money in integer minor units of `currency`. Cost is restricted (inventory.cost.read).
+  costPriceMinor    BigInt?       @map("cost_price_minor")
+  sellingPriceMinor BigInt?       @map("selling_price_minor")
+  currency          String        @default("USD") @db.Char(3)
+  /// Low-stock threshold per branch (null = none).
+  reorderLevel      Decimal?      @map("reorder_level") @db.Decimal(18, 3)
+  version           Int           @default(1)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category           ProductCategory?    @relation(fields: [categoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplierProducts   SupplierProduct[]
+  purchaseOrderLines PurchaseOrderLine[]
+  stockBalances      StockBalance[]
+  stockMovements     StockMovement[]
+
+  countLines StockCountLine[]
 
   @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
   @@unique([id, organizationId])
   @@map("products")
 }
@@ -696,26 +753,50 @@ model StockBalance {
 
 enum StockMovementType {
   ADJUSTMENT
+  OPENING
+  RECEIPT
+  TRANSFER_OUT
+  TRANSFER_IN
+  COUNT
+  RETURN_TO_SUPPLIER
+  RECEIPT_CORRECTION
+  REVERSAL
 }
 
 model StockMovement {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String            @map("organization_id") @db.Uuid
-  branchId       String            @map("branch_id") @db.Uuid
-  productId      String            @map("product_id") @db.Uuid
-  type           StockMovementType
-  quantityDelta  Decimal           @map("quantity_delta") @db.Decimal(18, 3)
-  balanceAfter   Decimal           @map("balance_after") @db.Decimal(18, 3)
-  reason         String
-  actorUserId    String            @map("actor_user_id") @db.Uuid
-  idempotencyKey String            @map("idempotency_key")
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String            @map("organization_id") @db.Uuid
+  branchId           String            @map("branch_id") @db.Uuid
+  productId          String            @map("product_id") @db.Uuid
+  type               StockMovementType
+  quantityDelta      Decimal           @map("quantity_delta") @db.Decimal(18, 3)
+  balanceAfter       Decimal           @map("balance_after") @db.Decimal(18, 3)
+  reason             String
+  actorUserId        String            @map("actor_user_id") @db.Uuid
+  idempotencyKey     String            @map("idempotency_key")
+  /// What produced the movement (transfer, count, goods receipt, supplier return) and its id.
+  sourceType         String?           @map("source_type")
+  sourceId           String?           @map("source_id") @db.Uuid
+  /// For REVERSAL: the movement it cancels (each movement can be reversed once).
+  reversesMovementId String?           @unique @map("reverses_movement_id") @db.Uuid
+  /// For COUNT: the physical count; the database computes quantity_delta from it.
+  countedQuantity    Decimal?          @map("counted_quantity") @db.Decimal(18, 3)
+  unitCostMinor      BigInt?           @map("unit_cost_minor")
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  branch  Branch  @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  product Product @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  branch     Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product    Product        @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reverses   StockMovement? @relation("MovementReversal", fields: [reversesMovementId], references: [id], onDelete: Restrict)
+  reversedBy StockMovement? @relation("MovementReversal")
+
+  countLines   StockCountLine[]     @relation("CountLineMovement")
+  receiptLines GoodsReceiptLine[]   @relation("ReceiptLineMovement")
+  returnLines  SupplierReturnLine[] @relation("ReturnLineMovement")
 
   @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
   @@index([organizationId, branchId, productId, createdAt])
+  @@index([sourceType, sourceId])
   @@map("stock_movements")
 }
 
@@ -1133,4 +1214,313 @@ model SupportAttachment {
   @@index([conversationId])
   @@index([messageId])
   @@map("support_attachments")
+}
+
+// ---------------------------------------------------------------------------
+// Stock operations, suppliers and purchasing (docs/architecture/11-inventory-purchasing.md).
+// Every table is tenant-owned (organization_id, FORCEd RLS, composite FKs).
+// ---------------------------------------------------------------------------
+
+/// A physical count at one branch; each differing line posts a COUNT movement.
+model StockCount {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  branchId       String   @map("branch_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key")
+  note           String
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lines StockCountLine[]
+
+  branch Branch @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, branchId, createdAt])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  countId          String  @map("count_id") @db.Uuid
+  productId        String  @map("product_id") @db.Uuid
+  expectedQuantity Decimal @map("expected_quantity") @db.Decimal(18, 3)
+  countedQuantity  Decimal @map("counted_quantity") @db.Decimal(18, 3)
+  movementId       String? @map("movement_id") @db.Uuid
+
+  count StockCount @relation(fields: [countId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  product  Product        @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  movement StockMovement? @relation("CountLineMovement", fields: [movementId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([countId, productId])
+  @@map("stock_count_lines")
+}
+
+/// An immediate transfer between two active branches (out and in post together).
+model StockTransfer {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  fromBranchId   String   @map("from_branch_id") @db.Uuid
+  toBranchId     String   @map("to_branch_id") @db.Uuid
+  idempotencyKey String   @map("idempotency_key")
+  reason         String
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  fromBranch Branch @relation("TransferFrom", fields: [fromBranchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  toBranch   Branch @relation("TransferTo", fields: [toBranchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, fromBranchId, createdAt])
+  @@index([organizationId, toBranchId, createdAt])
+  @@map("stock_transfers")
+}
+
+enum SupplierStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Supplier {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String         @map("organization_id") @db.Uuid
+  /// Organization-chosen reference (e.g. SUP-001), unique per organization.
+  code             String
+  name             String
+  nameNormalized   String         @map("name_normalized")
+  status           SupplierStatus @default(ACTIVE)
+  /// Business contact only: no personal data beyond what ordering needs.
+  contactName      String?        @map("contact_name")
+  email            String?
+  phone            String?
+  address          String?
+  taxId            String?        @map("tax_id")
+  paymentTermsDays Int?           @map("payment_terms_days")
+  currency         String         @db.Char(3)
+  notes            String?
+  version          Int            @default(1)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products       SupplierProduct[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, nameNormalized])
+  @@unique([id, organizationId])
+  @@map("suppliers")
+}
+
+model SupplierProduct {
+  organizationId       String   @map("organization_id") @db.Uuid
+  supplierId           String   @map("supplier_id") @db.Uuid
+  productId            String   @map("product_id") @db.Uuid
+  supplierSku          String?  @map("supplier_sku")
+  defaultUnitCostMinor BigInt?  @map("default_unit_cost_minor")
+  leadTimeDays         Int?     @map("lead_time_days")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  supplier Supplier @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product  Product  @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@id([supplierId, productId])
+  @@index([organizationId, productId])
+  @@map("supplier_products")
+}
+
+/// Per-organization counters for human-readable document numbers (PO-000001).
+model OrganizationSequence {
+  organizationId String @map("organization_id") @db.Uuid
+  name           String
+  lastValue      Int    @default(0) @map("last_value")
+
+  @@id([organizationId, name])
+  @@map("organization_sequences")
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  ISSUED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CLOSED
+  CANCELLED
+}
+
+model PurchaseOrder {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String              @map("organization_id") @db.Uuid
+  number            String
+  supplierId        String              @map("supplier_id") @db.Uuid
+  /// Destination branch (receiving location).
+  branchId          String              @map("branch_id") @db.Uuid
+  status            PurchaseOrderStatus @default(DRAFT)
+  currency          String              @db.Char(3)
+  /// Sum of line totals, maintained by the database from the lines.
+  subtotalMinor     BigInt              @default(0) @map("subtotal_minor")
+  notes             String?
+  expectedDate      DateTime?           @map("expected_date") @db.Date
+  version           Int                 @default(1)
+  createdByUserId   String              @map("created_by_user_id") @db.Uuid
+  submittedByUserId String?             @map("submitted_by_user_id") @db.Uuid
+  submittedAt       DateTime?           @map("submitted_at") @db.Timestamptz(3)
+  decidedByUserId   String?             @map("decided_by_user_id") @db.Uuid
+  decidedAt         DateTime?           @map("decided_at") @db.Timestamptz(3)
+  /// Approved by the submitter, which needs purchasing.order.self_approve (audited).
+  selfApproved      Boolean             @default(false) @map("self_approved")
+  rejectionReason   String?             @map("rejection_reason")
+  issuedAt          DateTime?           @map("issued_at") @db.Timestamptz(3)
+  closedAt          DateTime?           @map("closed_at") @db.Timestamptz(3)
+  closeReason       String?             @map("close_reason")
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  supplier Supplier             @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines    PurchaseOrderLine[]
+  events   PurchaseOrderEvent[]
+  receipts GoodsReceipt[]
+  returns  SupplierReturn[]
+
+  branch Branch @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, number])
+  @@unique([id, organizationId])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, supplierId])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  purchaseOrderId  String  @map("purchase_order_id") @db.Uuid
+  lineNo           Int     @map("line_no")
+  productId        String  @map("product_id") @db.Uuid
+  quantityOrdered  Decimal @map("quantity_ordered") @db.Decimal(18, 3)
+  unitCostMinor    BigInt  @map("unit_cost_minor")
+  /// round(quantity_ordered × unit_cost_minor), checked by the database.
+  lineTotalMinor   BigInt  @map("line_total_minor")
+  quantityReceived Decimal @default(0) @map("quantity_received") @db.Decimal(18, 3)
+  quantityReturned Decimal @default(0) @map("quantity_returned") @db.Decimal(18, 3)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product       Product       @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  receiptLines GoodsReceiptLine[]
+  returnLines  SupplierReturnLine[]
+
+  @@unique([purchaseOrderId, lineNo])
+  @@unique([purchaseOrderId, productId])
+  @@unique([id, organizationId])
+  @@map("purchase_order_lines")
+}
+
+/// Append-only status history.
+model PurchaseOrderEvent {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  type            String
+  fromStatus      String?  @map("from_status")
+  toStatus        String?  @map("to_status")
+  actorUserId     String   @map("actor_user_id") @db.Uuid
+  reason          String?
+  data            Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([purchaseOrderId, createdAt])
+  @@map("purchase_order_events")
+}
+
+/// One posting of received goods (idempotent per Idempotency-Key). Append-only.
+model GoodsReceipt {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  purchaseOrderId String   @map("purchase_order_id") @db.Uuid
+  branchId        String   @map("branch_id") @db.Uuid
+  idempotencyKey  String   @map("idempotency_key")
+  note            String?
+  actorUserId     String   @map("actor_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  purchaseOrder PurchaseOrder      @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines         GoodsReceiptLine[]
+
+  branch Branch @relation("ReceiptBranch", fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  receiptId      String  @map("receipt_id") @db.Uuid
+  lineId         String  @map("line_id") @db.Uuid
+  quantity       Decimal @db.Decimal(18, 3)
+  movementId     String  @map("movement_id") @db.Uuid
+
+  receipt GoodsReceipt @relation(fields: [receiptId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  line     PurchaseOrderLine @relation(fields: [lineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  movement StockMovement     @relation("ReceiptLineMovement", fields: [movementId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([receiptId, lineId])
+  @@map("goods_receipt_lines")
+}
+
+enum SupplierReturnType {
+  /// Goods sent back to the supplier (received quantity stays; returned quantity grows).
+  RETURN
+  /// A receipt recorded too much (received quantity is reduced; the order can be received again).
+  RECEIPT_CORRECTION
+}
+
+/// Append-only.
+model SupplierReturn {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String             @map("organization_id") @db.Uuid
+  purchaseOrderId String             @map("purchase_order_id") @db.Uuid
+  branchId        String             @map("branch_id") @db.Uuid
+  type            SupplierReturnType
+  idempotencyKey  String             @map("idempotency_key")
+  reason          String
+  actorUserId     String             @map("actor_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  purchaseOrder PurchaseOrder        @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines         SupplierReturnLine[]
+
+  branch Branch @relation("ReturnBranch", fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@map("supplier_returns")
+}
+
+model SupplierReturnLine {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  returnId       String  @map("return_id") @db.Uuid
+  lineId         String  @map("line_id") @db.Uuid
+  quantity       Decimal @db.Decimal(18, 3)
+  movementId     String  @map("movement_id") @db.Uuid
+
+  supplierReturn SupplierReturn @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  line     PurchaseOrderLine @relation(fields: [lineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  movement StockMovement     @relation("ReturnLineMovement", fields: [movementId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([returnId, lineId])
+  @@map("supplier_return_lines")
 }

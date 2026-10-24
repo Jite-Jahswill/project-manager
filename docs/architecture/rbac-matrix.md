@@ -24,7 +24,7 @@ Sensitivity **R** = restricted (payroll, finance, sensitive HR, audit, exports).
 | `organization.role.manage` | O | R | ● | ● |  |  |  |  |  |  |  |  |  |  |  |
 | `organization.subscription.read` | O |  | ● | ● |  |  |  |  |  |  |  |  |  |  |  |
 | `security.audit.read` | O | R | ● | ● |  |  |  |  |  |  |  |  | ● |  |  |
-| `inventory.product.read` | O+ |  | ● | ● | ● | ● | ● | ● | ● |  |  |  | ● | ● | ● |
+| `inventory.product.read` | O+ |  | ● | ● | ● | ● | ● | ● | ● | ● |  |  | ● | ● | ● |
 | `inventory.product.create` | O |  | ● | ● |  | ● |  |  |  |  |  |  |  |  |  |
 | `inventory.product.update` | O |  | ● | ● |  | ● |  |  |  |  |  |  |  |  |  |
 | `inventory.product.archive` | O |  | ● | ● |  | ● |  |  |  |  |  |  |  |  |  |
@@ -32,11 +32,19 @@ Sensitivity **R** = restricted (payroll, finance, sensitive HR, audit, exports).
 | `inventory.stock.adjust` | B |  | ● | ● | ● | ● | ● |  |  |  |  |  |  |  |  |
 | `inventory.stock.transfer` | B |  | ● | ● | ● | ● |  |  |  |  |  |  |  | ● |  |
 | `inventory.stock.approve_adjustment` | B |  | ● | ● | ● | ● |  |  |  |  |  |  |  |  |  |
-| `purchasing.supplier.read` | O+ |  | ● | ● | ● | ● |  |  |  |  |  |  |  |  |  |
+| `inventory.stock.count` | B |  | ● | ● | ● | ● | ● |  |  |  |  |  |  |  |  |
+| `inventory.category.manage` | O |  | ● | ● |  | ● |  |  |  |  |  |  |  |  |  |
+| `inventory.cost.read` | O | R | ● | ● |  | ● |  |  |  | ● |  |  | ● |  |  |
+| `purchasing.supplier.read` | O+ |  | ● | ● | ● | ● |  |  |  | ● |  |  | ● |  |  |
 | `purchasing.supplier.manage` | O |  | ● | ● |  | ● |  |  |  |  |  |  |  |  |  |
+| `purchasing.order.read` | B |  | ● | ● | ● | ● | ● |  |  | ● |  |  | ● |  |  |
 | `purchasing.order.create` | B |  | ● | ● | ● | ● |  |  |  |  |  |  |  |  |  |
+| `purchasing.order.submit` | B |  | ● | ● | ● | ● |  |  |  |  |  |  |  |  |  |
 | `purchasing.order.approve` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
+| `purchasing.order.self_approve` | B | R | ● |  |  |  |  |  |  |  |  |  |  |  |  |
 | `purchasing.order.receive` | B |  | ● | ● | ● | ● | ● |  |  |  |  |  |  |  |  |
+| `purchasing.return.create` | B |  | ● | ● | ● | ● |  |  |  |  |  |  |  |  |  |
+| `purchasing.report.read` | O | R | ● | ● |  | ● |  |  |  | ● |  |  | ● |  |  |
 | `sales.sale.read` | B |  | ● | ● | ● |  |  | ● | ● | ● |  |  | ● |  | ● |
 | `sales.sale.create` | B |  | ● | ● | ● |  |  | ● | ● |  |  |  |  |  |  |
 | `sales.sale.refund` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |

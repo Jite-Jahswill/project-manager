@@ -15,7 +15,7 @@ import { SupportRealtimeService } from '../src/support/support-realtime.service'
 import {
   bearer, createOrg, createTestApp, enableMfa, http, login, mailsTo, PASSWORD, pools, resetDatabase, signUp, TestUser,
 } from './support/harness';
-import { waitFor } from './support/tcp-proxy';
+import { redisTarget, redisUrlVia, TcpProxy, waitFor } from './support/tcp-proxy';
 
 jest.setTimeout(120_000);
 
@@ -482,6 +482,62 @@ describe('Customer support', () => {
         await tx.platformAdminRole.deleteMany({ where: { adminUserId: temp.userId } });
       });
       expect(await stream.next('end', () => true, 5000)).toEqual({ reason: 'access_revoked' });
+    });
+
+    it('shutting down while the event subscriber reconnects leaves no unhandled rejection', async () => {
+      // Regression (phase 4 gate): ioredis' automatic re-subscription after a reconnect issued
+      // SELECT/SUBSCRIBE without handlers; closing the connection at that moment rejected them with
+      // "Connection is closed." and nothing caught it (an unhandled rejection can stop Node).
+      // ioredis emits 'ready' just before re-subscribing, so closing from a 'ready' listener hits
+      // exactly that window, deterministically.
+      const rejections: unknown[] = [];
+      const onRejection = (e: unknown) => rejections.push(e);
+      process.on('unhandledRejection', onRejection);
+      const t = redisTarget(process.env.REDIS_URL as string);
+      const proxy = new TcpProxy(t.host, t.port);
+      const port = await proxy.start();
+      const flaky = await createTestApp({ REDIS_URL: redisUrlVia(port, process.env.REDIS_URL as string), REDIS_COMMAND_TIMEOUT_MS: '200' });
+      try {
+        const rt = flaky.get(SupportRealtimeService);
+        await waitFor(() => rt.realtimeAvailable, 5000);
+        const sub = (rt as unknown as { subscriber: { once(e: string, f: () => void): void; disconnect(): void } }).subscriber;
+        await proxy.refuse();
+        await waitFor(() => !rt.realtimeAvailable, 5000);
+        sub.once('ready', () => sub.disconnect()); // shutdown lands mid-resubscribe
+        await proxy.resume();
+        await new Promise((r) => setTimeout(r, 3000));
+      } finally {
+        await flaky.close();
+        await proxy.stop();
+        await new Promise((r) => setTimeout(r, 100));
+        process.off('unhandledRejection', onRejection);
+      }
+      expect(rejections.map(String)).toEqual([]);
+    });
+
+    it('after a Redis outage the subscriber re-subscribes by itself and events flow again', async () => {
+      const t = redisTarget(process.env.REDIS_URL as string);
+      const proxy = new TcpProxy(t.host, t.port);
+      const port = await proxy.start();
+      const flaky = await createTestApp({ REDIS_URL: redisUrlVia(port, process.env.REDIS_URL as string), REDIS_COMMAND_TIMEOUT_MS: '200' });
+      try {
+        const rt = flaky.get(SupportRealtimeService);
+        await waitFor(() => rt.realtimeAvailable, 5000);
+        await proxy.refuse();
+        await waitFor(() => !rt.realtimeAvailable, 5000);
+        await proxy.resume();
+        await waitFor(() => rt.realtimeAvailable, 10_000);
+        const c = await newConversation(customerA, 'After outage');
+        const stream = openStream(flaky, '/v1/support/stream', customerA);
+        streams.push(stream);
+        expect(await stream.next('ready')).toMatchObject({ realtime: true });
+        // Published by the main instance, received by the recovered one.
+        await cust(customerA).post(`/conversations/${c.id}/messages`, { body: 'delivered after recovery' }).expect(201);
+        await stream.next('message.created', (d) => (d.message as { body: string }).body === 'delivered after recovery');
+      } finally {
+        await flaky.close();
+        await proxy.stop();
+      }
     });
 
     it('fallback: without Redis, messages are persisted first and a reconnecting client catches up with afterSeq', async () => {

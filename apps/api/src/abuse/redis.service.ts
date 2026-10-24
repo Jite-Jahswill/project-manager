@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import Redis from 'ioredis';
 import { APP_CONFIG, AppConfig } from '../config/env';
 
@@ -12,13 +12,13 @@ import { APP_CONFIG, AppConfig } from '../config/env';
  *  - capped reconnect back-off  -> reconnects in the background, at most every 2 s
  */
 @Injectable()
-export class RedisService implements OnApplicationShutdown {
+export class RedisService implements OnApplicationBootstrap, OnApplicationShutdown {
   readonly client: Redis;
   private readonly logger = new Logger('Redis');
   private lastErrorLog = 0;
   private suppressedErrors = 0;
 
-  constructor(@Inject(APP_CONFIG) config: AppConfig) {
+  constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {
     this.client = new Redis(config.redisUrl, {
       enableOfflineQueue: false,
       maxRetriesPerRequest: 0,
@@ -30,6 +30,27 @@ export class RedisService implements OnApplicationShutdown {
     });
     this.client.on('error', (err: Error) => this.logError(err));
     this.client.on('ready', () => this.logger.log(JSON.stringify({ event: 'redis.ready' })));
+  }
+
+  /**
+   * Startup readiness: bootstrap hooks run before the HTTP server listens, so waiting here
+   * (at most the connect timeout) means a freshly started instance does not answer its first
+   * requests while still connecting, which fail-closed routes would turn into 503s. It never
+   * fails startup: if Redis is unreachable the instance starts degraded, exactly as during an
+   * outage (rate-limited routes fail closed or open per policy).
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    if (this.ready) return;
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.client.off('ready', done);
+        resolve();
+      };
+      const timer = setTimeout(done, this.config.redisConnectTimeoutMs);
+      this.client.once('ready', done);
+    });
+    if (!this.ready) this.logger.warn(JSON.stringify({ event: 'redis.not_ready_at_startup', waitedMs: this.config.redisConnectTimeoutMs }));
   }
 
   get ready(): boolean {

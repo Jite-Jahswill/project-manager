@@ -24,7 +24,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     key: 'org_admin',
     name: 'Organization administrator',
     description: 'Runs the organization day to day. No payroll approval or sensitive HR data by default.',
-    permissions: except('hr.employee.read_sensitive', 'hr.payroll.approve', 'hr.payroll.export', 'hr.payroll.prepare'),
+    // Self-approval of purchases is a restricted exception, not part of day-to-day administration.
+    permissions: except('hr.employee.read_sensitive', 'hr.payroll.approve', 'hr.payroll.export', 'hr.payroll.prepare', 'purchasing.order.self_approve'),
   },
   {
     key: 'branch_manager',
@@ -33,8 +34,9 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     permissions: [
       'organization.branch.read', 'organization.member.read',
       'inventory.product.read', 'inventory.stock.read', 'inventory.stock.adjust', 'inventory.stock.transfer',
-      'inventory.stock.approve_adjustment',
-      'purchasing.supplier.read', 'purchasing.order.create', 'purchasing.order.approve', 'purchasing.order.receive',
+      'inventory.stock.approve_adjustment', 'inventory.stock.count',
+      'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.order.create', 'purchasing.order.submit',
+      'purchasing.order.approve', 'purchasing.order.receive', 'purchasing.return.create',
       'sales.sale.read', 'sales.sale.create', 'sales.sale.refund', 'sales.payment.confirm', 'sales.customer.read',
       'logistics.shipment.read', 'finance.expense.create', 'hr.employee.read', 'reports.operational.read',
     ],
@@ -47,7 +49,9 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'organization.branch.read',
       'inventory.product.read', 'inventory.product.create', 'inventory.product.update', 'inventory.product.archive',
       'inventory.stock.read', 'inventory.stock.adjust', 'inventory.stock.transfer', 'inventory.stock.approve_adjustment',
-      'purchasing.supplier.read', 'purchasing.supplier.manage', 'purchasing.order.create', 'purchasing.order.receive',
+      'inventory.stock.count', 'inventory.category.manage', 'inventory.cost.read',
+      'purchasing.supplier.read', 'purchasing.supplier.manage', 'purchasing.order.read', 'purchasing.order.create',
+      'purchasing.order.submit', 'purchasing.order.receive', 'purchasing.return.create', 'purchasing.report.read',
       'reports.operational.read',
     ],
   },
@@ -55,7 +59,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     key: 'storekeeper',
     name: 'Storekeeper',
     description: 'Counts, receives and adjusts stock at assigned branches. Adjustments may require approval.',
-    permissions: ['inventory.product.read', 'inventory.stock.read', 'inventory.stock.adjust', 'purchasing.order.receive'],
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'inventory.stock.adjust', 'inventory.stock.count', 'purchasing.order.read', 'purchasing.order.receive'],
   },
   {
     key: 'cashier',
@@ -76,6 +80,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     permissions: [
       'organization.branch.read', 'sales.sale.read', 'finance.report.read', 'finance.expense.create',
       'finance.expense.approve', 'finance.ledger.reconcile', 'reports.operational.read',
+      'inventory.product.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
     ],
   },
   {
@@ -97,7 +102,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     permissions: [
       'organization.settings.read', 'organization.branch.read', 'organization.member.read', 'organization.role.read',
       'security.audit.read', 'inventory.product.read', 'inventory.stock.read', 'sales.sale.read', 'finance.report.read',
-      'reports.operational.read',
+      'reports.operational.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
     ],
   },
   {

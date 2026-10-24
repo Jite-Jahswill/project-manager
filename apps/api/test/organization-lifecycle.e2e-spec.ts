@@ -184,7 +184,7 @@ describe('Organization lifecycle (phase 3)', () => {
       expect(archived.body).toMatchObject({ status: 'ARCHIVED', version: 2, archivedAt: expect.any(String), revokedInvitations: 1 });
       // History is still there and readable by the organization.
       const movements = await as(a.owner).get(`/v1/orgs/${a.id}/branches/${br.id}/stock/movements`).expect(200);
-      expect(movements.body).toHaveLength(1);
+      expect(movements.body.items).toHaveLength(1);
       // No new business writes at an archived branch.
       expect((await adjust(`p3-arch-${Date.now()}-2`)).body.code).toBe('branch_archived');
       // Branch-limited roles there confer nothing; new assignments there are refused.

@@ -14,6 +14,11 @@ ALTER TABLE "organizations" ADD COLUMN     "version" INTEGER NOT NULL DEFAULT 1;
 -- ===========================================================================
 
 -- 1. Data fixes before the new constraints (existing rows must satisfy them).
+-- The migrator owns these tables and FORCEd RLS applies to owners too: without lifting FORCE
+-- for the duration of the fixes, the UPDATEs below would silently match no rows and the
+-- constraints added afterwards would fail on real data. Other roles stay bound by RLS throughout.
+ALTER TABLE branches NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE organization_invitations NO FORCE ROW LEVEL SECURITY;
 UPDATE branches SET archived_at = updated_at WHERE status = 'ARCHIVED' AND archived_at IS NULL;
 -- An invitation pointing at a branch of another organization (never created by the API, which
 -- checks branches under RLS) cannot satisfy the new foreign key: revoke and detach it.
@@ -25,6 +30,8 @@ UPDATE organization_invitations i SET revoked_at = now()
     SELECT 1 FROM organization_invitations n
     WHERE n.organization_id = i.organization_id AND n.email = i.email AND n.accepted_at IS NULL AND n.revoked_at IS NULL
       AND (n.created_at, n.id) > (i.created_at, i.id));
+ALTER TABLE branches FORCE ROW LEVEL SECURITY;
+ALTER TABLE organization_invitations FORCE ROW LEVEL SECURITY;
 
 -- 2. Integrity.
 -- Branch-scoped invitations can only name a branch of the same organization (composite FK).

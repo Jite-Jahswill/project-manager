@@ -13,7 +13,7 @@ describe('Stock adjustments', () => {
 
   const balance = async () => {
     const res = await http(app).get(`/v1/orgs/${org.id}/branches/${org.mainBranchId}/stock`).set(bearer(org.owner)).expect(200);
-    return res.body.find((b: { product: { id: string } }) => b.product.id === product)?.quantity;
+    return res.body.items.find((b: { product: { id: string } }) => b.product.id === product)?.quantity;
   };
 
   beforeAll(async () => {
@@ -42,7 +42,7 @@ describe('Stock adjustments', () => {
 
   it('the ledger reconciles with the balance', async () => {
     const res = await http(app).get(`/v1/orgs/${org.id}/branches/${org.mainBranchId}/stock/movements`).set(bearer(org.owner)).expect(200);
-    const sum = res.body.reduce((acc: number, m: { quantityDelta: string }) => acc + Math.round(Number(m.quantityDelta) * 1000), 0);
+    const sum = res.body.items.reduce((acc: number, m: { quantityDelta: string }) => acc + Math.round(Number(m.quantityDelta) * 1000), 0);
     expect(sum).toBe(0);
   });
 

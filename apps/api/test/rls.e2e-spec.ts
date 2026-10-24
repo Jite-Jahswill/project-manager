@@ -204,12 +204,24 @@ describe('PostgreSQL row-level security (runtime role)', () => {
     }
   });
 
-  it('stock balances cannot go negative at the database level', async () => {
-    await expect(
-      inTx({ 'app.org_id': orgB.id, 'app.user_id': orgB.owner.userId }, (c) =>
-        c.query('INSERT INTO stock_balances (organization_id, branch_id, product_id, quantity, updated_at) VALUES ($1, $2, $3, -1, now())', [orgB.id, orgB.mainBranchId, productB]),
-      ),
-    ).rejects.toThrow(/stock_balances_nonnegative/);
+  it('stock balances change only through the ledger and cannot go negative', async () => {
+    const ctx = { 'app.org_id': orgB.id, 'app.user_id': orgB.owner.userId };
+    // No direct write of any kind: the runtime role holds SELECT only.
+    await expect(inTx(ctx, (c) =>
+      c.query('INSERT INTO stock_balances (organization_id, branch_id, product_id, quantity, updated_at) VALUES ($1, $2, $3, 5, now())', [orgB.id, orgB.mainBranchId, productB]),
+    )).rejects.toThrow(/permission denied/);
+    await expect(inTx(ctx, (c) => c.query('UPDATE stock_balances SET quantity = 1000'))).rejects.toThrow(/permission denied/);
+    await expect(inTx(ctx, (c) => c.query('DELETE FROM stock_balances'))).rejects.toThrow(/permission denied/);
+    // A ledger row that would make the balance negative is refused by the posting trigger.
+    await expect(inTx(ctx, (c) => c.query(
+      `INSERT INTO stock_movements (organization_id, branch_id, product_id, type, quantity_delta, balance_after, reason, actor_user_id, idempotency_key)
+       VALUES ($1, $2, $3, 'ADJUSTMENT', -1, 0, 'negative attempt', $4, 'rls-negative-1')`, [orgB.id, orgB.mainBranchId, productB, orgB.owner.userId]),
+    )).rejects.toThrow(/insufficient_stock/);
+    // The database (not the client) computes balance_after.
+    const posted = await inTx(ctx, async (c) => (await c.query(
+      `INSERT INTO stock_movements (organization_id, branch_id, product_id, type, quantity_delta, balance_after, reason, actor_user_id, idempotency_key)
+       VALUES ($1, $2, $3, 'ADJUSTMENT', 2, 999999, 'forged balance_after', $4, 'rls-forge-1') RETURNING balance_after::text`, [orgB.id, orgB.mainBranchId, productB, orgB.owner.userId])).rows[0]);
+    expect(posted.balance_after).toBe('2.000');
   });
 
   async function foreignRoleId(): Promise<string> {

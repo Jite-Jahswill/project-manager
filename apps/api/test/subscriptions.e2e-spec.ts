@@ -46,7 +46,7 @@ describe('Subscription entitlements', () => {
     expect(write.status).toBe(403);
     expect(write.body.code).toBe('subscription_read_only');
     const read = await http(app).get(`/v1/orgs/${org.id}/products`).set(bearer(org.owner)).expect(200);
-    expect(read.body.map((p: { sku: string }) => p.sku)).toEqual(['KEEP']);
+    expect(read.body.items.map((p: { sku: string }) => p.sku)).toEqual(['KEEP']);
   });
 
   it('organizations cannot change their own subscription (no RLS update path)', async () => {

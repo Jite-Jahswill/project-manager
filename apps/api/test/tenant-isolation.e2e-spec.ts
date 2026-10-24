@@ -48,7 +48,7 @@ describe('Cross-tenant isolation through the API', () => {
 
   it("B's resource IDs used under A's path are not found (RLS hides them)", async () => {
     await http(app).get(`/v1/orgs/${a.id}/products/${productB}`).set(bearer(a.owner)).expect(404);
-    await http(app).patch(`/v1/orgs/${a.id}/products/${productB}`).set(bearer(a.owner)).send({ name: 'pwned' }).expect(404);
+    await http(app).patch(`/v1/orgs/${a.id}/products/${productB}`).set(bearer(a.owner)).send({ version: 1, name: 'pwned' }).expect(404);
     await http(app).post(`/v1/orgs/${a.id}/products/${productB}/archive`).set(bearer(a.owner)).expect(404);
     await http(app).get(`/v1/orgs/${a.id}/branches/${b.mainBranchId}/stock`).set(bearer(a.owner)).expect(404);
     await http(app)
@@ -77,7 +77,7 @@ describe('Cross-tenant isolation through the API', () => {
 
   it("search in A never returns B's products", async () => {
     const res = await http(app).get(`/v1/orgs/${a.id}/products?q=SECRET`).set(bearer(a.owner)).expect(200);
-    expect(res.body).toEqual([]);
+    expect(res.body.items).toEqual([]);
   });
 
   it("A's audit log contains only A's events", async () => {

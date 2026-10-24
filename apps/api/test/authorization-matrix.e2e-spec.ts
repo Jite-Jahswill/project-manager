@@ -37,8 +37,28 @@ const SAMPLE_BODIES: Record<string, object> = {
   'PATCH /v1/orgs/:orgId/roles/:roleId': { name: 'Renamed by sweep' },
   'POST /v1/orgs/:orgId/roles/:roleId/clone': { name: 'Cloned by sweep' },
   'POST /v1/orgs/:orgId/products': { sku: 'SWEEP-1', name: 'Sweep' },
-  'PATCH /v1/orgs/:orgId/products/:productId': { name: 'Renamed by sweep' },
+  'PATCH /v1/orgs/:orgId/products/:productId': { version: 1, name: 'Renamed by sweep' },
   'POST /v1/orgs/:orgId/branches/:branchId/stock/adjustments': { quantityDelta: '1', reason: 'sweep test' },
+  'POST /v1/orgs/:orgId/branches/:branchId/stock/opening-balances': { quantity: '1', reason: 'sweep test' },
+  'POST /v1/orgs/:orgId/branches/:branchId/stock/counts': { note: 'sweep count', lines: [{ countedQuantity: '1' }] },
+  'POST /v1/orgs/:orgId/branches/:branchId/stock/transfers': { reason: 'sweep transfer', lines: [{ quantity: '1' }] },
+  'POST /v1/orgs/:orgId/branches/:branchId/stock/movements/:movementId/reverse': { reason: 'sweep reversal' },
+  'POST /v1/orgs/:orgId/product-categories': { name: 'Sweep category' },
+  'PATCH /v1/orgs/:orgId/product-categories/:categoryId': { version: 1, name: 'Renamed by sweep' },
+  'POST /v1/orgs/:orgId/product-categories/:categoryId/archive': { version: 1 },
+  'POST /v1/orgs/:orgId/suppliers': { code: 'SWEEP-SUP', name: 'Sweep supplier' },
+  'PATCH /v1/orgs/:orgId/suppliers/:supplierId': { version: 1, name: 'Renamed by sweep' },
+  'PUT /v1/orgs/:orgId/suppliers/:supplierId/products/:productId': { supplierSku: 'SWEEP' },
+  'POST /v1/orgs/:orgId/branches/:branchId/purchase-orders': { lines: [{ quantity: '1', unitCostMinor: '100' }] },
+  'PATCH /v1/orgs/:orgId/purchase-orders/:purchaseOrderId': { version: 1, notes: 'sweep' },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/submit': { version: 1 },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/approve': { version: 1 },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/reject': { version: 1, reason: 'sweep rejection' },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/issue': { version: 1 },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/cancel': { version: 1, reason: 'sweep cancel' },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/close': { version: 1, reason: 'sweep close' },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/receipts': { lines: [{ quantity: '1' }] },
+  'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/returns': { type: 'RETURN', reason: 'sweep return', lines: [{ quantity: '1' }] },
   'PATCH /v1/platform/organizations/:organizationId/status': { status: 'ACTIVE' },
   'POST /v1/platform/mfa-recovery-requests': { reason: 'sweep: identity verified out of band (ticket SWEEP-1)' },
   'POST /v1/platform/mfa-recovery-requests/:requestId/approve': {},
@@ -68,7 +88,9 @@ const SAMPLE_BODIES: Record<string, object> = {
 const TENANT_TABLES = [
   'organizations', 'organization_memberships', 'branches', 'organization_invitations', 'roles', 'role_permissions',
   'membership_roles', 'membership_permission_overrides', 'organization_subscriptions', 'products', 'stock_balances',
-  'stock_movements', 'audit_events',
+  'stock_movements', 'audit_events', 'product_categories', 'suppliers', 'supplier_products', 'organization_sequences', 'purchase_orders',
+  'purchase_order_lines', 'purchase_order_events', 'goods_receipts', 'goods_receipt_lines', 'supplier_returns', 'supplier_return_lines',
+  'stock_counts', 'stock_count_lines', 'stock_transfers',
 ];
 
 describe('Authorization sweeps', () => {
@@ -95,9 +117,18 @@ describe('Authorization sweeps', () => {
       .send({ permissionKey: 'sales.sale.refund', effect: 'DENY', reason: 'seed' }).expect(201);
     const role = await http(app).post(`/v1/orgs/${b.id}/roles`).set(bearer(b.owner)).send({ name: 'B custom', permissions: ['inventory.product.read'] }).expect(201);
     const invitation = await http(app).post(`/v1/orgs/${b.id}/invitations`).set(bearer(b.owner)).send({ email: 'b-pending@example.test' }).expect(201);
+    const category = await http(app).post(`/v1/orgs/${b.id}/product-categories`).set(bearer(b.owner)).send({ name: 'B category' }).expect(201);
+    const supplier = await http(app).post(`/v1/orgs/${b.id}/suppliers`).set(bearer(b.owner)).send({ code: 'B-SUP', name: 'B supplier' }).expect(201);
+    const po = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/purchase-orders`).set(bearer(b.owner))
+      .send({ supplierId: supplier.body.id, lines: [{ productId: product.body.id, quantity: '2', unitCostMinor: '500' }] }).expect(201);
+    const count = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/stock/counts`).set(bearer(b.owner))
+      .set('Idempotency-Key', 'b-seed-count-1').send({ note: 'seed count', lines: [{ productId: product.body.id, countedQuantity: '4' }] }).expect(201);
+    const moves = await http(app).get(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/stock/movements`).set(bearer(b.owner)).expect(200);
     bIds = {
       orgId: b.id, branchId: b.mainBranchId, productId: product.body.id, membershipId: member.membershipId,
       overrideId: override.body.id, roleId: role.body.id, invitationId: invitation.body.id, organizationId: b.id,
+      categoryId: category.body.id, supplierId: supplier.body.id, purchaseOrderId: po.body.id, countId: count.body.count.id,
+      movementId: moves.body.items[0].id,
     };
   });
   afterAll(() => app.close());
@@ -123,7 +154,19 @@ describe('Authorization sweeps', () => {
     const verb = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
     const body = { ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}) } as Record<string, unknown>;
     // Resource IDs inside bodies are always the foreign organization's.
-    if (route.path.endsWith('/stock/adjustments')) body.productId = bIds.productId;
+    if (route.path.endsWith('/stock/adjustments') || route.path.endsWith('/stock/opening-balances')) body.productId = bIds.productId;
+    const hasLines = Array.isArray(body.lines);
+    if (hasLines && (route.path.endsWith('/stock/counts') || route.path.endsWith('/stock/transfers'))) {
+      body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, productId: bIds.productId }));
+      if (route.path.endsWith('/stock/transfers')) body.toBranchId = bIds.branchId;
+    }
+    if (hasLines && route.path.endsWith('/purchase-orders') && route.method === 'POST') {
+      body.supplierId = bIds.supplierId;
+      body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, productId: bIds.productId }));
+    }
+    if (hasLines && (route.path.endsWith('/receipts') || route.path.endsWith('/returns'))) {
+      body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, lineId: bIds.purchaseOrderId }));
+    }
     return http(app)[verb](path).set(bearer(user)).set('Idempotency-Key', `sweep-${randomUUID()}`).send(body);
   };
 

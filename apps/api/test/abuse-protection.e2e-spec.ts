@@ -8,6 +8,7 @@
  */
 import { INestApplication } from '@nestjs/common';
 import { PrismaService } from '../src/database/prisma.service';
+import { RedisService } from '../src/abuse/redis.service';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
 import {
   bearer, createOrg, createTestApp, enableMfa, http, login, mailsTo, PASSWORD, resetDatabase, signUp, TestUser, tokenFromMail, uniqueEmail,
@@ -267,6 +268,34 @@ describe('Authentication abuse protection', () => {
         expect(s).toEqual([401, 401, 401, 429, 429]);
       } finally {
         await app.close();
+      }
+    });
+  });
+
+  describe('startup readiness', () => {
+    it('a freshly started instance is connected to Redis before it serves its first request', async () => {
+      // Regression (phase 4 gate): requests arriving while the connection was still being set up
+      // were refused with 503 by fail-closed routes such as registration.
+      for (let i = 0; i < 3; i++) {
+        const fresh = await createTestApp();
+        try {
+          expect(fresh.get(RedisService).ready).toBe(true);
+          await http(fresh).post('/v1/auth/register').send({ email: `ready-${Date.now()}-${i}@example.test`, password: 'correct-horse-battery-staple', displayName: 'Ready' }).expect(202);
+        } finally {
+          await fresh.close();
+        }
+      }
+    });
+
+    it('an unreachable Redis does not block startup beyond the connect timeout (the instance starts degraded)', async () => {
+      const started = Date.now();
+      const degraded = await createTestApp({ REDIS_URL: 'redis://:x@127.0.0.1:1/1', REDIS_CONNECT_TIMEOUT_MS: '300' });
+      try {
+        expect(Date.now() - started).toBeLessThan(10_000);
+        expect(degraded.get(RedisService).ready).toBe(false);
+        await http(degraded).post('/v1/auth/register').send({ email: `degraded-${Date.now()}@example.test`, password: 'correct-horse-battery-staple', displayName: 'D' }).expect(503);
+      } finally {
+        await degraded.close();
       }
     });
   });

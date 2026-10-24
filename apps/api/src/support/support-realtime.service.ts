@@ -85,11 +85,14 @@ export class SupportRealtimeService implements OnModuleInit, OnModuleDestroy, On
 
   onModuleInit(): void {
     // A dedicated connection: a subscribed ioredis client cannot run other commands.
-    const sub = this.redis.client.duplicate({ enableOfflineQueue: true, maxRetriesPerRequest: null, lazyConnect: false });
+    // autoResubscribe is off: ioredis would re-issue SELECT/SUBSCRIBE after a reconnect without
+    // handling their promises, so a shutdown during that window rejected them unhandled. We
+    // (re)subscribe on every 'ready' instead, with the result handled. Pub/sub channels do not
+    // depend on the selected database, so no SELECT is needed.
+    const sub = this.redis.client.duplicate({ enableOfflineQueue: true, maxRetriesPerRequest: null, lazyConnect: false, autoResubscribe: false });
     this.subscriber = sub;
     sub.on('error', () => undefined); // reported by RedisService for the shared connection
     sub.on('ready', () => {
-      // ioredis re-subscribes on reconnect; this covers the first connection.
       sub.subscribe(this.config.supportEventsChannel).then(() => { this.subscribed = true; }, () => { this.subscribed = false; });
     });
     sub.on('end', () => { this.subscribed = false; });

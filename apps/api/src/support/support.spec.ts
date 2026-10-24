@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { contentDisposition, MAX_ATTACHMENT_BYTES, sanitizeFileName, sniffType, validateAttachment, AttachmentRejected } from './attachments';
-import { decodeCursor, encodeCursor } from './cursor';
+import { decodeCursor, encodeCursor } from '../common/cursor';
 import {
   canTransition, ConversationClosedError, customerMayReopen, previewOf, statusAfterCustomerMessage, statusAfterStaffReply, SUPPORT_STATUSES,
 } from './lifecycle';
