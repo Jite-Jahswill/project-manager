@@ -85,7 +85,16 @@ describe('PostgreSQL row-level security (runtime role)', () => {
     const res = await pool.query(`
       SELECT tablename, policyname, roles::text[] AS roles, coalesce(qual, '') AS qual, coalesce(with_check, '') AS with_check
       FROM pg_policies WHERE schemaname = 'public'`);
-    const tables = new Set([...(await tenantTables()), 'organizations']);
+    // User-owned tables that carry organization_id only as context (support conversations):
+    // the organization's tenant context must grant nothing, so they have their own, stricter rule below.
+    const USER_OWNED = new Set(['support_conversations']);
+    const tables = new Set([...(await tenantTables()), 'organizations'].filter((t) => !USER_OWNED.has(t)));
+    for (const p of res.rows.filter((r) => USER_OWNED.has(r.tablename))) {
+      const text = `${p.qual} ${p.with_check}`;
+      expect({ policy: `${p.tablename}.${p.policyname}`, roles: p.roles, user: /app_current_user_id\(\)/.test(text), tenantOrPlatform: /app_current_org_id\(\)|app_platform_scope\(\)|app_tenant_ok|app_is_active_member\(\)/.test(text) })
+        .toEqual({ policy: `${p.tablename}.${p.policyname}`, roles: ['ventidoc_app'], user: true, tenantOrPlatform: false });
+    }
+    expect(res.rows.filter((r) => USER_OWNED.has(r.tablename)).length).toBeGreaterThanOrEqual(3);
     const tenantPolicies = res.rows.filter((p) => tables.has(p.tablename));
     expect(tenantPolicies.length).toBeGreaterThan(0);
     for (const p of tenantPolicies) {

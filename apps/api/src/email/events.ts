@@ -13,6 +13,10 @@ export const SECURITY_NOTICES = [
 ] as const;
 export type SecurityNotice = (typeof SECURITY_NOTICES)[number];
 
+/** Status changes a customer is emailed about. */
+export const SUPPORT_NOTIFIED_STATUSES = ['RESOLVED', 'CLOSED'] as const;
+export type SupportNotifiedStatus = (typeof SUPPORT_NOTIFIED_STATUSES)[number];
+
 export type EmailEvent =
   /** Intent: the worker resolves the user and has the auth subsystem create the token at send time. */
   | { type: 'auth.verify_email'; userId: string }
@@ -22,7 +26,12 @@ export type EmailEvent =
   | { type: 'org.invitation'; organizationId: string; email: string; orgName: string; inviterName: string; sensitive: { invitationToken: string } }
   | { type: 'mfa.enrollment_code'; userId: string; sensitive: { code: string } }
   | { type: 'security.notice'; userId: string; notice: SecurityNotice; remaining?: number }
-  | { type: 'platform.test'; to: string; requestedBy: string };
+  | { type: 'platform.test'; to: string; requestedBy: string }
+  /** Support notifications carry only the conversation id and its public reference: no message text, notes or staff names. */
+  | { type: 'support.reply'; userId: string; conversationId: string; reference: string }
+  | { type: 'support.status_changed'; userId: string; conversationId: string; reference: string; status: SupportNotifiedStatus }
+  | { type: 'support.customer_message'; userId: string; conversationId: string; reference: string }
+  | { type: 'support.assigned'; userId: string; conversationId: string; reference: string };
 
 export type EmailEventType = EmailEvent['type'];
 
@@ -36,6 +45,10 @@ export const EVENT_TTL_MS: Record<EmailEventType, number> = {
   'mfa.enrollment_code': 10 * 60_000,
   'security.notice': 7 * 24 * 3600_000,
   'platform.test': 3600_000,
+  'support.reply': 7 * 24 * 3600_000,
+  'support.status_changed': 7 * 24 * 3600_000,
+  'support.customer_message': 24 * 3600_000,
+  'support.assigned': 24 * 3600_000,
 };
 
 export function templateKeyFor(event: EmailEvent): string {

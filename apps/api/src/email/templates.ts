@@ -25,6 +25,8 @@ export interface TemplateDefinition {
 }
 
 const SECURITY_FOOTER = 'If this wasn\'t you, reset your password and contact Ventidoc support immediately. Ventidoc will never ask for your password or codes.';
+const SUPPORT_FOOTER = 'Ventidoc support will never ask for your password or verification codes. Reply only through the Ventidoc app.';
+const STAFF_FOOTER = 'Internal notification for Ventidoc support staff. Do not forward: open the conversation in the Ventidoc console.';
 const html = (body: string) => `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937">${body}</div>`;
 
 const NOTICE_TEXT: Record<(typeof SECURITY_NOTICES)[number], { subject: string; body: string }> = {
@@ -106,6 +108,56 @@ export const TEMPLATE_DEFINITIONS: readonly TemplateDefinition[] = [
     lockedFooter: SECURITY_FOOTER,
     defaults: { subject: NOTICE_TEXT[notice].subject, text: NOTICE_TEXT[notice].body, html: html(`<p>${NOTICE_TEXT[notice].body}</p>`) },
   })),
+  // Support: subjects and bodies name only the public reference. No message text, internal
+  // notes or staff names ever appear in email (docs/security/support.md).
+  {
+    key: 'support.reply',
+    description: 'Support replied to the customer',
+    variables: { reference: 'text', link: 'url' },
+    required: ['link'],
+    lockedFooter: SUPPORT_FOOTER,
+    defaults: {
+      subject: 'New reply to your support request {{reference}}',
+      text: 'Ventidoc support replied to your request {{reference}}.\n\nRead the reply: {{link}}',
+      html: html('<p>Ventidoc support replied to your request {{reference}}.</p><p><a href="{{link}}">Read the reply</a></p>'),
+    },
+  },
+  {
+    key: 'support.status_changed',
+    description: 'A support request was resolved or closed',
+    variables: { reference: 'text', statusLabel: 'text', link: 'url' },
+    required: ['link'],
+    lockedFooter: SUPPORT_FOOTER,
+    defaults: {
+      subject: 'Your support request {{reference}} was {{statusLabel}}',
+      text: 'Your support request {{reference}} was {{statusLabel}}.\n\nView it: {{link}}',
+      html: html('<p>Your support request {{reference}} was {{statusLabel}}.</p><p><a href="{{link}}">View it</a></p>'),
+    },
+  },
+  {
+    key: 'support.customer_message',
+    description: 'A customer wrote in a conversation assigned to the recipient',
+    variables: { reference: 'text', link: 'url' },
+    required: ['link'],
+    lockedFooter: STAFF_FOOTER,
+    defaults: {
+      subject: 'New customer message on {{reference}}',
+      text: 'The customer wrote a new message on {{reference}}.\n\nOpen the conversation: {{link}}',
+      html: html('<p>The customer wrote a new message on {{reference}}.</p><p><a href="{{link}}">Open the conversation</a></p>'),
+    },
+  },
+  {
+    key: 'support.assigned',
+    description: 'A support conversation was assigned to the recipient',
+    variables: { reference: 'text', link: 'url' },
+    required: ['link'],
+    lockedFooter: STAFF_FOOTER,
+    defaults: {
+      subject: 'Support conversation {{reference}} was assigned to you',
+      text: 'The support conversation {{reference}} was assigned to you.\n\nOpen the conversation: {{link}}',
+      html: html('<p>The support conversation {{reference}} was assigned to you.</p><p><a href="{{link}}">Open the conversation</a></p>'),
+    },
+  },
   {
     key: 'platform.test',
     description: 'Administrator test email',

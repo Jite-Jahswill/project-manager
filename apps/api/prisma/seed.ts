@@ -28,6 +28,7 @@ export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise
     const stale = await prisma.permission.findMany({ where: { key: { notIn: [...PERMISSIONS.keys()] } }, select: { key: true } });
     if (stale.length) console.warn(`Permissions in DB but not in the registry (remove with a migration): ${stale.map((s) => s.key).join(', ')}`);
 
+    const knownPlatformKeys = new Set((await prisma.platformPermission.findMany({ select: { key: true } })).map((p) => p.key));
     for (const p of PLATFORM_PERMISSIONS.values()) {
       const data = { description: p.description, privileged: p.privileged };
       await prisma.platformPermission.upsert({ where: { key: p.key }, create: { key: p.key, ...data }, update: data });
@@ -45,11 +46,14 @@ export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise
         create: { name: t.name, description: t.description, isSystem },
         update: { description: t.description, isSystem },
       });
-      // The super-admin role always tracks the full registry; other roles are only seeded once.
+      // The super-admin role always tracks the full registry. Other roles are seeded once
+      // (administrators may edit them afterwards), except that a permission introduced by
+      // this seed run is granted to the template roles that list it.
       const existing = await prisma.platformRolePermission.count({ where: { roleId: role.id } });
-      if (isSystem || existing === 0) {
+      const grant = isSystem || existing === 0 ? [...t.permissions] : t.permissions.filter((k) => !knownPlatformKeys.has(k));
+      if (grant.length) {
         await prisma.platformRolePermission.createMany({
-          data: t.permissions.map((permissionKey) => ({ roleId: role.id, permissionKey })),
+          data: grant.map((permissionKey) => ({ roleId: role.id, permissionKey })),
           skipDuplicates: true,
         });
       }

@@ -8,3 +8,5 @@ coverage/
 .DS_Store
 apps/api/src/generated/
 .turbo/
+# Local development storage (support attachments, local driver only)
+.data/

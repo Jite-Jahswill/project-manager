@@ -32,8 +32,16 @@ const definitions = [
   { key: 'platform.config.manage', privileged: true, description: 'Change system configuration' },
   { key: 'platform.integration.manage', privileged: true, description: 'Manage integrations' },
   { key: 'platform.notification_template.manage', privileged: false, description: 'Manage notification templates' },
-  { key: 'platform.support.read', privileged: false, description: 'View support tickets' },
-  { key: 'platform.support.manage', privileged: false, description: 'Respond to and resolve support tickets' },
+  // Customer support (docs/security/support.md). Narrow on purpose: an agent typically holds
+  // assigned.access + reply (+ notes, attachments.read, status.manage), never inbox.read or assign.
+  { key: 'platform.support.inbox.read', privileged: false, description: 'View the whole support inbox, the unassigned queue and queue metrics' },
+  { key: 'platform.support.assigned.access', privileged: false, description: 'Access support conversations assigned to you (and be assignable)' },
+  { key: 'platform.support.assign', privileged: false, description: 'Assign, reassign and unassign support conversations' },
+  { key: 'platform.support.reply', privileged: false, description: 'Reply to customers in support conversations you can access' },
+  { key: 'platform.support.status.manage', privileged: false, description: 'Change status, priority and category of support conversations you can access' },
+  { key: 'platform.support.notes', privileged: false, description: 'Read and write internal notes (never visible to customers)' },
+  { key: 'platform.support.attachments.read', privileged: false, description: 'Download attachments in support conversations you can access' },
+  { key: 'platform.support.audit.read', privileged: false, description: 'View support conversation lifecycle history' },
   { key: 'platform.support_access.request', privileged: false, description: 'Request time-limited access to an organization' },
   { key: 'platform.support_access.approve', privileged: true, description: 'Approve support-access requests' },
   { key: 'platform.security.read', privileged: false, description: 'View security events' },
@@ -66,8 +74,21 @@ export const PLATFORM_ROLE_TEMPLATES: readonly { name: string; description: stri
   },
   {
     name: 'Support agent',
-    description: 'Handles support tickets; can request (not approve) support access.',
-    permissions: ['platform.dashboard.read', 'platform.organization.read', 'platform.support.read', 'platform.support.manage', 'platform.support_access.request'],
+    description: 'Works the support conversations assigned to them; cannot browse the inbox or assign. Can request (not approve) support access.',
+    permissions: [
+      'platform.dashboard.read', 'platform.organization.read', 'platform.support_access.request',
+      'platform.support.assigned.access', 'platform.support.reply', 'platform.support.status.manage', 'platform.support.notes',
+      'platform.support.attachments.read',
+    ],
+  },
+  {
+    name: 'Support administrator',
+    description: 'Runs the support inbox: sees every conversation, assigns and reassigns, and can work any conversation.',
+    permissions: [
+      'platform.dashboard.read', 'platform.organization.read',
+      'platform.support.inbox.read', 'platform.support.assigned.access', 'platform.support.assign', 'platform.support.reply',
+      'platform.support.status.manage', 'platform.support.notes', 'platform.support.attachments.read', 'platform.support.audit.read',
+    ],
   },
   {
     name: 'Billing manager',

@@ -45,6 +45,11 @@ export class EmailService {
     return id;
   }
 
+  /** Plain link to a page of the web app (no token). */
+  page(path: string): string {
+    return new URL(path, this.config.appPublicUrl).toString();
+  }
+
   /** Builds the sendable link to the web app; the token goes in the fragment (never in server logs). */
   link(path: string, token: string): string {
     const url = new URL(path, this.config.appPublicUrl);
@@ -74,6 +79,15 @@ export class EmailService {
         return { organizationId: null, recipientUserId: e.userId, recipientEmail: null, payload: e.remaining === undefined ? {} : { remaining: e.remaining }, sensitive: null };
       case 'platform.test':
         return { organizationId: null, recipientUserId: null, recipientEmail: normalizeEmail(e.to), payload: { requestedBy: e.requestedBy }, sensitive: null };
+      case 'support.reply':
+      case 'support.customer_message':
+      case 'support.assigned':
+        return { organizationId: null, recipientUserId: e.userId, recipientEmail: null, payload: { conversationId: e.conversationId, reference: e.reference }, sensitive: null };
+      case 'support.status_changed':
+        return {
+          organizationId: null, recipientUserId: e.userId, recipientEmail: null,
+          payload: { conversationId: e.conversationId, reference: e.reference, status: e.status }, sensitive: null,
+        };
     }
   }
 }

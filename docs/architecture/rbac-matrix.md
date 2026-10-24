@@ -63,36 +63,42 @@ Sensitivity **R** = restricted (payroll, finance, sensitive HR, audit, exports).
 
 Platform permissions never grant access to organization business records.
 
-| Permission | Step-up | Super administrator | Support agent | Billing manager | Security auditor | Email operations | Content manager |
-|---|---|---|---|---|---|---|---|
-| `platform.dashboard.read` |  | ● | ● | ● |  |  |  |
-| `platform.admin.read` |  | ● |  |  | ● |  |  |
-| `platform.admin.manage` | yes | ● |  |  |  |  |  |
-| `platform.organization.read` |  | ● | ● | ● |  |  |  |
-| `platform.organization.suspend` | yes | ● |  |  |  |  |  |
-| `platform.plan.read` |  | ● |  | ● |  |  |  |
-| `platform.plan.manage` | yes | ● |  | ● |  |  |  |
-| `platform.subscription.read` |  | ● |  | ● |  |  |  |
-| `platform.subscription.manage` | yes | ● |  | ● |  |  |  |
-| `platform.branding.manage` |  | ● |  |  |  |  | ● |
-| `platform.content.manage` |  | ● |  |  |  |  | ● |
-| `platform.feature_flag.manage` | yes | ● |  |  |  |  |  |
-| `platform.config.manage` | yes | ● |  |  |  |  |  |
-| `platform.integration.manage` | yes | ● |  |  |  |  |  |
-| `platform.notification_template.manage` |  | ● |  |  |  |  | ● |
-| `platform.support.read` |  | ● | ● |  |  |  |  |
-| `platform.support.manage` |  | ● | ● |  |  |  |  |
-| `platform.support_access.request` |  | ● | ● |  |  |  |  |
-| `platform.support_access.approve` | yes | ● |  |  |  |  |  |
-| `platform.security.read` |  | ● |  |  | ● |  |  |
-| `platform.email.read` |  | ● |  |  |  | ● |  |
-| `platform.email.configure` | yes | ● |  |  |  | ● |  |
-| `platform.email.secrets.manage` | yes | ● |  |  |  |  |  |
-| `platform.email.templates.manage` | yes | ● |  |  |  | ● |  |
-| `platform.email.deliveries.read` |  | ● |  |  |  | ● |  |
-| `platform.email.deliveries.manage` | yes | ● |  |  |  | ● |  |
-| `platform.email.test_send` | yes | ● |  |  |  | ● |  |
-| `platform.user_mfa.recovery.request` | yes | ● |  |  |  |  |  |
-| `platform.user_mfa.recovery.approve` | yes | ● |  |  |  |  |  |
-| `platform.audit.read` |  | ● |  |  | ● |  |  |
-| `platform.health.read` |  | ● |  |  | ● |  |  |
+| Permission | Step-up | Super administrator | Support agent | Support administrator | Billing manager | Security auditor | Email operations | Content manager |
+|---|---|---|---|---|---|---|---|---|
+| `platform.dashboard.read` |  | ● | ● | ● | ● |  |  |  |
+| `platform.admin.read` |  | ● |  |  |  | ● |  |  |
+| `platform.admin.manage` | yes | ● |  |  |  |  |  |  |
+| `platform.organization.read` |  | ● | ● | ● | ● |  |  |  |
+| `platform.organization.suspend` | yes | ● |  |  |  |  |  |  |
+| `platform.plan.read` |  | ● |  |  | ● |  |  |  |
+| `platform.plan.manage` | yes | ● |  |  | ● |  |  |  |
+| `platform.subscription.read` |  | ● |  |  | ● |  |  |  |
+| `platform.subscription.manage` | yes | ● |  |  | ● |  |  |  |
+| `platform.branding.manage` |  | ● |  |  |  |  |  | ● |
+| `platform.content.manage` |  | ● |  |  |  |  |  | ● |
+| `platform.feature_flag.manage` | yes | ● |  |  |  |  |  |  |
+| `platform.config.manage` | yes | ● |  |  |  |  |  |  |
+| `platform.integration.manage` | yes | ● |  |  |  |  |  |  |
+| `platform.notification_template.manage` |  | ● |  |  |  |  |  | ● |
+| `platform.support.inbox.read` |  | ● |  | ● |  |  |  |  |
+| `platform.support.assigned.access` |  | ● | ● | ● |  |  |  |  |
+| `platform.support.assign` |  | ● |  | ● |  |  |  |  |
+| `platform.support.reply` |  | ● | ● | ● |  |  |  |  |
+| `platform.support.status.manage` |  | ● | ● | ● |  |  |  |  |
+| `platform.support.notes` |  | ● | ● | ● |  |  |  |  |
+| `platform.support.attachments.read` |  | ● | ● | ● |  |  |  |  |
+| `platform.support.audit.read` |  | ● |  | ● |  |  |  |  |
+| `platform.support_access.request` |  | ● | ● |  |  |  |  |  |
+| `platform.support_access.approve` | yes | ● |  |  |  |  |  |  |
+| `platform.security.read` |  | ● |  |  |  | ● |  |  |
+| `platform.email.read` |  | ● |  |  |  |  | ● |  |
+| `platform.email.configure` | yes | ● |  |  |  |  | ● |  |
+| `platform.email.secrets.manage` | yes | ● |  |  |  |  |  |  |
+| `platform.email.templates.manage` | yes | ● |  |  |  |  | ● |  |
+| `platform.email.deliveries.read` |  | ● |  |  |  |  | ● |  |
+| `platform.email.deliveries.manage` | yes | ● |  |  |  |  | ● |  |
+| `platform.email.test_send` | yes | ● |  |  |  |  | ● |  |
+| `platform.user_mfa.recovery.request` | yes | ● |  |  |  |  |  |  |
+| `platform.user_mfa.recovery.approve` | yes | ● |  |  |  |  |  |  |
+| `platform.audit.read` |  | ● |  |  |  | ● |  |  |
+| `platform.health.read` |  | ● |  |  |  | ● |  |  |

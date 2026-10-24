@@ -22,7 +22,7 @@ export function configureApp(app: INestApplication): AppConfig {
   app.enableCors({
     origin: config.webOrigins,
     credentials: true,
-    allowedHeaders: ['content-type', 'authorization', 'x-csrf-token', 'idempotency-key', 'x-request-id'],
+    allowedHeaders: ['content-type', 'authorization', 'x-csrf-token', 'idempotency-key', 'x-request-id', 'x-file-name'],
   });
   app.useGlobalPipes(
     new ValidationPipe({

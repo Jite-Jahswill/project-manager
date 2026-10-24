@@ -134,6 +134,9 @@ Paths that send mail, verify a password, or create invitations all fail closed.
 | `accept_invite.user` | user | 10 / 15 min | open | `POST /v1/invitations/accept` |
 | `platform.privileged.user` | administrator | 30 / 1 h | closed | privileged platform permissions |
 | `mfa.*` (7 policies) | see [mfa.md §6](mfa.md) | | closed | MFA challenge, verification, enrollment, management |
+| `support.conversation.user` | user | 10 / 1 h | closed | `POST /v1/support/conversations` |
+| `support.message.user` | user | 60 / 5 min | open | support messages, staff replies and notes |
+| `support.upload.user` | user | 30 / 1 h | closed | support attachment uploads ([support.md §7](support.md)) |
 
 ## 4. Configuration
 

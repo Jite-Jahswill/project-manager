@@ -248,6 +248,32 @@ export class EmailWorker implements OnApplicationBootstrap, OnModuleDestroy {
       }
       case 'platform.test':
         return { to: job.recipient_email!, vars: {} };
+      case 'support.reply':
+      case 'support.status_changed': {
+        const user = await this.prisma.user.findUnique({ where: { id: job.recipient_user_id! }, select: { email: true, status: true } });
+        if (!user || user.status !== 'ACTIVE') throw new Discard('no_eligible_recipient');
+        const vars: Record<string, string> = {
+          reference: String(job.payload.reference), link: this.email.page(`/support/conversations/${String(job.payload.conversationId)}`),
+        };
+        if (job.event_type === 'support.status_changed') vars.statusLabel = String(job.payload.status).toLowerCase();
+        return { to: user.email, vars };
+      }
+      case 'support.customer_message':
+      case 'support.assigned': {
+        // Staff notices: the recipient must still be an active support staff member at send time.
+        const admin = await this.prisma.platformAdmin.findFirst({
+          where: {
+            userId: job.recipient_user_id!, status: 'ACTIVE', user: { status: 'ACTIVE' },
+            roles: { some: { role: { permissions: { some: { permissionKey: 'platform.support.assigned.access' } } } } },
+          },
+          select: { user: { select: { email: true } } },
+        });
+        if (!admin) throw new Discard('no_eligible_recipient');
+        return {
+          to: admin.user.email,
+          vars: { reference: String(job.payload.reference), link: this.email.page(`/platform/support/conversations/${String(job.payload.conversationId)}`) },
+        };
+      }
       default:
         throw new ProviderError('permanent', 'unknown_event', `Unknown email event ${job.event_type}`);
     }

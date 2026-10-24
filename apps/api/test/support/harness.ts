@@ -40,6 +40,8 @@ const DATA_TABLES = [
   'branches', 'organization_memberships', 'organizations', 'platform_admin_roles', 'platform_admins',
   'refresh_tokens', 'user_action_tokens', 'sessions', 'user_credentials', 'users',
   'email_delivery_attempts', 'email_outbox',
+  'support_attachments', 'support_read_markers', 'support_conversation_events', 'support_assignments',
+  'support_internal_notes', 'support_messages', 'support_conversations',
 ];
 
 export async function resetDatabase(): Promise<void> {
@@ -112,8 +114,10 @@ async function releaseResources(app: INestApplication): Promise<void> {
   const { AuthDb } = await import('../../src/auth/auth-db');
   const { PrismaService } = await import('../../src/database/prisma.service');
   const { EmailWorker } = await import('../../src/email/email-worker.service');
+  const { SupportRealtimeService } = await import('../../src/support/support-realtime.service');
   const attempts: (() => unknown)[] = [
     () => app.get(EmailWorker).stop(),
+    () => app.get(SupportRealtimeService).onApplicationShutdown(),
     () => app.get(RedisService).client.disconnect(),
     () => app.get(AuthDb).onApplicationShutdown(),
     () => app.get(PrismaService).$disconnect(),

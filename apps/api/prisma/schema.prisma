@@ -10,9 +10,9 @@
 //   application role.
 
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  moduleFormat = "cjs"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
   importFileExtension = ""
 }
 
@@ -30,32 +30,39 @@ enum UserStatus {
 }
 
 model User {
-  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email            String     @unique // always stored lower-cased and trimmed
-  emailVerifiedAt  DateTime?  @map("email_verified_at") @db.Timestamptz(3)
-  displayName      String     @map("display_name")
-  status           UserStatus @default(ACTIVE)
-  failedLoginCount Int        @default(0) @map("failed_login_count")
-  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz(3)
-  passwordChangedAt DateTime? @map("password_changed_at") @db.Timestamptz(3)
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String     @unique // always stored lower-cased and trimmed
+  emailVerifiedAt   DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  displayName       String     @map("display_name")
+  status            UserStatus @default(ACTIVE)
+  failedLoginCount  Int        @default(0) @map("failed_login_count")
+  lockedUntil       DateTime?  @map("locked_until") @db.Timestamptz(3)
+  passwordChangedAt DateTime?  @map("password_changed_at") @db.Timestamptz(3)
   /// Non-secret flag mirrored from user_mfa_factors (authoritative). Lets AuthGuard
   /// enforce MFA without reading the restricted tables on every request.
   mfaEnabledAt      DateTime?  @map("mfa_enabled_at") @db.Timestamptz(3)
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  credential    UserCredential?
-  mfaFactor     UserMfaFactor?
-  mfaEnrollment UserMfaEnrollment?
-  recoveryCodes UserMfaRecoveryCode[]
-  mfaChallenges MfaChallenge[]
-  mfaRecoveryTargeted  MfaRecoveryRequest[] @relation("MfaRecoveryTarget")
-  mfaRecoveryRequested MfaRecoveryRequest[] @relation("MfaRecoveryRequester")
-  mfaRecoveryDecided   MfaRecoveryRequest[] @relation("MfaRecoveryDecider")
-  sessions      Session[]
-  actionTokens  UserActionToken[]
-  memberships   OrganizationMembership[]
-  platformAdmin PlatformAdmin?
+  credential             UserCredential?
+  mfaFactor              UserMfaFactor?
+  mfaEnrollment          UserMfaEnrollment?
+  recoveryCodes          UserMfaRecoveryCode[]
+  mfaChallenges          MfaChallenge[]
+  mfaRecoveryTargeted    MfaRecoveryRequest[]       @relation("MfaRecoveryTarget")
+  mfaRecoveryRequested   MfaRecoveryRequest[]       @relation("MfaRecoveryRequester")
+  mfaRecoveryDecided     MfaRecoveryRequest[]       @relation("MfaRecoveryDecider")
+  sessions               Session[]
+  actionTokens           UserActionToken[]
+  memberships            OrganizationMembership[]
+  platformAdmin          PlatformAdmin?
+  supportConversations   SupportConversation[]      @relation("SupportCustomer")
+  supportMessages        SupportMessage[]           @relation("SupportMessageAuthor")
+  supportNotes           SupportInternalNote[]      @relation("SupportNoteAuthor")
+  supportAssignmentsMade SupportAssignment[]        @relation("SupportAssignmentActor")
+  supportEvents          SupportConversationEvent[] @relation("SupportEventActor")
+  supportReadMarkers     SupportReadMarker[]        @relation("SupportReader")
+  supportUploads         SupportAttachment[]        @relation("SupportUploader")
 
   @@map("users")
 }
@@ -182,21 +189,21 @@ enum ClientType {
 /// One login on one device. Refresh tokens rotate within a session; reuse of a
 /// rotated token revokes the whole session.
 model Session {
-  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId      String     @map("user_id") @db.Uuid
-  clientType  ClientType @map("client_type")
-  deviceName  String?    @map("device_name")
-  ipAddress   String?    @map("ip_address")
-  userAgent   String?    @map("user_agent")
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  lastUsedAt  DateTime   @default(now()) @map("last_used_at") @db.Timestamptz(3)
-  expiresAt   DateTime   @map("expires_at") @db.Timestamptz(3)
-  revokedAt   DateTime?  @map("revoked_at") @db.Timestamptz(3)
-  revokeReason String?   @map("revoke_reason")
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String     @map("user_id") @db.Uuid
+  clientType        ClientType @map("client_type")
+  deviceName        String?    @map("device_name")
+  ipAddress         String?    @map("ip_address")
+  userAgent         String?    @map("user_agent")
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt        DateTime   @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  expiresAt         DateTime   @map("expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime?  @map("revoked_at") @db.Timestamptz(3)
+  revokeReason      String?    @map("revoke_reason")
   /// Last password re-entry on this session; privileged actions require it to be recent.
-  reauthenticatedAt DateTime? @map("reauthenticated_at") @db.Timestamptz(3)
+  reauthenticatedAt DateTime?  @map("reauthenticated_at") @db.Timestamptz(3)
   /// Set when this session was established (or upgraded) with a verified second factor.
-  mfaVerifiedAt     DateTime? @map("mfa_verified_at") @db.Timestamptz(3)
+  mfaVerifiedAt     DateTime?  @map("mfa_verified_at") @db.Timestamptz(3)
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokens RefreshToken[]
@@ -206,12 +213,12 @@ model Session {
 }
 
 model RefreshToken {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  sessionId  String    @map("session_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash") // SHA-256 of the opaque token
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
-  usedAt     DateTime? @map("used_at") @db.Timestamptz(3)
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId String    @map("session_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") // SHA-256 of the opaque token
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(3)
 
   session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -289,8 +296,11 @@ model PlatformAdmin {
   createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   createdBy String?             @map("created_by") @db.Uuid
 
-  user  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roles PlatformAdminRole[]
+  user                   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles                  PlatformAdminRole[]
+  supportAssigned        SupportConversation[] @relation("SupportAssignee")
+  supportAssignmentsTo   SupportAssignment[]   @relation("SupportAssignmentAssignee")
+  supportAssignmentsFrom SupportAssignment[]   @relation("SupportAssignmentPrevious")
 
   @@map("platform_admins")
 }
@@ -325,12 +335,13 @@ model Organization {
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships  OrganizationMembership[]
-  branches     Branch[]
-  roles        Role[]
-  invitations  OrganizationInvitation[]
-  subscription OrganizationSubscription?
-  products     Product[]
+  memberships          OrganizationMembership[]
+  branches             Branch[]
+  roles                Role[]
+  invitations          OrganizationInvitation[]
+  subscription         OrganizationSubscription?
+  products             Product[]
+  supportConversations SupportConversation[]
 
   @@map("organizations")
 }
@@ -475,13 +486,13 @@ model RolePermission {
 /// Assigns a role to a membership, organization-wide (branch_id NULL) or for one branch.
 /// This is also the branch assignment record: a member works at a branch by holding a role there.
 model MembershipRole {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  membershipId    String   @map("membership_id") @db.Uuid
-  roleId          String   @map("role_id") @db.Uuid
-  branchId        String?  @map("branch_id") @db.Uuid
-  assignedByUserId String? @map("assigned_by_user_id") @db.Uuid
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  membershipId     String   @map("membership_id") @db.Uuid
+  roleId           String   @map("role_id") @db.Uuid
+  branchId         String?  @map("branch_id") @db.Uuid
+  assignedByUserId String?  @map("assigned_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   membership OrganizationMembership @relation(fields: [membershipId, organizationId], references: [id, organizationId], onDelete: Cascade)
   role       Role                   @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Cascade)
@@ -901,4 +912,215 @@ model EmailSuppression {
   createdBy String?                @map("created_by") @db.Uuid
 
   @@map("email_suppressions")
+}
+
+// ---------------------------------------------------------------------------
+// Customer support (docs/architecture/09-support.md). Conversations belong to the
+// customer (a user), not to an organization: organization owners and other tenant
+// roles have no access to them. Staff access comes only from platform support
+// permissions, checked by the API and again by RLS (app_has_platform_permission).
+// ---------------------------------------------------------------------------
+
+enum SupportConversationStatus {
+  NEW
+  OPEN
+  PENDING_CUSTOMER
+  PENDING_SUPPORT
+  RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportCategory {
+  ACCOUNT
+  BILLING
+  TECHNICAL
+  FEATURE_REQUEST
+  OTHER
+}
+
+enum SupportAuthorKind {
+  CUSTOMER
+  STAFF
+}
+
+enum SupportEventType {
+  CREATED
+  ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+  STATUS_CHANGED
+  PRIORITY_CHANGED
+  CATEGORY_CHANGED
+  REOPENED
+  NOTE_ADDED
+}
+
+model SupportConversation {
+  id                  String                    @id @db.Uuid // generated by the API
+  /// Human-facing identifier (SUP-XXXXXXXX). Safe to show in emails; carries no content.
+  reference           String                    @unique
+  customerUserId      String                    @map("customer_user_id") @db.Uuid
+  /// Optional context: an organization the customer was an active member of when creating it.
+  /// Gives the organization no access to the conversation.
+  organizationId      String?                   @map("organization_id") @db.Uuid
+  subject             String
+  category            SupportCategory           @default(OTHER)
+  priority            SupportPriority           @default(NORMAL)
+  status              SupportConversationStatus @default(NEW)
+  assigneeUserId      String?                   @map("assignee_user_id") @db.Uuid
+  /// Bumped by the database whenever status, priority, category or assignee changes (optimistic concurrency).
+  version             Int                       @default(1)
+  /// Last allocated message sequence number (messages are numbered 1..n per conversation).
+  messageSeq          Int                       @default(0) @map("message_seq")
+  /// Preview of the last customer-visible message (never an internal note).
+  lastMessagePreview  String?                   @map("last_message_preview")
+  lastMessageAt       DateTime?                 @map("last_message_at") @db.Timestamptz(3)
+  lastActivityAt      DateTime                  @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  /// Read receipts across parties: highest seq read by the customer / by any support staff member.
+  customerReadSeq     Int                       @default(0) @map("customer_read_seq")
+  supportReadSeq      Int                       @default(0) @map("support_read_seq")
+  /// Highest seq the customer / the assignee was emailed about (coalesces notifications).
+  customerNotifiedSeq Int                       @default(0) @map("customer_notified_seq")
+  assigneeNotifiedSeq Int                       @default(0) @map("assignee_notified_seq")
+  resolvedAt          DateTime?                 @map("resolved_at") @db.Timestamptz(3)
+  closedAt            DateTime?                 @map("closed_at") @db.Timestamptz(3)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  customer     User                       @relation("SupportCustomer", fields: [customerUserId], references: [id], onDelete: Restrict)
+  organization Organization?              @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  assignee     PlatformAdmin?             @relation("SupportAssignee", fields: [assigneeUserId], references: [userId], onDelete: Restrict)
+  messages     SupportMessage[]
+  notes        SupportInternalNote[]
+  assignments  SupportAssignment[]
+  events       SupportConversationEvent[]
+  readMarkers  SupportReadMarker[]
+  attachments  SupportAttachment[]
+
+  @@index([customerUserId, lastActivityAt])
+  @@index([status, lastActivityAt])
+  @@index([assigneeUserId, status])
+  @@index([lastActivityAt, id])
+  @@map("support_conversations")
+}
+
+model SupportMessage {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId  String            @map("conversation_id") @db.Uuid
+  seq             Int
+  authorUserId    String            @map("author_user_id") @db.Uuid
+  authorKind      SupportAuthorKind @map("author_kind")
+  /// Plain text. Never rendered as HTML by the API.
+  body            String
+  /// Client-supplied idempotency key (retries of the same send return the same message).
+  clientMessageId String?           @map("client_message_id")
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  author       User                @relation("SupportMessageAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+  attachments  SupportAttachment[]
+
+  @@unique([conversationId, seq])
+  @@unique([id, conversationId])
+  @@unique([conversationId, authorUserId, clientMessageId])
+  @@map("support_messages")
+}
+
+/// Staff-only. Separate table (not a message flag) so customer queries and policies never touch it.
+model SupportInternalNote {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  authorUserId   String   @map("author_user_id") @db.Uuid
+  body           String
+  clientNoteId   String?  @map("client_note_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  author       User                @relation("SupportNoteAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([conversationId, authorUserId, clientNoteId])
+  @@index([conversationId, createdAt])
+  @@map("support_internal_notes")
+}
+
+/// Append-only assignment history (one row per change).
+model SupportAssignment {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId         String   @map("conversation_id") @db.Uuid
+  previousAssigneeUserId String?  @map("previous_assignee_user_id") @db.Uuid
+  assigneeUserId         String?  @map("assignee_user_id") @db.Uuid
+  assignedByUserId       String   @map("assigned_by_user_id") @db.Uuid
+  reason                 String?
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation     SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  previousAssignee PlatformAdmin?      @relation("SupportAssignmentPrevious", fields: [previousAssigneeUserId], references: [userId], onDelete: Restrict)
+  assignee         PlatformAdmin?      @relation("SupportAssignmentAssignee", fields: [assigneeUserId], references: [userId], onDelete: Restrict)
+  assignedBy       User                @relation("SupportAssignmentActor", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, createdAt])
+  @@map("support_assignments")
+}
+
+/// Append-only lifecycle history (staff-visible). Never contains message or note text.
+model SupportConversationEvent {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String            @map("conversation_id") @db.Uuid
+  type           SupportEventType
+  actorUserId    String?           @map("actor_user_id") @db.Uuid
+  actorKind      SupportAuthorKind @map("actor_kind")
+  data           Json              @default("{}")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  actor        User?               @relation("SupportEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId, createdAt])
+  @@map("support_conversation_events")
+}
+
+/// Per staff member last-read position (customers use support_conversations.customer_read_seq).
+model SupportReadMarker {
+  conversationId String   @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  lastReadSeq    Int      @default(0) @map("last_read_seq")
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  user         User                @relation("SupportReader", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("support_read_markers")
+}
+
+/// Metadata only. The bytes live in object storage under a server-generated key.
+model SupportAttachment {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversationId String            @map("conversation_id") @db.Uuid
+  /// Set once, when the attachment is sent with a message by its uploader.
+  messageId      String?           @map("message_id") @db.Uuid
+  uploaderUserId String            @map("uploader_user_id") @db.Uuid
+  uploaderKind   SupportAuthorKind @map("uploader_kind")
+  storageKey     String            @unique @map("storage_key")
+  fileName       String            @map("file_name")
+  contentType    String            @map("content_type")
+  sizeBytes      Int               @map("size_bytes")
+  sha256         String
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  message      SupportMessage?     @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Restrict)
+  uploader     User                @relation("SupportUploader", fields: [uploaderUserId], references: [id], onDelete: Restrict)
+
+  @@index([conversationId])
+  @@index([messageId])
+  @@map("support_attachments")
 }

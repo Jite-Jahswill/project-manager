@@ -52,6 +52,12 @@ export const DEFAULT_POLICIES = {
   'mfa.enroll.user': { limit: 10, periodMs: H, onRedisFailure: 'closed' },
   'mfa.manage.user': { limit: 5, periodMs: H, onRedisFailure: 'closed' },
   'mfa_recovery.target': { limit: 3, periodMs: 24 * H, onRedisFailure: 'closed' },
+  // Support (docs/security/support.md §7). Creating conversations and uploading files fail
+  // closed (durable records and storage); messages need a session and their emails are
+  // coalesced, so they fail open like other session-bound writes.
+  'support.conversation.user': { limit: 10, periodMs: H, onRedisFailure: 'closed' },
+  'support.message.user': { limit: 60, periodMs: 5 * M, onRedisFailure: 'open' },
+  'support.upload.user': { limit: 30, periodMs: H, onRedisFailure: 'closed' },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type PolicyName = keyof typeof DEFAULT_POLICIES;

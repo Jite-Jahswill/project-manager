@@ -1,6 +1,8 @@
 /** Points the app at the isolated test database before any module loads. */
 import { config } from 'dotenv';
-import { resolve } from 'node:path';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { DEFAULT_POLICIES } from '../../src/abuse/policies';
 
 export const HIGH_LIMITS = Object.keys(DEFAULT_POLICIES).map((p) => `${p}=100000/1m`).join(',');
@@ -33,3 +35,7 @@ delete process.env.TRUSTED_PROXIES;
 process.env.EMAIL_WORKER_MODE = 'inline';
 process.env.EMAIL_WORKER_POLL_MS = '50';
 delete process.env.EMAIL_BOOTSTRAP_DEV_PROVIDER;
+// Support: attachments in a throwaway directory; streams re-check sessions quickly.
+process.env.SUPPORT_STORAGE_DIR = mkdtempSync(join(tmpdir(), 'ventidoc-support-'));
+process.env.SUPPORT_STREAM_REVALIDATE_MS = '200';
+process.env.SUPPORT_STREAM_HEARTBEAT_MS = '1000';

@@ -15,7 +15,8 @@ import { INestApplication } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../src/database/prisma.service';
-import { PLATFORM_PERMISSION } from '../src/authz/platform-access.guard';
+import { PLATFORM_PERMISSION, platformPermissionsOf } from '../src/authz/platform-access.guard';
+import { request as httpRequest } from 'node:http';
 import { PLATFORM_ROLE_TEMPLATES } from '../src/authz/platform-permission-registry';
 import { bootstrapSuperAdmin } from '../src/platform/bootstrap';
 import { addMember, bearer, createOrg, createTestApp, enableMfa, http, pools, resetDatabase, setPlan, signUp, TestOrg, TestUser } from './support/harness';
@@ -52,6 +53,12 @@ const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/platform/email/templates/:key/preview': {},
   'POST /v1/platform/email/test-send': { to: 'not-an-email' },
   'POST /v1/platform/email/suppressions': { email: 'not-an-email' },
+  // Support: valid bodies against random conversation IDs (404 once authorized).
+  'POST /v1/platform/support/conversations/:conversationId/messages': { body: 'sweep reply' },
+  'POST /v1/platform/support/conversations/:conversationId/notes': { body: 'sweep note' },
+  'POST /v1/platform/support/conversations/:conversationId/assignment': { assigneeUserId: null, expectedAssigneeUserId: null },
+  'PATCH /v1/platform/support/conversations/:conversationId': { version: 1, status: 'OPEN' },
+  'POST /v1/platform/support/conversations/:conversationId/read': { upToSeq: 0 },
 };
 
 const TENANT_TABLES = [
@@ -96,7 +103,19 @@ describe('Authorization sweeps', () => {
     return http(app)[verb](path).set(bearer(user)).send({ ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}), ...extra });
   };
 
+  /** Event streams never end: the status line is the authorization outcome. */
+  const openStream = (path: string, user: { token: string }) => new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+    const { port } = app.getHttpServer().address() as { port: number };
+    const req = httpRequest({ host: '127.0.0.1', port, path, headers: { authorization: `Bearer ${user.token}` } }, (res) => {
+      resolve({ status: res.statusCode ?? 0, body: {} });
+      req.destroy();
+    });
+    req.on('error', (e) => (e.message.includes('socket hang up') ? undefined : reject(e)));
+    req.end();
+  });
+
   const send = (route: DiscoveredRoute, path: string, user: { token: string }) => {
+    if (route.path.endsWith('/stream')) return openStream(path, user);
     const verb = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
     const body = { ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}) } as Record<string, unknown>;
     // Resource IDs inside bodies are always the foreign organization's.
@@ -203,6 +222,7 @@ describe('Authorization sweeps', () => {
     const platformParams = () => ({
       organizationId: a.id, userId: resetTarget.userId, requestId: random,
       providerId: random, identityId: random, deliveryId: random, suppressionId: random, key: 'platform.test', version: '999',
+      conversationId: random, attachmentId: random,
     });
 
     beforeAll(async () => {
@@ -221,7 +241,8 @@ describe('Authorization sweeps', () => {
         const admin = await makeAdmin(`plat-${name.replace(/\W+/g, '-')}`, [name]);
         const mismatches: string[] = [];
         for (const r of platformRoutes()) {
-          const key = Reflect.getMetadata(PLATFORM_PERMISSION, r.handler) as string;
+          // Any-of routes (inbox OR assigned) are open to holders of any listed key.
+          const keys = platformPermissionsOf(r.handler);
           const path = fillPath(r.path, platformParams());
           const res = r.path.startsWith('/v1/platform/mfa-recovery-requests')
             ? await sendWith(r, path, admin, { targetUserId: resetTarget.userId })
@@ -229,7 +250,7 @@ describe('Authorization sweeps', () => {
           // Authorized = got past authentication and authorization (business outcomes such
           // as 404/409 still count as authorized; 401/403 do not).
           const allowed = res.status !== 401 && res.status !== 403;
-          if (allowed !== (permissions as readonly string[]).includes(key)) mismatches.push(`${r.method} ${r.path} (${key}) -> ${res.status}`);
+          if (allowed !== keys.some((k) => (permissions as readonly string[]).includes(k))) mismatches.push(`${r.method} ${r.path} (${keys.join('|')}) -> ${res.status}`);
         }
         expect(mismatches).toEqual([]);
         const me = await http(app).get('/v1/platform/me').set(bearer(admin)).expect(200);

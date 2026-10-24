@@ -54,6 +54,8 @@ Integration tests refuse to run against a database whose name doesn't end in `_t
 
 Multi-factor authentication (mandatory for platform administrators and organization owners), keys and recovery: [docs/security/mfa.md](docs/security/mfa.md).
 
+Customer support (conversations, assignment, internal notes, real-time events, attachments): [docs/architecture/09-support.md](docs/architecture/09-support.md) and [docs/security/support.md](docs/security/support.md). Development attachments are stored under `apps/api/.data/` (git-ignored).
+
 Email (queued delivery, Resend/SMTP, admin-managed configuration, DNS setup): [docs/security/email.md](docs/security/email.md). In development, emails are printed to the API log (`EMAIL_BOOTSTRAP_DEV_PROVIDER=LOG`, delivered by the inline worker). To run delivery separately: `EMAIL_WORKER_MODE=external` on the API and `pnpm api worker`. Hosting requirements: [docs/operations/hosting.md](docs/operations/hosting.md).
 
 Rate limiting, client-IP trust (`TRUSTED_PROXIES`) and Redis requirements: [docs/security/rate-limiting-and-abuse-protection.md](docs/security/rate-limiting-and-abuse-protection.md).

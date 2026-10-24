@@ -46,13 +46,8 @@ export class AuthGuard implements CanActivate {
     const claims = this.auth.verifyAccessToken(token);
     if (!claims) throw Errors.unauthenticated();
 
-    const session = await this.prisma.session.findFirst({
-      where: { id: claims.sid, userId: claims.sub, revokedAt: null, expiresAt: { gt: new Date() }, user: { status: 'ACTIVE' } },
-      select: { reauthenticatedAt: true, mfaVerifiedAt: true, createdAt: true, user: { select: { passwordChangedAt: true, mfaEnabledAt: true } } },
-    });
+    const session = await findActiveSession(this.prisma, claims.sub, claims.sid);
     if (!session) throw Errors.unauthenticated();
-    // Backstop to explicit revocation: no session older than the last password change is honoured.
-    if (session.user.passwordChangedAt && session.user.passwordChangedAt > session.createdAt) throw Errors.unauthenticated();
 
     req.auth = { userId: claims.sub, sessionId: claims.sid, reauthenticatedAt: session.reauthenticatedAt, mfaVerifiedAt: session.mfaVerifiedAt };
 
@@ -76,4 +71,19 @@ export function assertCsrf(req: VentidocRequest): void {
   const cookie = req.cookies?.[CSRF_COOKIE] as string | undefined;
   const header = req.get(CSRF_HEADER);
   if (!cookie || !header || !safeEqual(cookie, header)) throw Errors.forbidden('CSRF token missing or invalid');
+}
+
+/**
+ * The session row behind a token, if it may still be used: not revoked or expired, the user
+ * active, and not older than the last password change (a backstop to explicit revocation).
+ * Shared with long-lived connections (support event streams), which re-check it periodically.
+ */
+export async function findActiveSession(prisma: PrismaService, userId: string, sessionId: string) {
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { status: 'ACTIVE' } },
+    select: { reauthenticatedAt: true, mfaVerifiedAt: true, createdAt: true, user: { select: { passwordChangedAt: true, mfaEnabledAt: true } } },
+  });
+  if (!session) return null;
+  if (session.user.passwordChangedAt && session.user.passwordChangedAt > session.createdAt) return null;
+  return session;
 }

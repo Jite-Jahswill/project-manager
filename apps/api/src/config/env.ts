@@ -2,6 +2,7 @@ import { TrustedProxies } from '../abuse/client-ip';
 import { PolicyTable, resolvePolicies } from '../abuse/policies';
 import { MfaKeyRing, parseKeyRing } from '../mfa/mfa-crypto';
 import { KeyRing, parseKeyRing as parseGenericKeyRing } from '../common/keyring';
+import { resolve as resolvePath } from 'node:path';
 
 /**
  * Validated runtime configuration. The process refuses to start with missing or
@@ -38,6 +39,15 @@ export interface AppConfig {
   emailWorkerPollMs: number;
   emailWorkerLeaseMs: number;
   emailWorkerBatch: number;
+  /** Support attachments: only the development/test local-disk driver exists (docs/security/support.md §6). */
+  supportStorageDriver: 'local';
+  /** Absolute directory for the local driver; outside any served path. */
+  supportStorageDir: string;
+  /** Redis pub/sub channel for support real-time events (not durable; history is in PostgreSQL). */
+  supportEventsChannel: string;
+  supportStreamHeartbeatMs: number;
+  /** How often an open event stream re-checks its session and permissions. */
+  supportStreamRevalidateMs: number;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -101,6 +111,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const rateLimitKeyPrefix = env.RATE_LIMIT_KEY_PREFIX ?? 'vd';
   if (!/^[a-z0-9_-]{1,32}$/.test(rateLimitKeyPrefix)) throw new Error('RATE_LIMIT_KEY_PREFIX must match [a-z0-9_-]{1,32}');
 
+  const supportStorageDriver = (env.SUPPORT_STORAGE_DRIVER ?? 'local') as AppConfig['supportStorageDriver'];
+  if (supportStorageDriver !== 'local') throw new Error('SUPPORT_STORAGE_DRIVER must be "local" (the only driver implemented; see docs/security/support.md)');
+  const supportEventsChannel = env.SUPPORT_EVENTS_CHANNEL ?? 'ventidoc:support:events';
+  if (!/^[A-Za-z0-9:_-]{1,64}$/.test(supportEventsChannel)) throw new Error('SUPPORT_EVENTS_CHANNEL must match [A-Za-z0-9:_-]{1,64}');
+
   const config: AppConfig = {
     nodeEnv,
     port: int(env, 'PORT', 3000),
@@ -125,6 +140,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     emailWorkerPollMs: int(env, 'EMAIL_WORKER_POLL_MS', 1000),
     emailWorkerLeaseMs: int(env, 'EMAIL_WORKER_LEASE_MS', 60_000),
     emailWorkerBatch: int(env, 'EMAIL_WORKER_BATCH', 10),
+    supportStorageDriver,
+    supportStorageDir: resolvePath(env.SUPPORT_STORAGE_DIR ?? '.data/support-attachments'),
+    supportEventsChannel,
+    supportStreamHeartbeatMs: int(env, 'SUPPORT_STREAM_HEARTBEAT_MS', 25_000),
+    supportStreamRevalidateMs: int(env, 'SUPPORT_STREAM_REVALIDATE_MS', 30_000),
   };
 
   if (nodeEnv === 'production') {
@@ -144,6 +164,7 @@ export function productionBlockers(config: AppConfig): string[] {
     'hosting, HA PostgreSQL/Redis, backups and monitoring are not yet selected and validated (docs/operations/hosting.md)',
     'the sending domain must be verified with the provider and production delivery tested end to end (docs/security/email.md §8)',
     'bounce/complaint ingestion (signed provider webhooks feeding suppressions) is not implemented (docs/security/email.md)',
+    'support attachments need private object storage with short-lived authorized downloads; only the local-disk development driver exists (docs/security/support.md §6)',
   ];
   for (const [id, k] of config.emailKeyRing.keys) {
     if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`EMAIL_SECRET_KEYS key "${id}" is a disposable CI/example value`);

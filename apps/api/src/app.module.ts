@@ -14,6 +14,7 @@ import { AuthDbModule } from './auth/auth-db.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PlatformModule } from './platform/platform.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { SupportModule } from './support/support.module';
 
 const configProvider = { provide: APP_CONFIG, useFactory: () => loadConfig() };
 
@@ -38,6 +39,7 @@ class ConfigModule {}
     OrganizationsModule,
     InventoryModule,
     PlatformModule,
+    SupportModule,
   ],
   controllers: [HealthController],
 })
