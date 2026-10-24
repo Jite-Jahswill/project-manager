@@ -30,9 +30,10 @@ Architecture: [docs/architecture/08-email-platform.md](../architecture/08-email-
 - **Controlled administrative retry:** `FAILED` jobs whose content hasn't expired can be retried (`POST /deliveries/:id/retry`, audited).
 - **Content wiping:**
   - `SENT`, `DISCARDED`, `EXPIRED` and `CANCELLED`: wiped immediately;
-  - `FAILED`: kept until expiry, so it can be retried.
+  - `FAILED`: kept until expiry, so it can be retried;
+  - between retryable attempts (`PENDING` again): kept, so the retry sends the same link with the same idempotency key (tested).
 - **Sending cap:** `maxSendsPerMinute` (default 120), counted from delivery attempts in PostgreSQL across all workers.
-- **Redis isn't used by email at all.** A Redis outage doesn't stop delivery (tested). The rate-limited request endpoints that *create* emails still fail closed as in Stage 2A.
+- **Delivery does not depend on Redis.** The worker process boots the shared application module, so it opens a Redis connection and logs connection errors during an outage, but no delivery step uses it. A Redis outage doesn't stop delivery (integration test, and a smoke test with the Redis container paused). The rate-limited request endpoints that *create* emails still fail closed with 503 as in Stage 2A.
 
 ## 3. Platform-admin API (`/v1/platform/email`)
 
@@ -156,3 +157,5 @@ Everything else (provider, credentials, sender identities, templates, retry poli
 - **Register-path timing** differs slightly between new and existing addresses (§6).
 - **Provider credentials** must move to secret-manager-held keys in production; administrators still see masked hints.
 - **No production platform-admin UI exists yet;** these APIs are its contract.
+
+The first two items are listed in `productionBlockers()`, so `NODE_ENV=production` is refused until they are resolved, independently of the runtime sending switch (§3).

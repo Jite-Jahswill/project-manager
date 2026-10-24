@@ -140,8 +140,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 export function productionBlockers(config: AppConfig): string[] {
   const problems = [
     'MFA recovery approvers need a documented out-of-band identity-verification procedure (docs/security/mfa.md §8)',
-    'MFA_ENCRYPTION_KEYS and EMAIL_SECRET_KEYS must be supplied by a secret manager/KMS, not a plain environment file',
+    'MFA_ENCRYPTION_KEYS and EMAIL_SECRET_KEYS must be supplied by a secret manager/KMS, not a plain environment file, with documented backup and rotation procedures',
     'hosting, HA PostgreSQL/Redis, backups and monitoring are not yet selected and validated (docs/operations/hosting.md)',
+    'the sending domain must be verified with the provider and production delivery tested end to end (docs/security/email.md §8)',
+    'bounce/complaint ingestion (signed provider webhooks feeding suppressions) is not implemented (docs/security/email.md)',
   ];
   for (const [id, k] of config.emailKeyRing.keys) {
     if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`EMAIL_SECRET_KEYS key "${id}" is a disposable CI/example value`);

@@ -18,7 +18,7 @@ Dependency policy (unchanged): pin exact versions published at least two weeks b
 
 ## Work items, in order
 
-### 2.1 Redis foundation and distributed rate limiting (first: everything else depends on Redis): **implemented (stage 2A, uncommitted, under review)**: see [../security/rate-limiting-and-abuse-protection.md](../security/rate-limiting-and-abuse-protection.md)
+### 2.1 Redis foundation and distributed rate limiting (first: everything else depends on Redis): **implemented (stage 2A, commit `22e390f`)**: see [../security/rate-limiting-and-abuse-protection.md](../security/rate-limiting-and-abuse-protection.md)
 
 - Add `ioredis` and a `RedisModule` (`REDIS_URL`, TLS option, connection health in `/health`). Fail closed when Redis is unreachable: refuse to serve credential endpoints rather than silently skip limiting.
 - Redis-backed `ThrottlerStorage` (atomic `INCR` + `PEXPIRE` in a Lua script, block duration support).
@@ -34,7 +34,7 @@ Dependency policy (unchanged): pin exact versions published at least two weeks b
 - Webhooks for bounces/complaints → suppress the address, audit it. Verify webhook signatures.
 - Deployment checklist: SPF, DKIM, DMARC on the sending domain; links built only from `APP_PUBLIC_URL` (never from request `Host`).
 
-### 2.3 Multi-factor authentication (TOTP + recovery codes): **implemented (stage 2B, uncommitted, under review)**: see [../security/mfa.md](../security/mfa.md). The design below was the plan; mfa.md is authoritative.
+### 2.3 Multi-factor authentication (TOTP + recovery codes): **implemented (stage 2B, commit `5020cc6`)**: see [../security/mfa.md](../security/mfa.md). The design below was the plan; mfa.md is authoritative.
 
 - Tables (migration + RLS/grants):
   - `user_mfa_factors (id, user_id, type, secret_encrypted, confirmed_at, last_used_step)` and `user_recovery_codes (user_id, code_hash, used_at)`.

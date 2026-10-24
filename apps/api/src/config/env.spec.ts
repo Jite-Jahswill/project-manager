@@ -1,4 +1,4 @@
-import { loadConfig } from './env';
+import { loadConfig, productionBlockers } from './env';
 
 const base = {
   NODE_ENV: 'development',
@@ -88,5 +88,12 @@ describe('config validation', () => {
 
   it('refuses production until production transports exist', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/not supported yet/);
+  });
+  it('keeps the standing production blockers even for an otherwise production-ready configuration', () => {
+    const blockers = productionBlockers(loadConfig({ ...base, REDIS_URL: 'rediss://app:strong-password@redis.internal:6380' }));
+    for (const topic of [/recovery approvers/, /secret manager\/KMS.*backup and rotation/, /hosting, HA/, /sending domain must be verified/, /bounce\/complaint ingestion/]) {
+      expect(blockers.some((b) => topic.test(b))).toBe(true);
+    }
+    expect(blockers).toHaveLength(5);
   });
 });

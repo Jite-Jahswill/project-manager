@@ -96,10 +96,12 @@ export class EmailWorker implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Graceful: finishes the job in flight, claims nothing new. */
   async stop(): Promise<void> {
+    const wasRunning = this.running;
     this.running = false;
     this.wake?.();
     await this.loop;
     this.loop = null;
+    if (wasRunning) this.logger.log(JSON.stringify({ event: 'email.worker_stopped', worker: this.workerId }));
   }
 
   /** One batch. Returns the number of jobs processed. Exposed for tests and the CLI. */

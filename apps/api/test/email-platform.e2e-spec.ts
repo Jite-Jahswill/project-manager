@@ -255,7 +255,10 @@ describe('Email platform', () => {
 
   describe('delivery lifecycle (Resend stand-in)', () => {
     let providerId: string;
+    let invitingOrg: TestOrg;
     beforeAll(async () => {
+      // Created while the capture provider is still active (signUp waits for the verification mail).
+      invitingOrg = await createOrg(app, await signUp(app, 'lifecycle-owner'), 'lifecycle-org');
       await fresh(superAdmin);
       const p = await api(superAdmin).post('/providers', { kind: 'RESEND', name: 'resend-lifecycle', settings: { apiBaseUrl: `http://127.0.0.1:${resend.port}`, timeoutMs: 1000 } }).expect(201);
       providerId = p.body.id;
@@ -293,6 +296,38 @@ describe('Email platform', () => {
       expect(row.content_wiped_at).not.toBeNull();
       // Every retry reused the same idempotency key.
       expect(new Set(resend.emails().map((r) => r.headers['idempotency-key'])).size).toBe(1);
+    });
+
+    it('a retryable failure keeps the encrypted invitation token for the retry; it is wiped only after delivery', async () => {
+      // Driven step by step so the intermediate state is observed deterministically.
+      const worker = app.get(EmailWorker);
+      await worker.stop();
+      try {
+        resend.queue = [{ status: 503, body: { name: 'unavailable', message: 'try later' } }];
+        const to = uniqueEmail('invite-retry');
+        const token = 'invitation-token-kept-across-retries';
+        const id = await app.get(TenantDb).inOrgUnchecked(invitingOrg.id, invitingOrg.owner.userId, (tx) =>
+          app.get(EmailService).enqueue({ type: 'org.invitation', organizationId: invitingOrg.id, email: to, orgName: 'Lifecycle', inviterName: 'Owner', sensitive: { invitationToken: token } }, tx));
+        await worker.runOnce();
+        const afterFailure = await job(id);
+        expect(afterFailure).toMatchObject({ status: 'PENDING', attempts: 1, last_error_code: expect.any(String), content_wiped_at: null });
+        expect(afterFailure.sensitive_ciphertext).toMatch(/^v1:/);
+        expect(afterFailure.sensitive_ciphertext).not.toContain(token);
+        expect(afterFailure.payload).toMatchObject({ orgName: 'Lifecycle' });
+
+        await platformSql((c) => c.query('UPDATE email_outbox SET next_attempt_at = now() WHERE id = $1', [id]), 'worker');
+        await worker.runOnce();
+        const delivered = await job(id);
+        expect(delivered).toMatchObject({ status: 'SENT', attempts: 2, payload: {}, sensitive_ciphertext: null });
+        expect(delivered.content_wiped_at).not.toBeNull();
+        const sends = resend.emails().filter((r) => (r.body.to as string[])[0] === to);
+        expect(sends).toHaveLength(2);
+        // The retry carried the same link and the same idempotency key.
+        for (const r of sends) expect(String(r.body.text)).toContain(`/accept-invitation#token=${token}`);
+        expect(new Set(sends.map((r) => r.headers['idempotency-key'])).size).toBe(1);
+      } finally {
+        worker.start();
+      }
     });
 
     it('permanent failures dead-letter immediately; an administrator can retry them in a controlled way', async () => {
