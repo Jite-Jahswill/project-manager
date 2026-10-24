@@ -11,7 +11,10 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const PROTECTED_INDEXES = ['membership_roles_unique_assignment', 'membership_overrides_unique', 'mfa_recovery_one_open_per_target', 'email_templates_one_active_per_key'];
+const PROTECTED_INDEXES = [
+  'membership_roles_unique_assignment', 'membership_overrides_unique', 'mfa_recovery_one_open_per_target', 'email_templates_one_active_per_key',
+  'organization_invitations_one_open_per_email',
+];
 const ALLOWED_DIFF = PROTECTED_INDEXES.map((name) => `DROP INDEX "${name}";`);
 
 const dir = join(__dirname, '..', 'prisma', 'migrations');

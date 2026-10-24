@@ -41,6 +41,8 @@ export const DEFAULT_POLICIES = {
   'invite.org': { limit: 50, periodMs: H, onRedisFailure: 'closed' },
   'invite.user': { limit: 20, periodMs: H, onRedisFailure: 'closed' },
   'accept_invite.user': { limit: 10, periodMs: 15 * M, onRedisFailure: 'open' },
+  // Each organization starts a trial: bounds trial farming and mass tenant creation per account.
+  'organization.create.user': { limit: 5, periodMs: 24 * H, onRedisFailure: 'closed' },
   'platform.privileged.user': { limit: 30, periodMs: H, onRedisFailure: 'closed' },
   // MFA (docs/security/mfa.md §6). Verification budgets bound online TOTP guessing by
   // someone who already knows the password; recognized devices get their own bucket.

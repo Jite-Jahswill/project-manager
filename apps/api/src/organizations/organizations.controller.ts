@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { Auth, AuthIdentity, Meta, OrgAccess, RequestMeta } from '../common/request-context';
 import type { EffectiveAccess } from '../authz/permission-evaluator';
@@ -6,8 +7,9 @@ import { RequireMembership, RequirePermission } from '../authz/org-access.guard'
 import { RateLimit } from '../abuse/rate-limit.guard';
 import { AccessControlService } from './access-control.service';
 import {
-  AcceptInvitationDto, AuditQueryDto, CloneRoleDto, CreateBranchDto, CreateOrganizationDto, CreateOverrideDto,
-  CreateRoleDto, InviteMemberDto, SetMemberRolesDto, UpdateMembershipStatusDto, UpdateRoleDto,
+  AcceptInvitationDto, AuditQueryDto, BranchLifecycleDto, CloneRoleDto, CreateBranchDto, CreateOrganizationDto, CreateOverrideDto,
+  CreateRoleDto, InviteMemberDto, ListBranchesQuery, ListInvitationsQuery, SetMemberRolesDto, UpdateBranchDto, UpdateMembershipStatusDto,
+  UpdateOrganizationDto, UpdateRoleDto,
 } from './dto/organization.dto';
 import { OrganizationsService } from './organizations.service';
 
@@ -20,9 +22,12 @@ export class OrganizationsController {
     private readonly access: AccessControlService,
   ) {}
 
-  @Post('organizations')
-  create(@Auth() identity: AuthIdentity, @Body() dto: CreateOrganizationDto, @Meta() meta: RequestMeta) {
-    return this.orgs.create(identity.userId, dto, meta);
+  /** 201 when created; 200 with `created: false` when the same request is retried by the same user. */
+  @Post('organizations') @RateLimit('organization.create.user', 'user')
+  async create(@Auth() identity: AuthIdentity, @Body() dto: CreateOrganizationDto, @Meta() meta: RequestMeta, @Res({ passthrough: true }) res: Response) {
+    const result = await this.orgs.create(identity.userId, dto, meta);
+    if (!result.created) res.status(200);
+    return result;
   }
 
   @Get('me/organizations')
@@ -53,14 +58,45 @@ export class OrganizationScopedController {
     return this.orgs.get(a);
   }
 
+  @Patch() @RequirePermission('organization.settings.manage')
+  update(@OrgAccess() a: EffectiveAccess, @Body() dto: UpdateOrganizationDto, @Meta() meta: RequestMeta) {
+    return this.orgs.update(a, dto, meta);
+  }
+
+  /** Leave the organization (any member; the last active owner cannot). */
+  @Post('leave') @HttpCode(200) @RequireMembership()
+  leave(@OrgAccess() a: EffectiveAccess, @Meta() meta: RequestMeta) {
+    return this.access.leave(a, meta);
+  }
+
   @Get('subscription') @RequirePermission('organization.subscription.read')
   subscription(@OrgAccess() a: EffectiveAccess) {
     return this.orgs.subscription(a);
   }
 
   @Get('branches') @RequirePermission('organization.branch.read')
-  branches(@OrgAccess() a: EffectiveAccess) {
-    return this.orgs.listBranches(a);
+  branches(@OrgAccess() a: EffectiveAccess, @Query() q: ListBranchesQuery) {
+    return this.orgs.listBranches(a, q.status);
+  }
+
+  @Get('branches/:branchId') @RequirePermission('organization.branch.read')
+  branch(@OrgAccess() a: EffectiveAccess, @Param('branchId', ParseUUIDPipe) branchId: string) {
+    return this.orgs.getBranch(a, branchId);
+  }
+
+  @Patch('branches/:branchId') @RequirePermission('organization.branch.manage')
+  updateBranch(@OrgAccess() a: EffectiveAccess, @Param('branchId', ParseUUIDPipe) branchId: string, @Body() dto: UpdateBranchDto, @Meta() meta: RequestMeta) {
+    return this.orgs.updateBranch(a, branchId, dto, meta);
+  }
+
+  @Post('branches/:branchId/archive') @HttpCode(200) @RequirePermission('organization.branch.manage')
+  archiveBranch(@OrgAccess() a: EffectiveAccess, @Param('branchId', ParseUUIDPipe) branchId: string, @Body() dto: BranchLifecycleDto, @Meta() meta: RequestMeta) {
+    return this.orgs.archiveBranch(a, branchId, dto.version, meta);
+  }
+
+  @Post('branches/:branchId/reactivate') @HttpCode(200) @RequirePermission('organization.branch.manage')
+  reactivateBranch(@OrgAccess() a: EffectiveAccess, @Param('branchId', ParseUUIDPipe) branchId: string, @Body() dto: BranchLifecycleDto, @Meta() meta: RequestMeta) {
+    return this.orgs.reactivateBranch(a, branchId, dto.version, meta);
   }
 
   @Post('branches') @RequirePermission('organization.branch.manage')
@@ -73,14 +109,24 @@ export class OrganizationScopedController {
     return this.access.listMembers(a);
   }
 
+  @Get('members/:membershipId') @RequirePermission('organization.member.read')
+  member(@OrgAccess() a: EffectiveAccess, @Param('membershipId', ParseUUIDPipe) membershipId: string) {
+    return this.access.getMember(a, membershipId);
+  }
+
   @Post('invitations') @RequirePermission('organization.member.manage')
   invite(@OrgAccess() a: EffectiveAccess, @Body() dto: InviteMemberDto, @Meta() meta: RequestMeta) {
     return this.access.invite(a, dto, meta);
   }
 
   @Get('invitations') @RequirePermission('organization.member.manage')
-  invitations(@OrgAccess() a: EffectiveAccess) {
-    return this.access.listInvitations(a);
+  invitations(@OrgAccess() a: EffectiveAccess, @Query() q: ListInvitationsQuery) {
+    return this.access.listInvitations(a, q.status);
+  }
+
+  @Post('invitations/:invitationId/resend') @HttpCode(200) @RequirePermission('organization.member.manage')
+  resendInvitation(@OrgAccess() a: EffectiveAccess, @Param('invitationId', ParseUUIDPipe) invitationId: string, @Meta() meta: RequestMeta) {
+    return this.access.resendInvitation(a, invitationId, meta);
   }
 
   @Delete('invitations/:invitationId') @HttpCode(204) @RequirePermission('organization.member.manage')

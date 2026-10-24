@@ -69,3 +69,28 @@ export class AuditQueryDto {
   @ApiPropertyOptional({ default: 50 }) @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
   @ApiPropertyOptional({ description: 'occurredAt of the last event from the previous page' }) @IsOptional() @IsDateString() before?: string;
 }
+
+export class UpdateOrganizationDto {
+  @ApiProperty({ description: 'The version you saw (optimistic concurrency)' }) @IsInt() @Min(1) version!: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Length(2, 120) @Matches(/\S/) name?: string;
+  @ApiPropertyOptional({ example: 'NGN', description: 'Default for new records only; existing amounts keep their own currency' })
+  @IsOptional() @Matches(/^[A-Z]{3}$/) defaultCurrency?: string;
+}
+
+export class ListBranchesQuery {
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'ARCHIVED'] }) @IsOptional() @IsIn(['ACTIVE', 'ARCHIVED']) status?: 'ACTIVE' | 'ARCHIVED';
+}
+
+export class UpdateBranchDto {
+  @ApiProperty({ description: 'The version you saw (optimistic concurrency)' }) @IsInt() @Min(1) version!: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 120) @Matches(/\S/) name?: string;
+  @ApiPropertyOptional({ example: 'LAG-01' }) @IsOptional() @Matches(/^[A-Z0-9-]{1,20}$/) code?: string;
+}
+
+export class BranchLifecycleDto {
+  @ApiProperty({ description: 'The version you saw (optimistic concurrency)' }) @IsInt() @Min(1) version!: number;
+}
+
+export class ListInvitationsQuery {
+  @ApiPropertyOptional({ enum: ['pending', 'expired'], default: 'pending' }) @IsOptional() @IsIn(['pending', 'expired']) status?: 'pending' | 'expired';
+}

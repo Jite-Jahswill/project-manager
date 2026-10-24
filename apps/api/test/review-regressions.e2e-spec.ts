@@ -141,7 +141,7 @@ describe('Security review regressions', () => {
     const orgId = '0b4c3f5e-9a1d-4e2f-8c3b-1a2b3c4d5e6f';
     await expect(
       inAppTx({ 'app.org_id': orgId, 'app.user_id': a.owner.userId }, async (c) => {
-        await c.query("INSERT INTO organizations (id, name, slug, created_by_user_id, updated_at) VALUES ($1, 'x', 'f8-org', $2, now())", [orgId, a.owner.userId]);
+        await c.query("INSERT INTO organizations (id, name, slug, created_by_user_id, updated_at) VALUES ($1, 'F8 org', 'f8-org', $2, now())", [orgId, a.owner.userId]);
         await c.query(
           `INSERT INTO organization_subscriptions (organization_id, plan_id, status, current_period_start, current_period_end, updated_at)
            VALUES ($1, (SELECT id FROM plans WHERE code = 'enterprise'), 'ACTIVE', now(), now() + interval '10 years', now())`, [orgId]);

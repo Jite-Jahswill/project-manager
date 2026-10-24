@@ -62,7 +62,7 @@ export class StockService {
         const replay = await this.findReplay(tx, access.organizationId, idempotencyKey, branchId, dto, delta);
         if (replay) return replay;
         await this.entitlements.assertWritable(tx, access.organizationId);
-        await this.requireBranch(tx, branchId);
+        await this.requireBranch(tx, branchId, { active: true });
         const product = await tx.product.findFirst({ where: { id: dto.productId, status: 'ACTIVE' }, select: { id: true } });
         if (!product) throw Errors.notFound('Product');
 
@@ -112,9 +112,11 @@ export class StockService {
     return { replayed: true, movement: serializeMovement(existing) };
   }
 
-  private async requireBranch(tx: Tx, branchId: string) {
-    const branch = await tx.branch.findUnique({ where: { id: branchId }, select: { id: true } });
+  /** Archived branches keep their history readable but accept no new stock writes. */
+  private async requireBranch(tx: Tx, branchId: string, opts: { active?: boolean } = {}) {
+    const branch = await tx.branch.findUnique({ where: { id: branchId }, select: { id: true, status: true } });
     if (!branch) throw Errors.notFound('Branch');
+    if (opts.active && branch.status !== 'ACTIVE') throw Errors.conflict('branch_archived', 'This branch is archived and accepts no new transactions');
   }
 }
 

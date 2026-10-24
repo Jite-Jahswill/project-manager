@@ -26,6 +26,7 @@ erDiagram
   organization_memberships ||--o{ membership_roles : "(membership_id, organization_id)"
   roles ||--o{ membership_roles : "(role_id, organization_id)"
   branches |o--o{ membership_roles : "(branch_id, organization_id) NULL = org-wide"
+  branches |o--o{ organization_invitations : "(branch_id, organization_id)"
   organization_memberships ||--o{ membership_permission_overrides : ""
   plans ||--o{ plan_prices : ""
   plans ||--o{ plan_entitlements : ""
@@ -56,10 +57,10 @@ erDiagram
 | | `refresh_tokens` | global | unique `token_hash` (SHA-256); `used_at` for reuse detection |
 | | `user_action_tokens` | global | unique `token_hash`; purpose = EMAIL_VERIFICATION / PASSWORD_RESET |
 | Platform RBAC | `platform_permissions`, `platform_roles`, `platform_role_permissions`, `platform_admins`, `platform_admin_roles` | global | separate from org RBAC by table, registry and guard |
-| Organizations | `organizations` | RLS (self) | unique `slug`; status ACTIVE/SUSPENDED |
+| Organizations | `organizations` | RLS (self) | unique, immutable `slug`; status ACTIVE/SUSPENDED (platform-controlled); `version` for profile updates; never deleted by the runtime role |
 | | `organization_memberships` | RLS | unique `(organization_id, user_id)`, unique `(id, organization_id)` |
-| | `branches` | RLS | unique `(organization_id, code)`, unique `(id, organization_id)` |
-| | `organization_invitations` | RLS | unique `token_hash`; bound to email; composite FK to role |
+| | `branches` | RLS | unique `(organization_id, code)`, unique `(id, organization_id)`; `version` (optimistic concurrency); `ACTIVE`/`ARCHIVED` with `archived_at` (CHECK). Never deleted (no DELETE privilege for the runtime role) |
+| | `organization_invitations` | RLS | unique `token_hash`; bound to a normalized email; composite FKs to role and branch; one open invitation per `(organization_id, email)` (partial unique index); `resend_count` ≤ 5, `last_sent_at` |
 | Org RBAC | `permissions` | global, read-only to app | PK `key`; synced from code registry |
 | | `roles` | RLS | unique `(organization_id, name)`; `is_system`, `template_key` |
 | | `role_permissions` | RLS | PK `(role_id, permission_key)`; composite FK to role; FK to permissions |

@@ -25,6 +25,10 @@ import { DiscoveredRoute, discoverRoutes, fillPath } from './support/routes';
 /** Valid request bodies, so foreign-ID requests get past validation and reach the authorization logic. */
 const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/orgs/:orgId/branches': { name: 'Sweep', code: 'SWEEP' },
+  'PATCH /v1/orgs/:orgId': { version: 1, name: 'Renamed by sweep' },
+  'PATCH /v1/orgs/:orgId/branches/:branchId': { version: 1, name: 'Renamed by sweep' },
+  'POST /v1/orgs/:orgId/branches/:branchId/archive': { version: 1 },
+  'POST /v1/orgs/:orgId/branches/:branchId/reactivate': { version: 1 },
   'POST /v1/orgs/:orgId/invitations': { email: 'sweep@example.test' },
   'PATCH /v1/orgs/:orgId/members/:membershipId': { status: 'SUSPENDED' },
   'PUT /v1/orgs/:orgId/members/:membershipId/roles': { assignments: [] },

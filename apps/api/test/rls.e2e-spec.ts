@@ -144,9 +144,13 @@ describe('PostgreSQL row-level security (runtime role)', () => {
     await inTx({ 'app.org_id': orgA.id, 'app.user_id': orgA.owner.userId }, async (c) => {
       const upd = await c.query("UPDATE products SET name = 'pwned' WHERE id = $1", [productB]);
       expect(upd.rowCount).toBe(0);
-      const del = await c.query('DELETE FROM branches WHERE organization_id = $1', [orgB.id]);
+      const del = await c.query('DELETE FROM membership_roles WHERE organization_id = $1', [orgB.id]);
       expect(del.rowCount).toBe(0);
     });
+    // Organizations and branches cannot be deleted at all by the runtime role (history protection, phase 3).
+    for (const sql of ['DELETE FROM branches WHERE organization_id = $1', 'DELETE FROM organizations WHERE id = $1']) {
+      await expect(inTx({ 'app.org_id': orgA.id, 'app.user_id': orgA.owner.userId }, (c) => c.query(sql, [orgA.id]))).rejects.toThrow(/permission denied/);
+    }
   });
 
   it("composite foreign keys reject linking A's records to B's", async () => {

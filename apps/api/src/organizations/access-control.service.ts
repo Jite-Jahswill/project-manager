@@ -19,6 +19,8 @@ import type {
 } from './dto/organization.dto';
 
 const INVITATION_TTL_MS = 7 * 86_400_000;
+const MAX_RESENDS = 5;
+const RESEND_INTERVAL_MS = 60_000;
 
 type RoleWithPermissions = { id: string; name: string; isSystem: boolean; templateKey: string | null; permissions: { permissionKey: string }[] };
 
@@ -78,11 +80,18 @@ export class AccessControlService {
     const result = await this.db.inOrg(access, async (tx) => {
       const actor = await this.lockAndReload(tx, access, 'organization.member.manage');
       await this.assertMemberSlotAvailable(tx, actor.organizationId);
-      const alreadyMember = await tx.organizationMembership.findFirst({
-        where: { organizationId: actor.organizationId, status: 'ACTIVE', user: { email } },
+      // Active or suspended members cannot be re-invited (a suspension is lifted, not bypassed).
+      const existingMember = await tx.organizationMembership.findFirst({
+        where: { organizationId: actor.organizationId, status: { in: ['ACTIVE', 'SUSPENDED'] }, user: { email } },
         select: { id: true },
       });
-      if (alreadyMember) throw Errors.conflict('already_member', 'This person is already a member');
+      if (existingMember) throw Errors.conflict('already_member', 'This person is already a member of the organization');
+      // One open invitation per address (also a unique index). An expired one is closed first.
+      const open = await tx.organizationInvitation.findFirst({ where: { email, acceptedAt: null, revokedAt: null }, select: { id: true, expiresAt: true } });
+      if (open && open.expiresAt > new Date()) {
+        throw Errors.conflict('invitation_pending', 'An invitation to this address is already pending; resend or revoke it');
+      }
+      if (open) await tx.organizationInvitation.update({ where: { id: open.id }, data: { revokedAt: new Date() } });
 
       if (dto.roleId) await this.assertAssignable(tx, actor, { roleId: dto.roleId, branchId: dto.branchId ?? null });
       else if (dto.branchId) throw Errors.badRequest('branch_without_role', 'branchId requires roleId');
@@ -111,14 +120,103 @@ export class AccessControlService {
     return result;
   }
 
-  listInvitations(access: EffectiveAccess) {
+  /** Open invitations: pending (default) or expired (can be resent or revoked). */
+  listInvitations(access: EffectiveAccess, status: 'pending' | 'expired' = 'pending') {
+    const now = new Date();
     return this.db.inOrg(access, (tx) =>
       tx.organizationInvitation.findMany({
-        where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+        where: { acceptedAt: null, revokedAt: null, expiresAt: status === 'pending' ? { gt: now } : { lte: now } },
         select: INVITATION_SELECT,
         orderBy: { createdAt: 'desc' },
+        take: 500,
       }),
     );
+  }
+
+  /**
+   * Re-sends an open (pending or expired) invitation with a NEW token: the previous link stops
+   * working. Bounded per invitation (5 resends, at least 60 s apart) on top of the per-organization
+   * and per-inviter mail limits. The resending administrator becomes the inviter, so acceptance
+   * re-checks their authority (and they must be able to grant the invited role now).
+   */
+  async resendInvitation(access: EffectiveAccess, invitationId: string, meta: RequestMeta) {
+    await this.limiter.enforce('invite.org', `org:${access.organizationId}`);
+    await this.limiter.enforce('invite.user', `user:${access.userId}`);
+    const secret = randomToken();
+    return this.db.inOrg(access, async (tx) => {
+      const actor = await this.lockAndReload(tx, access, 'organization.member.manage');
+      const inv = await tx.organizationInvitation.findFirst({
+        where: { id: invitationId, acceptedAt: null, revokedAt: null }, select: INVITATION_SELECT,
+      });
+      if (!inv) throw Errors.notFound('Invitation');
+      if (inv.resendCount >= MAX_RESENDS) throw Errors.conflict('resend_limit', 'This invitation was resent too many times; revoke it and invite again');
+      if (Date.now() - inv.lastSentAt.getTime() < RESEND_INTERVAL_MS) throw Errors.conflict('resend_too_soon', 'Wait a minute before resending this invitation');
+      if (inv.roleId) await this.assertAssignable(tx, actor, { roleId: inv.roleId, branchId: inv.branchId });
+      const member = await tx.organizationMembership.findFirst({
+        where: { organizationId: actor.organizationId, status: { in: ['ACTIVE', 'SUSPENDED'] }, user: { email: inv.email } }, select: { id: true },
+      });
+      if (member) throw Errors.conflict('already_member', 'This person is already a member of the organization');
+      const now = new Date();
+      const updated = await tx.organizationInvitation.update({
+        where: { id: inv.id },
+        data: {
+          tokenHash: hashToken(secret), expiresAt: new Date(now.getTime() + INVITATION_TTL_MS), lastSentAt: now,
+          resendCount: { increment: 1 }, invitedByUserId: actor.userId,
+        },
+        select: INVITATION_SELECT,
+      });
+      const org = await tx.organization.findUniqueOrThrow({ where: { id: actor.organizationId }, select: { name: true } });
+      const inviter = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.userId }, select: { displayName: true } });
+      await this.audit.record(tx, {
+        action: 'organization.invitation.resent', resourceType: 'invitation', resourceId: inv.id, organizationId: actor.organizationId,
+        actorUserId: actor.userId, metadata: { resendCount: updated.resendCount, previousInviterUserId: inv.invitedByUserId },
+      }, meta);
+      await this.email.enqueue({
+        type: 'org.invitation', organizationId: actor.organizationId, email: inv.email, orgName: org.name, inviterName: inviter.displayName,
+        sensitive: { invitationToken: `${actor.organizationId}.${secret}` },
+      }, tx);
+      return updated;
+    });
+  }
+
+  getMember(access: EffectiveAccess, membershipId: string) {
+    return this.db.inOrg(access, async (tx) => {
+      const m = await tx.organizationMembership.findFirst({
+        where: { id: membershipId, organizationId: access.organizationId },
+        select: {
+          id: true, status: true, createdAt: true, updatedAt: true,
+          user: { select: { id: true, email: true, displayName: true } },
+          roles: { select: { id: true, branchId: true, role: { select: { id: true, name: true } } } },
+          overrides: { select: { id: true, permissionKey: true, effect: true, branchId: true, reason: true, expiresAt: true } },
+        },
+      });
+      if (!m) throw Errors.notFound('Member');
+      return {
+        membershipId: m.id, status: m.status, joinedAt: m.createdAt, updatedAt: m.updatedAt, user: m.user,
+        roles: m.roles.map((r) => ({ assignmentId: r.id, roleId: r.role.id, roleName: r.role.name, branchId: r.branchId })),
+        overrides: m.overrides,
+      };
+    });
+  }
+
+  /** The caller leaves the organization. The last active owner cannot leave (transfer ownership first). */
+  leave(access: EffectiveAccess, meta: RequestMeta) {
+    return this.db.inOrg(access, async (tx) => {
+      const actor = await this.lockAndReload(tx, access);
+      const me = await this.loadMembership(tx, actor, actor.membershipId);
+      const owner = me.roles.some((r) => r.branchId === null && isOwnerRole(r.role));
+      if (owner) await this.assertAnotherOwnerRemains(tx, actor.organizationId, me.id);
+      // Audited first: once revoked, the caller is no longer a member and RLS refuses their writes.
+      // Same transaction, so the event and the departure commit or roll back together.
+      await this.audit.record(tx, {
+        action: 'organization.member.left', resourceType: 'membership', resourceId: me.id, organizationId: actor.organizationId,
+        actorUserId: actor.userId, before: { status: me.status, roles: me.roles.map((r) => ({ roleId: r.roleId, branchId: r.branchId })) },
+        after: { status: 'REVOKED', roles: [] }, metadata: { wasOwner: owner },
+      }, meta);
+      await this.clearAccess(tx, me.id);
+      await tx.organizationMembership.update({ where: { id: me.id }, data: { status: 'REVOKED' } });
+      return { membershipId: me.id, status: 'REVOKED' as const };
+    });
   }
 
   revokeInvitation(access: EffectiveAccess, invitationId: string, meta: RequestMeta) {
@@ -402,16 +500,8 @@ export class AccessControlService {
 
   // ---------------------------------------------------------------- helpers
 
-  /**
-   * Locks the organization row, then re-derives the actor's access inside the
-   * lock. The guard's snapshot was taken before the lock; a concurrent demotion
-   * committed in between must win.
-   */
-  private async lockAndReload(tx: Tx, access: EffectiveAccess, required: PermissionKey): Promise<EffectiveAccess> {
-    await this.lockOrganization(tx, access.organizationId);
-    const fresh = await this.authz.loadInTx(tx, access.userId, access.organizationId);
-    if (!fresh || !can(fresh, required)) throw Errors.forbidden();
-    return fresh;
+  private lockAndReload(tx: Tx, access: EffectiveAccess, required?: PermissionKey): Promise<EffectiveAccess> {
+    return this.authz.lockAndReload(tx, access, required);
   }
 
   /** Removes all role assignments and overrides of a membership; returns what was removed. */
@@ -516,6 +606,7 @@ export class AccessControlService {
   }
 }
 
+/** Never includes token_hash. */
 const INVITATION_SELECT = {
-  id: true, email: true, roleId: true, branchId: true, invitedByUserId: true, createdAt: true, expiresAt: true,
+  id: true, email: true, roleId: true, branchId: true, invitedByUserId: true, createdAt: true, expiresAt: true, resendCount: true, lastSentAt: true,
 } as const;

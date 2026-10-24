@@ -332,6 +332,8 @@ model Organization {
   status          OrganizationStatus @default(ACTIVE)
   defaultCurrency String             @default("USD") @map("default_currency") @db.Char(3)
   createdByUserId String             @map("created_by_user_id") @db.Uuid
+  /// Optimistic concurrency for profile updates.
+  version         Int                @default(1)
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -382,6 +384,9 @@ model Branch {
   name           String
   code           String
   status         BranchStatus @default(ACTIVE)
+  /// Optimistic concurrency for edits and lifecycle changes.
+  version        Int          @default(1)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(3)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -390,6 +395,7 @@ model Branch {
   overrides       MembershipPermissionOverride[]
   stockBalances   StockBalance[]
   stockMovements  StockMovement[]
+  invitations     OrganizationInvitation[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -408,9 +414,13 @@ model OrganizationInvitation {
   expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
   acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(3)
   revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(3)
+  /// Resends rotate the token; bounded per invitation.
+  resendCount     Int       @default(0) @map("resend_count")
+  lastSentAt      DateTime  @default(now()) @map("last_sent_at") @db.Timestamptz(3)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role         Role?        @relation(fields: [roleId, organizationId], references: [id, organizationId])
+  branch       Branch?      @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, email])
   @@map("organization_invitations")
