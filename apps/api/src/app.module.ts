@@ -10,6 +10,7 @@ import { PrismaService } from './database/prisma.service';
 import { HealthController } from './health.controller';
 import { InventoryModule } from './inventory/inventory.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
+import { SalesModule } from './sales/sales.module';
 import { EmailModule } from './email/email.module';
 import { AuthDbModule } from './auth/auth-db.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -40,6 +41,7 @@ class ConfigModule {}
     OrganizationsModule,
     InventoryModule,
     PurchasingModule,
+    SalesModule,
     PlatformModule,
     SupportModule,
   ],

@@ -38,6 +38,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.order.create', 'purchasing.order.submit',
       'purchasing.order.approve', 'purchasing.order.receive', 'purchasing.return.create',
       'sales.sale.read', 'sales.sale.create', 'sales.sale.refund', 'sales.payment.confirm', 'sales.customer.read',
+      'sales.sale.void', 'sales.session.manage', 'sales.session.supervise', 'sales.return.accept', 'sales.return.restock',
       'logistics.shipment.read', 'finance.expense.create', 'hr.employee.read', 'reports.operational.read',
     ],
   },
@@ -65,13 +66,16 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     key: 'cashier',
     name: 'Cashier',
     description: 'Records sales and payments at assigned branches.',
-    permissions: ['inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.payment.confirm', 'sales.customer.read'],
+    permissions: [
+      'inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.payment.confirm', 'sales.customer.read',
+      'sales.session.manage', 'sales.return.accept',
+    ],
   },
   {
     key: 'sales_rep',
     name: 'Sales representative',
     description: 'Sells and manages customer relationships.',
-    permissions: ['inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.customer.read', 'sales.customer.manage'],
+    permissions: ['inventory.product.read', 'inventory.stock.read', 'sales.sale.create', 'sales.sale.read', 'sales.customer.read', 'sales.customer.manage', 'sales.session.manage'],
   },
   {
     key: 'accountant',
@@ -81,6 +85,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'organization.branch.read', 'sales.sale.read', 'finance.report.read', 'finance.expense.create',
       'finance.expense.approve', 'finance.ledger.reconcile', 'reports.operational.read',
       'inventory.product.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
+      'sales.report.read',
     ],
   },
   {
@@ -103,6 +108,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'organization.settings.read', 'organization.branch.read', 'organization.member.read', 'organization.role.read',
       'security.audit.read', 'inventory.product.read', 'inventory.stock.read', 'sales.sale.read', 'finance.report.read',
       'reports.operational.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
+      'sales.report.read',
     ],
   },
   {

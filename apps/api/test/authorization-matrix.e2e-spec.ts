@@ -59,6 +59,17 @@ const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/close': { version: 1, reason: 'sweep close' },
   'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/receipts': { lines: [{ quantity: '1' }] },
   'POST /v1/orgs/:orgId/purchase-orders/:purchaseOrderId/returns': { type: 'RETURN', reason: 'sweep return', lines: [{ quantity: '1' }] },
+  'POST /v1/orgs/:orgId/customers': { name: 'Sweep customer' },
+  'PATCH /v1/orgs/:orgId/customers/:customerId': { version: 1, name: 'Renamed by sweep' },
+  'POST /v1/orgs/:orgId/branches/:branchId/cashier-sessions': { openingFloatMinor: '0' },
+  'POST /v1/orgs/:orgId/cashier-sessions/:sessionId/close': { version: 1, declaredCashMinor: '0' },
+  'POST /v1/orgs/:orgId/branches/:branchId/sales': { lines: [{ quantity: '1' }] },
+  'POST /v1/orgs/:orgId/sales/:saleId/void': { version: 1, reason: 'sweep void' },
+  'POST /v1/orgs/:orgId/sales/:saleId/payments': { method: 'CASH', amountMinor: '1' },
+  'POST /v1/orgs/:orgId/payments/:paymentId/confirm': { version: 1 },
+  'POST /v1/orgs/:orgId/payments/:paymentId/fail': { version: 1, reason: 'sweep failure' },
+  'POST /v1/orgs/:orgId/payments/:paymentId/refunds': { amountMinor: '1', reason: 'sweep refund' },
+  'POST /v1/orgs/:orgId/sales/:saleId/returns': { reason: 'sweep return', lines: [{ quantity: '1', disposition: 'RESALEABLE' }] },
   'PATCH /v1/platform/organizations/:organizationId/status': { status: 'ACTIVE' },
   'POST /v1/platform/mfa-recovery-requests': { reason: 'sweep: identity verified out of band (ticket SWEEP-1)' },
   'POST /v1/platform/mfa-recovery-requests/:requestId/approve': {},
@@ -90,7 +101,8 @@ const TENANT_TABLES = [
   'membership_roles', 'membership_permission_overrides', 'organization_subscriptions', 'products', 'stock_balances',
   'stock_movements', 'audit_events', 'product_categories', 'suppliers', 'supplier_products', 'organization_sequences', 'purchase_orders',
   'purchase_order_lines', 'purchase_order_events', 'goods_receipts', 'goods_receipt_lines', 'supplier_returns', 'supplier_return_lines',
-  'stock_counts', 'stock_count_lines', 'stock_transfers',
+  'stock_counts', 'stock_count_lines', 'stock_transfers', 'customers', 'cashier_sessions', 'sales', 'sale_lines', 'payments', 'refunds',
+  'sale_returns', 'sale_return_lines',
 ];
 
 describe('Authorization sweeps', () => {
@@ -123,12 +135,25 @@ describe('Authorization sweeps', () => {
       .send({ supplierId: supplier.body.id, lines: [{ productId: product.body.id, quantity: '2', unitCostMinor: '500' }] }).expect(201);
     const count = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/stock/counts`).set(bearer(b.owner))
       .set('Idempotency-Key', 'b-seed-count-1').send({ note: 'seed count', lines: [{ productId: product.body.id, countedQuantity: '4' }] }).expect(201);
+    // Point of sale: a customer, a session, a paid sale with a partial refund and a return.
+    await http(app).patch(`/v1/orgs/${b.id}/products/${product.body.id}`).set(bearer(b.owner)).send({ version: product.body.version, sellingPriceMinor: '700' }).expect(200);
+    const customer = await http(app).post(`/v1/orgs/${b.id}/customers`).set(bearer(b.owner)).send({ name: 'B secret customer', phone: '+2348030000001' }).expect(201);
+    const session = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/cashier-sessions`).set(bearer(b.owner)).send({ openingFloatMinor: '1000' }).expect(201);
+    const sale = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/sales`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-sale-1')
+      .send({ customerId: customer.body.id, lines: [{ productId: product.body.id, quantity: '2' }] }).expect(201);
+    const payment = await http(app).post(`/v1/orgs/${b.id}/sales/${sale.body.sale.id}/payments`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-pay-1')
+      .send({ method: 'CASH', amountMinor: '1400' }).expect(201);
+    await http(app).post(`/v1/orgs/${b.id}/payments/${payment.body.payment.id}/refunds`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-refund-1')
+      .send({ amountMinor: '100', reason: 'seed refund' }).expect(201);
+    const ret = await http(app).post(`/v1/orgs/${b.id}/sales/${sale.body.sale.id}/returns`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-return-1')
+      .send({ reason: 'seed return', lines: [{ saleLineId: sale.body.sale.lines[0].id, quantity: '1', disposition: 'RESALEABLE' }] }).expect(201);
     const moves = await http(app).get(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/stock/movements`).set(bearer(b.owner)).expect(200);
     bIds = {
       orgId: b.id, branchId: b.mainBranchId, productId: product.body.id, membershipId: member.membershipId,
       overrideId: override.body.id, roleId: role.body.id, invitationId: invitation.body.id, organizationId: b.id,
       categoryId: category.body.id, supplierId: supplier.body.id, purchaseOrderId: po.body.id, countId: count.body.count.id,
-      movementId: moves.body.items[0].id,
+      movementId: moves.body.items[0].id, customerId: customer.body.id, sessionId: session.body.id, saleId: sale.body.sale.id,
+      paymentId: payment.body.payment.id, returnId: ret.body.return.id, saleLineId: sale.body.sale.lines[0].id,
     };
   });
   afterAll(() => app.close());
@@ -164,7 +189,10 @@ describe('Authorization sweeps', () => {
       body.supplierId = bIds.supplierId;
       body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, productId: bIds.productId }));
     }
-    if (hasLines && (route.path.endsWith('/receipts') || route.path.endsWith('/returns'))) {
+    if (hasLines && route.path.endsWith('/sales')) body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, productId: bIds.productId }));
+    if (hasLines && route.path.endsWith('/sales/:saleId/returns')) {
+      body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, saleLineId: bIds.saleLineId }));
+    } else if (hasLines && (route.path.endsWith('/receipts') || route.path.endsWith('/returns'))) {
       body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, lineId: bIds.purchaseOrderId }));
     }
     return http(app)[verb](path).set(bearer(user)).set('Idempotency-Key', `sweep-${randomUUID()}`).send(body);

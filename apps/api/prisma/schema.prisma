@@ -405,6 +405,11 @@ model Branch {
   goodsReceipts   GoodsReceipt[]   @relation("ReceiptBranch")
   supplierReturns SupplierReturn[] @relation("ReturnBranch")
 
+  customers       Customer[]
+  cashierSessions CashierSession[]
+  sales           Sale[]
+  saleReturns     SaleReturn[]
+
   @@unique([organizationId, code])
   @@unique([id, organizationId])
   @@map("branches")
@@ -728,6 +733,8 @@ model Product {
 
   countLines StockCountLine[]
 
+  saleLines SaleLine[]
+
   @@unique([organizationId, sku])
   @@unique([organizationId, barcode])
   @@unique([id, organizationId])
@@ -761,6 +768,9 @@ enum StockMovementType {
   RETURN_TO_SUPPLIER
   RECEIPT_CORRECTION
   REVERSAL
+  SALE
+  SALE_RETURN
+  SALE_VOID
 }
 
 model StockMovement {
@@ -792,6 +802,8 @@ model StockMovement {
   countLines   StockCountLine[]     @relation("CountLineMovement")
   receiptLines GoodsReceiptLine[]   @relation("ReceiptLineMovement")
   returnLines  SupplierReturnLine[] @relation("ReturnLineMovement")
+
+  saleLines SaleLine[] @relation("SaleLineMovement")
 
   @@unique([organizationId, idempotencyKey])
   @@unique([id, organizationId])
@@ -1523,4 +1535,273 @@ model SupplierReturnLine {
 
   @@unique([returnId, lineId])
   @@map("supplier_return_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Sales, POS sessions, payments, refunds and returns (docs/architecture/12-sales.md).
+// Tenant-owned (FORCEd RLS, composite FKs). Stock moves only through stock_movements.
+// ---------------------------------------------------------------------------
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Customer {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String         @map("organization_id") @db.Uuid
+  /// Branch that registered the customer: branch-limited staff see their branches' customers.
+  homeBranchId    String?        @map("home_branch_id") @db.Uuid
+  name            String
+  /// Optional contact; normalized (lower-case email, digits-only phone with optional +) and unique per organization.
+  email           String?
+  phone           String?
+  notes           String?
+  status          CustomerStatus @default(ACTIVE)
+  version         Int            @default(1)
+  createdByUserId String         @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  homeBranch Branch? @relation(fields: [homeBranchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sales      Sale[]
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, phone])
+  @@unique([id, organizationId])
+  @@index([organizationId, name])
+  @@map("customers")
+}
+
+enum CashierSessionStatus {
+  OPEN
+  CLOSED
+}
+
+/// A cashier's shift at one branch. At most one OPEN session per cashier and branch.
+model CashierSession {
+  id                String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String               @map("organization_id") @db.Uuid
+  branchId          String               @map("branch_id") @db.Uuid
+  cashierUserId     String               @map("cashier_user_id") @db.Uuid
+  status            CashierSessionStatus @default(OPEN)
+  currency          String               @db.Char(3)
+  openingFloatMinor BigInt               @map("opening_float_minor")
+  openedAt          DateTime             @default(now()) @map("opened_at") @db.Timestamptz(3)
+  /// Set at close: float + cash payments − cash refunds recorded in the session.
+  expectedCashMinor BigInt?              @map("expected_cash_minor")
+  declaredCashMinor BigInt?              @map("declared_cash_minor")
+  varianceMinor     BigInt?              @map("variance_minor")
+  closedAt          DateTime?            @map("closed_at") @db.Timestamptz(3)
+  closedByUserId    String?              @map("closed_by_user_id") @db.Uuid
+  closeNote         String?              @map("close_note")
+  version           Int                  @default(1)
+
+  branch   Branch    @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sales    Sale[]
+  payments Payment[]
+  refunds  Refund[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, branchId, status])
+  @@map("cashier_sessions")
+}
+
+enum SaleStatus {
+  COMPLETED
+  VOIDED
+}
+
+/// A posted sale. Created complete (stock posted in the same transaction); never edited, only voided.
+model Sale {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String     @map("organization_id") @db.Uuid
+  branchId        String     @map("branch_id") @db.Uuid
+  sessionId       String     @map("session_id") @db.Uuid
+  customerId      String?    @map("customer_id") @db.Uuid
+  /// Receipt number, unique per organization (R-000001).
+  number          String
+  idempotencyKey  String     @map("idempotency_key")
+  status          SaleStatus @default(COMPLETED)
+  currency        String     @db.Char(3)
+  /// Sum of line totals; the database verifies it at commit.
+  totalMinor      BigInt     @map("total_minor")
+  /// For exchanges: the return this replacement sale follows (traceability; separate operations).
+  relatedReturnId String?    @map("related_return_id") @db.Uuid
+  cashierUserId   String     @map("cashier_user_id") @db.Uuid
+  version         Int        @default(1)
+  voidedAt        DateTime?  @map("voided_at") @db.Timestamptz(3)
+  voidedByUserId  String?    @map("voided_by_user_id") @db.Uuid
+  voidReason      String?    @map("void_reason")
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  branch   Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  session  CashierSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  customer Customer?      @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines    SaleLine[]
+  payments Payment[]
+  refunds  Refund[]
+  returns  SaleReturn[]   @relation("SaleReturns")
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, branchId, createdAt])
+  @@index([organizationId, customerId])
+  @@map("sales")
+}
+
+model SaleLine {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  saleId           String  @map("sale_id") @db.Uuid
+  lineNo           Int     @map("line_no")
+  productId        String  @map("product_id") @db.Uuid
+  quantity         Decimal @db.Decimal(18, 3)
+  /// The product's selling price at the time of sale (server-side).
+  unitPriceMinor   BigInt  @map("unit_price_minor")
+  lineTotalMinor   BigInt  @map("line_total_minor")
+  quantityReturned Decimal @default(0) @map("quantity_returned") @db.Decimal(18, 3)
+  /// The SALE stock movement that took this line out of stock.
+  movementId       String  @map("movement_id") @db.Uuid
+
+  sale        Sale             @relation(fields: [saleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  product     Product          @relation(fields: [productId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  movement    StockMovement    @relation("SaleLineMovement", fields: [movementId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  returnLines SaleReturnLine[]
+
+  @@unique([saleId, lineNo])
+  @@unique([saleId, productId])
+  @@unique([id, organizationId])
+  @@map("sale_lines")
+}
+
+enum PaymentMethod {
+  CASH
+  /// Card taken on an external terminal: only the terminal's reference is stored, never card data.
+  CARD_EXTERNAL
+  BANK_TRANSFER
+  MOBILE_MONEY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+/// A payment recorded by staff. Not verified with any bank or processor: CONFIRMED means a
+/// staff member with sales.payment.confirm attested it (see verification).
+model Payment {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  saleId            String        @map("sale_id") @db.Uuid
+  branchId          String        @map("branch_id") @db.Uuid
+  /// Required for cash (the drawer it went into).
+  sessionId         String?       @map("session_id") @db.Uuid
+  method            PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amountMinor       BigInt        @map("amount_minor")
+  /// Sum of refunds against this payment (maintained under the payment row lock; CHECK ≤ amount).
+  refundedMinor     BigInt        @default(0) @map("refunded_minor")
+  /// External reference (terminal slip, transfer reference). Never card numbers or credentials.
+  reference         String?
+  /// Always MANUAL here: no processor or bank integration exists.
+  verification      String        @default("MANUAL")
+  idempotencyKey    String        @map("idempotency_key")
+  recordedByUserId  String        @map("recorded_by_user_id") @db.Uuid
+  confirmedByUserId String?       @map("confirmed_by_user_id") @db.Uuid
+  confirmedAt       DateTime?     @map("confirmed_at") @db.Timestamptz(3)
+  failureReason     String?       @map("failure_reason")
+  version           Int           @default(1)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sale    Sale            @relation(fields: [saleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  session CashierSession? @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  refunds Refund[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([saleId])
+  @@index([sessionId])
+  @@map("payments")
+}
+
+/// Money back against one confirmed payment. Append-only. Never restocks by itself.
+model Refund {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  saleId         String        @map("sale_id") @db.Uuid
+  paymentId      String        @map("payment_id") @db.Uuid
+  /// The return this refund settles, if any.
+  returnId       String?       @map("return_id") @db.Uuid
+  sessionId      String?       @map("session_id") @db.Uuid
+  method         PaymentMethod
+  amountMinor    BigInt        @map("amount_minor")
+  reason         String
+  idempotencyKey String        @map("idempotency_key")
+  actorUserId    String        @map("actor_user_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sale    Sale            @relation(fields: [saleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  payment Payment         @relation(fields: [paymentId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  return  SaleReturn?     @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  session CashierSession? @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+enum SaleReturnStatus {
+  /// Goods taken back; stock NOT restored.
+  ACCEPTED
+  /// Resaleable lines posted back to stock (SALE_RETURN movements) by an authorized user.
+  RESTOCKED
+}
+
+enum ReturnDisposition {
+  RESALEABLE
+  DAMAGED
+  UNSELLABLE
+}
+
+model SaleReturn {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String           @map("organization_id") @db.Uuid
+  saleId            String           @map("sale_id") @db.Uuid
+  branchId          String           @map("branch_id") @db.Uuid
+  idempotencyKey    String           @map("idempotency_key")
+  status            SaleReturnStatus @default(ACCEPTED)
+  reason            String
+  acceptedByUserId  String           @map("accepted_by_user_id") @db.Uuid
+  restockedByUserId String?          @map("restocked_by_user_id") @db.Uuid
+  restockedAt       DateTime?        @map("restocked_at") @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sale    Sale             @relation("SaleReturns", fields: [saleId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  branch  Branch           @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lines   SaleReturnLine[]
+  refunds Refund[]
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([saleId])
+  @@map("sale_returns")
+}
+
+model SaleReturnLine {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  returnId       String            @map("return_id") @db.Uuid
+  saleLineId     String            @map("sale_line_id") @db.Uuid
+  quantity       Decimal           @db.Decimal(18, 3)
+  disposition    ReturnDisposition
+
+  saleReturn SaleReturn @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  saleLine   SaleLine   @relation(fields: [saleLineId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([returnId, saleLineId])
+  @@map("sale_return_lines")
 }

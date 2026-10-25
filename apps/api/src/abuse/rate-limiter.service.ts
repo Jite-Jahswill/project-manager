@@ -13,7 +13,23 @@ export interface RateLimitDecision {
 }
 
 /** The shared limiter could not be consulted (Redis down, timed out, circuit open). */
-export class RateLimiterUnavailableError extends Error {}
+/** Why the shared limiter could not be consulted (diagnostics only; never sent to clients). */
+export type UnavailableReason = 'circuit_open' | 'not_ready' | 'timeout' | 'connection_error' | 'redis_error';
+
+export class RateLimiterUnavailableError extends Error {
+  constructor(message: string, readonly reason: UnavailableReason = 'redis_error', readonly elapsedMs = 0) {
+    super(message);
+    this.name = 'RateLimiterUnavailableError';
+  }
+}
+
+/** Classifies a failed Redis call. ioredis' commandTimeout rejects with "Command timed out". */
+export function classifyRedisFailure(e: unknown): UnavailableReason {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/timed out/i.test(msg)) return 'timeout';
+  if (/ECONNREFUSED|ECONNRESET|EPIPE|ETIMEDOUT|EHOSTUNREACH|Connection is closed|Stream isn't writeable|enableOfflineQueue/i.test(msg)) return 'connection_error';
+  return 'redis_error';
+}
 
 /**
  * GCRA (token bucket) in one atomic Lua script. Redis TIME is the only clock, so
@@ -72,6 +88,9 @@ export class RateLimiter {
   private readonly keySecret: Buffer;
   private circuitOpenUntil = 0;
   private readonly counters = { allowed: 0, limited: 0, unavailable: 0 };
+  /** Unavailable outcomes by cause, and the last one (diagnostics for incidents such as unexpected 503s). */
+  private readonly unavailableByReason: Record<UnavailableReason, number> = { circuit_open: 0, not_ready: 0, timeout: 0, connection_error: 0, redis_error: 0 };
+  private lastUnavailable: { reason: UnavailableReason; at: string; elapsedMs: number; redisStatus: string } | null = null;
   private lastUnavailableLog = 0;
   private suppressedUnavailable = 0;
 
@@ -137,7 +156,7 @@ export class RateLimiter {
     } catch (e) {
       if (!(e instanceof RateLimiterUnavailableError)) throw e;
       const mode = this.policy(name).onRedisFailure;
-      this.logUnavailable(name, mode);
+      this.logUnavailable(name, mode, e);
       if (mode === 'open') return;
       throw new RateLimitError(HttpStatus.SERVICE_UNAVAILABLE, 'temporarily_unavailable', 'Temporarily unavailable. Try again shortly.', 5);
     }
@@ -147,31 +166,46 @@ export class RateLimiter {
   }
 
   stats() {
-    return { ...this.counters, circuitOpen: Date.now() < this.circuitOpenUntil };
+    return {
+      ...this.counters, circuitOpen: Date.now() < this.circuitOpenUntil,
+      unavailableByReason: { ...this.unavailableByReason }, lastUnavailable: this.lastUnavailable,
+    };
+  }
+
+  private unavailable(reason: UnavailableReason, elapsedMs: number, message: string): RateLimiterUnavailableError {
+    this.counters.unavailable++;
+    this.unavailableByReason[reason]++;
+    this.lastUnavailable = { reason, at: new Date().toISOString(), elapsedMs, redisStatus: this.redis.client.status };
+    return new RateLimiterUnavailableError(message, reason, elapsedMs);
   }
 
   private async call<T>(fn: () => Promise<T>): Promise<T> {
-    if (Date.now() < this.circuitOpenUntil || !this.redis.ready) {
-      this.counters.unavailable++;
-      throw new RateLimiterUnavailableError('rate limiter unavailable');
-    }
+    if (Date.now() < this.circuitOpenUntil) throw this.unavailable('circuit_open', 0, 'rate limiter unavailable (circuit open)');
+    if (!this.redis.ready) throw this.unavailable('not_ready', 0, 'rate limiter unavailable (redis not ready)');
+    const started = Date.now();
     try {
       return await fn();
     } catch (e) {
       // Fail fast for a short while instead of making every request wait for a timeout.
       this.circuitOpenUntil = Date.now() + CIRCUIT_OPEN_MS;
-      this.counters.unavailable++;
-      throw new RateLimiterUnavailableError(e instanceof Error ? e.message : 'redis error');
+      throw this.unavailable(classifyRedisFailure(e), Date.now() - started, e instanceof Error ? e.message : 'redis error');
     }
   }
 
-  private logUnavailable(policy: PolicyName, mode: string): void {
+  /**
+   * Structured and redacted: the policy, failure mode, cause, elapsed time and connection
+   * state. Never the subject, the bucket key or request data.
+   */
+  private logUnavailable(policy: PolicyName, mode: string, e: RateLimiterUnavailableError): void {
     const now = Date.now();
     if (now - this.lastUnavailableLog < 10_000) {
       this.suppressedUnavailable++;
       return;
     }
-    this.logger.warn(JSON.stringify({ event: 'rate_limit.redis_unavailable', policy, mode, suppressed: this.suppressedUnavailable }));
+    this.logger.warn(JSON.stringify({
+      event: 'rate_limit.redis_unavailable', policy, mode, reason: e.reason, elapsedMs: e.elapsedMs,
+      redisStatus: this.redis.client.status, commandTimeoutMs: this.config.redisCommandTimeoutMs, suppressed: this.suppressedUnavailable,
+    }));
     this.lastUnavailableLog = now;
     this.suppressedUnavailable = 0;
   }

@@ -78,10 +78,16 @@ const definitions = [
   { key: 'purchasing.report.read', scope: O, sensitivity: R, description: 'View purchasing reports and supplier purchase history' },
 
   // Sales
-  { key: 'sales.sale.read', scope: B, sensitivity: S, description: 'View sales' },
-  { key: 'sales.sale.create', scope: B, sensitivity: S, description: 'Record sales' },
-  { key: 'sales.sale.refund', scope: B, sensitivity: S, description: 'Refund sales' },
-  { key: 'sales.payment.confirm', scope: B, sensitivity: S, description: 'Confirm payments' },
+  { key: 'sales.sale.read', scope: B, sensitivity: S, description: 'View sales, payments, refunds and returns' },
+  { key: 'sales.sale.create', scope: B, sensitivity: S, description: 'Post sales (needs your own open cashier session at the branch)' },
+  { key: 'sales.sale.void', scope: B, sensitivity: R, description: 'Void a posted sale with nothing paid outstanding (posts the stock back; audited)' },
+  { key: 'sales.sale.refund', scope: B, sensitivity: S, description: 'Refund confirmed payments (never restocks by itself)' },
+  { key: 'sales.payment.confirm', scope: B, sensitivity: S, description: 'Record payments and confirm or fail pending ones (manual attestation, not bank-verified)' },
+  { key: 'sales.session.manage', scope: B, sensitivity: S, description: 'Open and close your own cashier session' },
+  { key: 'sales.session.supervise', scope: B, sensitivity: S, description: 'View all cashier sessions and close other cashiers\' sessions' },
+  { key: 'sales.return.accept', scope: B, sensitivity: S, description: 'Accept returned goods against a sale (does not restore stock)' },
+  { key: 'sales.return.restock', scope: B, sensitivity: S, description: 'Restore resaleable returned goods to stock' },
+  { key: 'sales.report.read', scope: O, sensitivity: R, description: 'View sales and payment reports' },
   { key: 'sales.customer.read', scope: O, sensitivity: S, branchAssignable: true, description: 'View customers' },
   { key: 'sales.customer.manage', scope: O, sensitivity: S, description: 'Manage customers' },
 

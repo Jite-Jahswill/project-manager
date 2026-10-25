@@ -47,8 +47,14 @@ Sensitivity **R** = restricted (payroll, finance, sensitive HR, audit, exports).
 | `purchasing.report.read` | O | R | ● | ● |  | ● |  |  |  | ● |  |  | ● |  |  |
 | `sales.sale.read` | B |  | ● | ● | ● |  |  | ● | ● | ● |  |  | ● |  | ● |
 | `sales.sale.create` | B |  | ● | ● | ● |  |  | ● | ● |  |  |  |  |  |  |
+| `sales.sale.void` | B | R | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
 | `sales.sale.refund` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
 | `sales.payment.confirm` | B |  | ● | ● | ● |  |  | ● |  |  |  |  |  |  |  |
+| `sales.session.manage` | B |  | ● | ● | ● |  |  | ● | ● |  |  |  |  |  |  |
+| `sales.session.supervise` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
+| `sales.return.accept` | B |  | ● | ● | ● |  |  | ● |  |  |  |  |  |  |  |
+| `sales.return.restock` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
+| `sales.report.read` | O | R | ● | ● |  |  |  |  |  | ● |  |  | ● |  |  |
 | `sales.customer.read` | O+ |  | ● | ● | ● |  |  | ● | ● |  |  |  |  |  |  |
 | `sales.customer.manage` | O |  | ● | ● |  |  |  |  | ● |  |  |  |  |  |  |
 | `logistics.shipment.read` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  | ● |  |

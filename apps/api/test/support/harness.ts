@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { randomBytes } from 'node:crypto';
 import { Pool } from 'pg';
 import request from 'supertest';
+import { RateLimiter } from '../../src/abuse/rate-limiter.service';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/bootstrap-app';
 import { capturedEmails } from '../../src/email/providers/dev.adapters';
@@ -91,7 +92,10 @@ export async function createTestApp(
   Object.assign(process.env, { RATE_LIMIT_KEY_PREFIX: `t${randomBytes(6).toString('hex')}` }, env);
   try {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule, ...extraImports] }).compile();
-    const app = moduleRef.createNestApplication({ logger: ['error'] });
+    // TEST_APP_LOG_LEVELS=error,warn captures warnings (e.g. rate_limit.redis_unavailable with its
+    // cause) in a run's output without changing the default quiet logging.
+    const levels = (process.env.TEST_APP_LOG_LEVELS ?? 'error').split(',').map((l) => l.trim()).filter(Boolean) as ('error' | 'warn' | 'log')[];
+    const app = moduleRef.createNestApplication({ logger: levels });
     configureApp(app);
     try {
       // Listen once on a random loopback port; supertest otherwise opens a server per request.
@@ -189,7 +193,13 @@ export function uniqueEmail(label: string): string {
 
 export async function signUp(app: INestApplication, label: string): Promise<TestUser> {
   const email = uniqueEmail(label);
-  await http(app).post('/v1/auth/register').send({ email, password: PASSWORD, displayName: label }).expect(202);
+  const res = await http(app).post('/v1/auth/register').send({ email, password: PASSWORD, displayName: label });
+  if (res.status !== 202) {
+    // Diagnostics for unexpected 503s (docs/security/rate-limiting-and-abuse-protection.md §8):
+    // the limiter's recorded cause, independent of log capture. No subjects or keys are included.
+    const { unavailableByReason, lastUnavailable, circuitOpen } = app.get(RateLimiter).stats();
+    throw new Error(`register returned ${res.status} ${JSON.stringify(res.body)}; limiter: ${JSON.stringify({ unavailableByReason, lastUnavailable, circuitOpen })}`);
+  }
   await http(app).post('/v1/auth/verify-email').send({ token: await tokenFromMail(app, email, '/verify-email') }).expect(200);
   return login(app, email);
 }

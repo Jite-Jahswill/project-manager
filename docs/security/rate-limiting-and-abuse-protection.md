@@ -193,3 +193,35 @@ Each finding was confirmed by a regression test failing on the unreviewed code (
 | F-F | Low | Public `/health` exposed limiter counters. | Removed; counters stay in internal logs. |
 
 Fail-open endpoints were re-examined; they're justified and now covered by outage tests (§2.5). No finding remains open at critical or high severity.
+
+## 8. Investigation: intermittent 503 on sign-up (Phase 5, 2026-10-25)
+
+**Report.** During the Phase 4 gate (2026-10-24, about 21:07 local), one integration run got `503` from `POST /v1/auth/register`. The next runs passed.
+
+**Every 503 path, checked in code.**
+- `register` can return 503 only from the fail-closed limiter: `RateLimiterService.enforce` for `register.ip` or `register.email`, when Redis is unusable.
+- `default.ip` is also on that route, but it fails open.
+- The only other 503 in the API is `/health`, which isn't on this path.
+- Email delivery is queued (outbox), so sign-up does not wait on a provider.
+
+**Evidence collected.**
+
+| Check | Result |
+|---|---|
+| Redis server `INFO errorstats` since start (uptime 248,318 s, covering the failing run) | empty: Redis returned no error reply |
+| `INFO commandstats` | `evalsha` 334,739 calls and `eval` 4,158 calls, all with `failed_calls=0`, `rejected_calls=0` |
+| Host sleep or suspend around the failure (`pmset -g log`) | none |
+| Overlapping test processes at that time | none |
+| Host load at that time | load average about 5 (Docker, Postgres, Redis and jest on one workstation) |
+| Reproduction: 12 fresh app starts, each registering immediately | all 202; event-loop delay ≤ 58 ms; first limiter call ≤ 8.8 ms |
+| Reproduction: 15 starts without waiting for Redis readiness | ready 15/15 |
+
+**Conclusion.** The cause was not reproduced, and it is **not claimed fixed**. Redis itself did not fail, so the failure was on the client side: the command exceeded `REDIS_COMMAND_TIMEOUT_MS` (250 ms) during an event-loop or Docker network stall on the loaded host, or the client was not yet `ready`, or the 1-second circuit was already open from such a stall. This matches the stall noted in §2.5. Those runs did not record which of these it was.
+
+**What changed.**
+- The limiter now classifies every unavailability as `circuit_open`, `not_ready`, `timeout`, `connection_error` or `redis_error`, and records the elapsed time and the client status.
+- `rate_limit.redis_unavailable` logs carry `reason`, `elapsedMs`, `redisStatus` and `commandTimeoutMs` (never subjects, keys, IPs, emails or tokens). `stats()` counts failures by reason and keeps the last one.
+- `test/rate-limiter.e2e-spec.ts` deterministically produces `not_ready` (refused connection), `timeout` then `circuit_open` (a TCP proxy that stops forwarding), and the classification of client errors. It also asserts that no subject appears in the statistics.
+- Integration gates now capture warnings (`TEST_APP_LOG_LEVELS=error,warn`), so a recurrence names its cause.
+
+Fail-closed behavior, timeouts and limits are unchanged.

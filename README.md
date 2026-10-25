@@ -58,6 +58,8 @@ Organizations, branches, members, invitations and roles (API contracts and lifec
 
 Inventory (catalogue, stock ledger, counts, transfers), suppliers and purchase orders: [docs/architecture/11-inventory-purchasing.md](docs/architecture/11-inventory-purchasing.md).
 
+Sales and point of sale (customers, cashier sessions, sales posted through the stock ledger, manual payments, refunds, returns and exchanges): [docs/architecture/12-sales.md](docs/architecture/12-sales.md).
+
 Customer support (conversations, assignment, internal notes, real-time events, attachments): [docs/architecture/09-support.md](docs/architecture/09-support.md) and [docs/security/support.md](docs/security/support.md). Development attachments are stored under `apps/api/.data/` (git-ignored).
 
 Email (queued delivery, Resend/SMTP, admin-managed configuration, DNS setup): [docs/security/email.md](docs/security/email.md). In development, emails are printed to the API log (`EMAIL_BOOTSTRAP_DEV_PROVIDER=LOG`, delivered by the inline worker). To run delivery separately: `EMAIL_WORKER_MODE=external` on the API and `pnpm api worker`. Hosting requirements: [docs/operations/hosting.md](docs/operations/hosting.md).

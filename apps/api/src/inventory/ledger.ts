@@ -10,7 +10,8 @@ import { Prisma } from '../generated/prisma/client';
  * balance_after (and, for counts, the delta). The runtime role cannot write balances.
  */
 export type MovementType =
-  | 'ADJUSTMENT' | 'OPENING' | 'RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'COUNT' | 'RETURN_TO_SUPPLIER' | 'RECEIPT_CORRECTION' | 'REVERSAL';
+  | 'ADJUSTMENT' | 'OPENING' | 'RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'COUNT' | 'RETURN_TO_SUPPLIER' | 'RECEIPT_CORRECTION' | 'REVERSAL'
+  | 'SALE' | 'SALE_RETURN' | 'SALE_VOID';
 
 export interface MovementInput {
   organizationId: string;
@@ -24,7 +25,7 @@ export interface MovementInput {
   actorUserId: string;
   /** Unique per organization: the duplicate-posting guard. */
   idempotencyKey: string;
-  sourceType?: 'TRANSFER' | 'COUNT' | 'GOODS_RECEIPT' | 'SUPPLIER_RETURN';
+  sourceType?: 'TRANSFER' | 'COUNT' | 'GOODS_RECEIPT' | 'SUPPLIER_RETURN' | 'SALE' | 'SALE_RETURN' | 'SALE_VOID';
   sourceId?: string;
   reversesMovementId?: string;
   unitCostMinor?: bigint | null;

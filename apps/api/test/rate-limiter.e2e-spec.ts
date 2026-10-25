@@ -153,7 +153,8 @@ describe('Shared rate limiter (real Redis)', () => {
       await proxy.refuse();
       await waitFor(() => !viaProxy.redis.ready);
       const t0 = Date.now();
-      await expect(viaProxy.limiter.consume('login.ip', 'ip:x')).rejects.toBeInstanceOf(RateLimiterUnavailableError);
+      await expect(viaProxy.limiter.consume('login.ip', 'ip:x')).rejects.toMatchObject({ reason: 'not_ready' });
+      expect(viaProxy.limiter.stats().lastUnavailable).toMatchObject({ reason: 'not_ready', redisStatus: expect.stringMatching(/reconnecting|connecting|close|end/) });
       await expect(viaProxy.limiter.enforce('login.ip', 'ip:x')).rejects.toMatchObject({ retryAfterSeconds: 5 });
       await expect(viaProxy.limiter.enforce('login.ip', 'ip:x')).rejects.toBeInstanceOf(RateLimitError);
       const closed = await viaProxy.limiter.enforce('login.ip', 'ip:x').catch((e: RateLimitError) => e.getStatus());
@@ -165,14 +166,26 @@ describe('Shared rate limiter (real Redis)', () => {
     it('timeout: a hung Redis is bounded by the command timeout, then the circuit fails fast', async () => {
       proxy.mode = 'blackhole';
       const t0 = Date.now();
-      await expect(viaProxy.limiter.consume('login.ip', 'ip:hang')).rejects.toBeInstanceOf(RateLimiterUnavailableError);
+      await expect(viaProxy.limiter.consume('login.ip', 'ip:hang')).rejects.toMatchObject({ reason: 'timeout' });
       const first = Date.now() - t0;
+      expect(viaProxy.limiter.stats().lastUnavailable).toMatchObject({ reason: 'timeout', elapsedMs: expect.any(Number) });
+      expect(viaProxy.limiter.stats().lastUnavailable!.elapsedMs).toBeGreaterThanOrEqual(150);
       expect(first).toBeGreaterThanOrEqual(150);
       expect(first).toBeLessThan(1000);
       const t1 = Date.now();
-      await expect(viaProxy.limiter.consume('login.ip', 'ip:hang')).rejects.toBeInstanceOf(RateLimiterUnavailableError);
+      await expect(viaProxy.limiter.consume('login.ip', 'ip:hang')).rejects.toMatchObject({ reason: 'circuit_open' });
       expect(Date.now() - t1).toBeLessThan(50); // circuit open: no second timeout
-      expect(viaProxy.limiter.stats().circuitOpen).toBe(true);
+      expect(viaProxy.limiter.stats()).toMatchObject({ circuitOpen: true, unavailableByReason: { timeout: 1, circuit_open: 1 } });
+    });
+
+    it('every unavailable outcome is classified (the cause of an unexpected 503 is recorded, never the subject)', async () => {
+      const { classifyRedisFailure } = await import('../src/abuse/rate-limiter.service');
+      expect(classifyRedisFailure(new Error('Command timed out'))).toBe('timeout');
+      expect(classifyRedisFailure(new Error('connect ECONNREFUSED 127.0.0.1:1'))).toBe('connection_error');
+      expect(classifyRedisFailure(new Error('Connection is closed.'))).toBe('connection_error');
+      expect(classifyRedisFailure(new Error("Stream isn't writeable and enableOfflineQueue options is false"))).toBe('connection_error');
+      expect(classifyRedisFailure(new Error('BUSY Redis is busy running a script'))).toBe('redis_error');
+      expect(JSON.stringify(viaProxy.limiter.stats())).not.toContain('ip:');
     });
 
     it('does not queue or pile up work during an outage', async () => {
