@@ -84,10 +84,10 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
   async function rolesOf(o: TestOrg) {
     return sql(ctx(o), async (c) => {
       const roles = (await c.query(
-        `SELECT r.id, r.name, r.description, r.is_system, r.template_key, r.template_version, r.created_at, r.updated_at,
+        `SELECT r.id, r.name, r.description, r.is_system, r.template_key, r.template_version, r.version, r.created_at, r.updated_at,
            coalesce(array_agg(rp.permission_key ORDER BY rp.permission_key) FILTER (WHERE rp.permission_key IS NOT NULL), '{}') AS permissions
          FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id GROUP BY r.id ORDER BY r.name`)).rows;
-      return roles as { id: string; name: string; is_system: boolean; template_key: string | null; template_version: number | null; permissions: string[] }[];
+      return roles as { id: string; name: string; is_system: boolean; template_key: string | null; template_version: number | null; version: number; permissions: string[] }[];
     });
   }
   const permsOf = async (o: TestOrg, templateKey: string) => (await rolesOf(o)).find((r) => r.template_key === templateKey)?.permissions;
@@ -104,8 +104,8 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
   const upgradeAudits = (o: TestOrg) => sql(ctx(o), async (c) => (await c.query(
     "SELECT resource_id, actor_type, actor_user_id, metadata FROM audit_events WHERE action = 'organization.role.template_upgraded' ORDER BY occurred_at, id")).rows);
   const setRolePerms = async (o: TestOrg, templateKey: string, permissions: string[]) => {
-    const id = (await rolesOf(o)).find((r) => r.template_key === templateKey)!.id;
-    return as(o, o.owner).patch(`/roles/${id}`, { permissions }).expect(200);
+    const role = (await rolesOf(o)).find((r) => r.template_key === templateKey)!;
+    return as(o, o.owner).patch(`/roles/${role.id}`, { version: role.version, permissions }).expect(200);
   };
 
   beforeAll(async () => {
@@ -129,8 +129,8 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
     // Customized template roles: a removal of a v1 permission, an addition, a rename, a deletion.
     await setRolePerms(L, 'cashier', minus(snap(1, 'cashier'), ['sales.customer.read']));
     await setRolePerms(L, 'storekeeper', union(snap(1, 'storekeeper'), ['reports.operational.read']));
-    await owner.patch(`/roles/${await roleId(app, L, 'Read-only viewer')}`, { name: 'Guest viewer' }).expect(200);
-    await owner.delete(`/roles/${await roleId(app, L, 'Logistics officer')}`).expect(204);
+    await owner.patch(`/roles/${await roleId(app, L, 'Read-only viewer')}`, { version: 1, name: 'Guest viewer' }).expect(200);
+    await owner.delete(`/roles/${await roleId(app, L, 'Logistics officer')}?version=1`).expect(204);
     // Overrides: a DENY of a permission the sync will grant (must keep winning), and a GRANT.
     await owner.post(`/members/${deniedCashier.membershipId}/overrides`, { permissionKey: 'sales.session.manage', effect: 'DENY', reason: 'trainee: no drawer' }).expect(201);
     await owner.post(`/members/${cashier.membershipId}/overrides`, { permissionKey: 'organization.branch.read', effect: 'GRANT', reason: 'sees branch list' }).expect(201);
@@ -330,49 +330,53 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       expect(dupes).toEqual([]);
     });
 
-    it('9. a sync racing an administrator editing the same role serializes; either order ends consistent and audited', async () => {
+    it('4. a sync racing an administrator editing the same role: no lost update in either order', async () => {
       const D = await createOrg(app, await signUp(app, 'tpl-d-owner'), 'tpl-race');
       await makeLegacy(D, 1);
-      const id = (await rolesOf(D)).find((r) => r.template_key === 'cashier')!.id;
-      // The administrator submits a full permission set computed from what they saw before the sync.
+      const loaded = (await rolesOf(D)).find((r) => r.template_key === 'cashier')!;
+      // The administrator edits from what they loaded before the sync (version 1).
       const submitted = minus(snap(1, 'cashier'), ['sales.customer.read']);
-      await Promise.all([syncRoleTemplates(migrator), as(D, D.owner).patch(`/roles/${id}`, { permissions: submitted }).expect(200)]);
-      const audits = await sql(ctx(D), async (c) => (await c.query(
-        "SELECT action, metadata FROM audit_events WHERE resource_id = $1 AND action IN ('organization.role.updated', 'organization.role.template_upgraded')",
-        [id])).rows);
-      expect(audits.map((e) => e.action).sort()).toEqual(['organization.role.template_upgraded', 'organization.role.updated']);
-      const edit = audits.find((e) => e.action === 'organization.role.updated')!;
-      const added = ['sales.return.accept', 'sales.session.manage'];
-      // Both lock the role row, so they serialized; the final state says which committed first
-      // (occurred_at is each transaction's start time, not its commit order).
-      if ((await permsOf(D, 'cashier'))!.includes('sales.session.manage')) {
-        // Edit first: the sync waited for it, then granted the additions on top of it.
-        expect(edit.metadata.removed).toEqual(['sales.customer.read']);
-        expect(await permsOf(D, 'cashier')).toEqual(union(submitted, added));
+      const [, edit] = await Promise.all([
+        syncRoleTemplates(migrator),
+        as(D, D.owner).patch(`/roles/${loaded.id}`, { version: loaded.version, permissions: submitted }),
+      ]);
+      const after = (await rolesOf(D)).find((r) => r.template_key === 'cashier')!;
+      const exclusions = await sql(ctx(D), async (c) => (await c.query('SELECT permission_key FROM role_permission_exclusions WHERE role_id = $1', [loaded.id])).rows);
+      // Both lock the role row, so they serialized; the response says which committed first.
+      if (edit.status === 200) {
+        // Edit first: the sync waited for it, then granted the additions on top; the removal stands.
+        expect(after.permissions).toEqual(union(submitted, ['sales.return.accept', 'sales.session.manage']));
+        expect(exclusions).toEqual([{ permission_key: 'sales.customer.read' }]);
+        expect(after.version).toBe(3);
       } else {
-        // Sync first: the edit replaced the whole set (PATCH semantics), removing the fresh grants, and its
-        // audit records that removal. A later sync does not re-grant them: the role is already at the
-        // current version (and, were it not, the recorded removal would withhold them).
-        expect([...edit.metadata.removed].sort()).toEqual(['sales.customer.read', ...added].sort());
-        expect(await permsOf(D, 'cashier')).toEqual(submitted);
-        const later = await syncRoleTemplates(migrator);
-        expect(later.changes.filter((c) => c.organizationId === D.id)).toEqual([]);
-        expect(await permsOf(D, 'cashier')).toEqual(submitted);
+        // Sync first: it bumped the version, so the stale edit was refused and changed nothing.
+        expect({ status: edit.status, code: edit.body.code }).toEqual({ status: 409, code: 'version_conflict' });
+        expect(after.permissions).toEqual(snap(3, 'cashier'));
+        expect(exclusions).toEqual([]);
+        expect(after.version).toBe(2);
       }
     });
 
-    it('a stale full-set edit after a sync removes the fresh grants on record, and they stay removed', async () => {
+    it('a stale edit after a sync is refused (409, nothing changed); a reloaded edit is kept by later syncs', async () => {
       const E = await createOrg(app, await signUp(app, 'tpl-e-owner'), 'tpl-stale');
       await makeLegacy(E, 1);
-      const id = (await rolesOf(E)).find((r) => r.template_key === 'cashier')!.id;
-      const stale = snap(1, 'cashier'); // what the administrator's screen showed before the sync
+      const loaded = (await rolesOf(E)).find((r) => r.template_key === 'cashier')!; // what the screen showed before the sync
       await syncRoleTemplates(migrator);
-      expect(await permsOf(E, 'cashier')).toEqual(snap(3, 'cashier'));
-      await as(E, E.owner).patch(`/roles/${id}`, { permissions: stale }).expect(200);
-      const edit = (await sql(ctx(E), (c) => c.query("SELECT metadata FROM audit_events WHERE resource_id = $1 AND action = 'organization.role.updated'", [id]))).rows[0];
-      expect([...edit.metadata.removed].sort()).toEqual(['sales.return.accept', 'sales.session.manage']);
-      await syncRoleTemplates(migrator);
-      expect(await permsOf(E, 'cashier')).toEqual(stale);
+      const synced = (await rolesOf(E)).find((r) => r.template_key === 'cashier')!;
+      expect({ perms: synced.permissions, version: synced.version }).toEqual({ perms: snap(3, 'cashier'), version: loaded.version + 1 });
+      const stale = await as(E, E.owner).patch(`/roles/${loaded.id}`, { version: loaded.version, permissions: snap(1, 'cashier') });
+      expect({ status: stale.status, body: stale.body }).toEqual({
+        status: 409, body: expect.objectContaining({ code: 'version_conflict', message: `The role changed (current version ${synced.version}); reload and retry` }),
+      });
+      expect(JSON.stringify(stale.body)).not.toMatch(/sales\.|Cashier/);
+      expect((await rolesOf(E)).find((r) => r.id === loaded.id)).toEqual(synced);
+      // Reload and retry: a deliberate removal of a template permission is recorded as an exclusion...
+      await as(E, E.owner).patch(`/roles/${loaded.id}`, { version: synced.version, permissions: minus(snap(3, 'cashier'), ['sales.session.manage']) }).expect(200);
+      // ...which a later template upgrade respects (simulated by putting the role back on version 1).
+      await sql(ctx(E), (c) => c.query('UPDATE roles SET template_version = 1 WHERE id = $1', [loaded.id]), true);
+      const later = await syncRoleTemplates(migrator);
+      expect(later.changes.find((c) => c.roleId === loaded.id)).toMatchObject({ added: [], withheld: ['sales.session.manage'] });
+      expect(await permsOf(E, 'cashier')).toEqual(minus(snap(3, 'cashier'), ['sales.session.manage']));
     });
 
     it('10. a newly created organization starts at the same baseline and needs no sync', async () => {

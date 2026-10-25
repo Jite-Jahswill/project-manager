@@ -8,7 +8,7 @@ import { RateLimit } from '../abuse/rate-limit.guard';
 import { AccessControlService } from './access-control.service';
 import {
   AcceptInvitationDto, AuditQueryDto, BranchLifecycleDto, CloneRoleDto, CreateBranchDto, CreateOrganizationDto, CreateOverrideDto,
-  CreateRoleDto, InviteMemberDto, ListBranchesQuery, ListInvitationsQuery, SetMemberRolesDto, UpdateBranchDto, UpdateMembershipStatusDto,
+  CreateRoleDto, DeleteRoleQuery, InviteMemberDto, ListBranchesQuery, ListInvitationsQuery, SetMemberRolesDto, UpdateBranchDto, UpdateMembershipStatusDto,
   UpdateOrganizationDto, UpdateRoleDto,
 } from './dto/organization.dto';
 import { OrganizationsService } from './organizations.service';
@@ -193,8 +193,10 @@ export class OrganizationScopedController {
   }
 
   @Delete('roles/:roleId') @HttpCode(204) @RequirePermission('organization.role.manage')
-  deleteRole(@OrgAccess() a: EffectiveAccess, @Param('roleId', ParseUUIDPipe) roleId: string, @Meta() meta: RequestMeta) {
-    return this.access.deleteRole(a, roleId, meta);
+  deleteRole(
+    @OrgAccess() a: EffectiveAccess, @Param('roleId', ParseUUIDPipe) roleId: string, @Query() q: DeleteRoleQuery, @Meta() meta: RequestMeta,
+  ) {
+    return this.access.deleteRole(a, roleId, q.version, meta);
   }
 
   @Get('audit-events') @RequirePermission('security.audit.read')

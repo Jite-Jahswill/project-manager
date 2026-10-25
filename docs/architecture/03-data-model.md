@@ -65,9 +65,10 @@ erDiagram
 | | `branches` | RLS | unique `(organization_id, code)`, unique `(id, organization_id)`; `version` (optimistic concurrency); `ACTIVE`/`ARCHIVED` with `archived_at` (CHECK). Never deleted (no DELETE privilege for the runtime role) |
 | | `organization_invitations` | RLS | unique `token_hash`; bound to a normalized email; composite FKs to role and branch; one open invitation per `(organization_id, email)` (partial unique index); `resend_count` ≤ 5, `last_sent_at` |
 | Org RBAC | `permissions` | global, read-only to app | PK `key`; synced from code registry |
-| | `roles` | RLS | unique `(organization_id, name)`; `is_system`, `template_key`, `template_version` (CHECK: only on non-system template roles; NULL = created before versions were recorded = version 1). Template-sync policies for the schema owner ([10-organizations.md §10.6.1](10-organizations.md#1061-template-versions-and-existing-organizations)) |
+| | `roles` | RLS | unique `(organization_id, name)`; `version` (optimistic concurrency, CHECK ≥ 1); `is_system`, `template_key`, `template_version` (CHECK: only on non-system template roles; NULL = created before versions were recorded = version 1). Template-sync policies for the schema owner ([10-organizations.md §10.6.1](10-organizations.md#1061-template-versions-and-existing-organizations)) |
 | | `role_template_state` | global, read-only to app | singleton (`id = 1`): role template version all existing organizations were synced to; the API refuses to start while it is behind the code |
 | | `role_permissions` | RLS | PK `(role_id, permission_key)`; composite FK to role; FK to permissions |
+| | `role_permission_exclusions` | RLS | permissions an organization deliberately removed from a template role (never re-granted by the template sync); PK `(role_id, permission_key)`; composite FK to role (cascade); FK to permissions; `excluded_by_user_id`; runtime role: SELECT, INSERT, DELETE |
 | | `membership_roles` | RLS | composite FKs to membership, role, branch; unique `(membership_id, role_id, branch_id) NULLS NOT DISTINCT` |
 | | `membership_permission_overrides` | RLS | GRANT/DENY, optional branch, mandatory reason, optional expiry |
 | Subscriptions | `plans`, `plan_prices`, `plan_entitlements` | global | price = `amount_minor BIGINT` + `currency CHAR(3)` |

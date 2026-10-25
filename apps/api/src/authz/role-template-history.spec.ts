@@ -1,12 +1,12 @@
 import { PERMISSIONS } from './permission-registry';
 import { PLATFORM_PERMISSIONS } from './platform-permission-registry';
 import { LEGACY_TEMPLATE_VERSION, ROLE_TEMPLATE_HISTORY, ROLE_TEMPLATE_VERSION, templateSnapshot } from './role-template-history';
-import { explicitlyRemovedKeys, planRoleUpgrade } from './role-template-sync';
+import { planRoleUpgrade } from './role-template-sync';
 import { ROLE_TEMPLATES } from './role-templates';
 
 const none = new Set<string>();
 const plan = (templateKey: string, templateVersion: number | null, current: readonly string[], removed: ReadonlySet<string> = none) =>
-  planRoleUpgrade({ templateKey, templateVersion, current, explicitlyRemoved: removed });
+  planRoleUpgrade({ templateKey, templateVersion, current, excluded: removed });
 const v = (version: number, key: string) => [...(templateSnapshot(version)?.templates[key] ?? [])];
 
 describe('role template history', () => {
@@ -87,7 +87,7 @@ describe('planRoleUpgrade', () => {
     });
   });
 
-  it('withholds a newly introduced permission the organization explicitly removed', () => {
+  it('withholds a newly introduced permission the organization excluded', () => {
     expect(plan('cashier', null, v(1, 'cashier'), new Set(['sales.session.manage']))).toEqual({
       kind: 'upgrade', fromVersion: 1, toVersion: 3, add: ['sales.return.accept'], withheld: ['sales.session.manage'],
     });
@@ -106,20 +106,7 @@ describe('planRoleUpgrade', () => {
 
   it('never grants a key outside the organization catalog, even if a template lists one', () => {
     const catalog = new Set(v(3, 'cashier').filter((k) => k !== 'sales.session.manage'));
-    expect(planRoleUpgrade({ templateKey: 'cashier', templateVersion: 1, current: v(1, 'cashier'), explicitlyRemoved: none }, 3, catalog))
+    expect(planRoleUpgrade({ templateKey: 'cashier', templateVersion: 1, current: v(1, 'cashier'), excluded: none }, 3, catalog))
       .toEqual({ kind: 'upgrade', fromVersion: 1, toVersion: 3, add: ['sales.return.accept'], withheld: [] });
-  });
-});
-
-describe('explicitlyRemovedKeys', () => {
-  it('the last audited change per key decides', () => {
-    const removed = explicitlyRemovedKeys([
-      { added: [], removed: ['a', 'b'] },
-      { added: ['a'], removed: [] },
-      { added: ['c'] },
-      { removed: ['c'] },
-      { added: 'not-a-list', removed: [42, 'd'] },
-    ]);
-    expect([...removed].sort()).toEqual(['b', 'c', 'd']);
   });
 });

@@ -74,7 +74,7 @@ Emails go through the transactional outbox (the token is encrypted at rest and w
 |---|---|---|
 | `GET /v1/permissions` | authenticated | The organization permission catalog and role templates (no platform permissions) |
 | `GET /v1/orgs/:orgId/roles` | `organization.role.read` | System and custom roles, permissions, assignment counts |
-| `POST /v1/orgs/:orgId/roles`, `PATCH …/:roleId`, `POST …/:roleId/clone`, `DELETE …/:roleId` | `organization.role.manage` | Custom roles. Delegation applies to every permission added or removed. System roles cannot be changed, cloned or deleted. Roles in use (by members or pending invitations) cannot be deleted |
+| `POST /v1/orgs/:orgId/roles`, `PATCH …/:roleId` `{version, name?, description?, permissions?}`, `POST …/:roleId/clone`, `DELETE …/:roleId?version=` | `organization.role.manage` | Custom and template roles (the Owner role cannot be changed, cloned or deleted). Delegation applies to every permission added or removed. Unknown and platform permission keys are refused (`unknown_permission`). **Optimistic concurrency** (§10.6.2): edits and deletions name the role `version` they were based on; a stale version gets `409 version_conflict` and changes nothing. Roles in use (by members or pending invitations) cannot be deleted |
 
 ### 10.6.1 Template versions and existing organizations
 
@@ -93,7 +93,7 @@ New organizations are created at the current version. Template roles created bef
 **Sync.** `pnpm api db:seed` (required after every migration) runs `syncRoleTemplates()`; `pnpm api roles:sync-templates [--dry-run]` runs only the sync, or previews it. For each organization, in its own transaction, it locks the organization's template roles and, for each one below the current version:
 
 - **Grants what later versions added** to that role's template, compared with the role's version. Only keys in the organization permission catalog are granted (platform permissions are a separate table and a foreign key keeps them out of `role_permissions`).
-- **Never grants a key the organization explicitly removed** from that role. The evidence is the audit log: if the last `organization.role.updated` change of that key on that role was a removal, the key is *withheld* and reported.
+- **Never grants a key the organization deliberately removed** from that role. Removing a permission from a template role through `PATCH …/roles/:roleId` records it in `role_permission_exclusions` (who, when); adding it back withdraws the exclusion. Excluded keys are *withheld* and reported. (Removals made before Phase 5.2 were backfilled from the audited role edits by migration `20261029090000_role_versions_and_exclusions`.)
 - **Never removes anything.** No template version has removed a permission from a template (a unit test enforces this). A future removal would need its own, explicit migration path.
 - **Records the version** and writes one `organization.role.template_upgraded` audit event (actor `SYSTEM`) per role that gained or withheld permissions, with before, after, added and withheld.
 - **Leaves alone**: custom roles (including clones), the Owner role, membership role assignments, permission overrides (GRANT/DENY keep their precedence: a DENY still beats a newly granted role permission), roles from an unknown template, and roles at a newer version than the running code (both reported). Deleted template roles are not recreated (reported as missing).
@@ -101,10 +101,22 @@ New organizations are created at the current version. Template roles created bef
 
 The policy is therefore **selective reconciliation**: an organization's customizations win (its additions stay, its removals stay removed, its names stay), and only permissions it has never been offered are added.
 
-**Safety and concurrency.** The seed connects as the schema owner, which forced RLS binds as well. Narrow policies `TO ventidoc_migrator`, active only while the transaction sets `app.template_sync = 'on'` (`app_template_sync_scope()`), let it read organizations, template roles, their permissions and role-edit audit events; update template roles; insert permissions into template roles only; and write its own audit events. There is no delete or update policy on `role_permissions`, so the sync cannot remove a permission even by mistake. The runtime role gains nothing from the setting. Role edits (`PATCH`/`DELETE …/roles/:roleId`) lock the role row first, like the sync, so the two serialize. A second, concurrent sync waits and then finds the roles at the current version. Running the sync again changes nothing.
-
-`PATCH …/roles/:roleId` replaces the role's whole permission set and has no version check. An administrator who submits a set computed before a sync removes the newly granted permissions; that removal is audited like any other and is respected by later syncs. Clients should reload a role before editing it.
+**Safety and concurrency.** The seed connects as the schema owner, which forced RLS binds as well. Narrow policies `TO ventidoc_migrator`, active only while the transaction sets `app.template_sync = 'on'` (`app_template_sync_scope()`), let it read organizations, template roles, their permissions and exclusions; update template roles; insert permissions into template roles only; and write its own audit events. There is no delete or update policy on `role_permissions`, so the sync cannot remove a permission even by mistake. The runtime role gains nothing from the setting. The sync locks the organization's template roles, like role edits do, so the two serialize; a sync that grants permissions increments the role's `version`, so an edit based on the role as it was before the sync is refused (`409`) rather than silently removing the new permissions. A second, concurrent sync waits and then finds the roles at the current version. Running the sync again changes nothing.
 
 **Enforcement.** The seed records the synced version in `role_template_state`. The API refuses to start while that is behind `ROLE_TEMPLATE_VERSION` (like the permission catalog check), so a deployment cannot serve new code against organizations whose roles were not synced.
 
 **Changing a template:** edit `ROLE_TEMPLATES`, append a snapshot equal to it to `ROLE_TEMPLATE_HISTORY` (a unit test fails until you do), deploy, run `pnpm api db:seed`.
+
+### 10.6.2 Role versions (optimistic concurrency)
+
+Every role has a `version` (starts at 1; returned by `GET …/roles` and by create, clone and update). It is incremented by every successful edit (name, description or permissions) and by template sync grants.
+
+- `PATCH …/roles/:roleId` requires `version` in the body (integer ≥ 1); `DELETE …/roles/:roleId` requires `?version=`. Missing, non-integer or < 1 → `400`.
+- The service locks the role row, then compares. Equal: the role, its permissions and its exclusions are changed in one transaction, and the response carries the new version. Different (older or newer): `409 {"code": "version_conflict", "message": "The role changed (current version N); reload and retry"}` and nothing is changed. The body contains only the current version number, never the role's name or permissions.
+- Of any number of concurrent edits (or an edit and a delete) based on the same version, exactly one succeeds; the others get `409` (or `404` once the role is deleted).
+- Authorization comes first: a caller without `organization.role.manage` gets `403`, and a role of another organization is `404` (under row-level security it does not exist), so a conflict response never reveals another tenant's role.
+- Any refusal (delegation, name taken, role in use) rolls back the whole request, including the version.
+- Clients: reload the role (`GET …/roles`), re-apply the change, and resubmit with the new version. There is no field-level merge: `permissions` is still the complete set, which is safe because it can only be applied to the version it was computed from.
+
+Breaking change for API clients: `PATCH` without `version` and `DELETE` without `?version=` now get `400`.
+

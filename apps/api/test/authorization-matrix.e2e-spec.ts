@@ -34,7 +34,7 @@ const SAMPLE_BODIES: Record<string, object> = {
   'PUT /v1/orgs/:orgId/members/:membershipId/roles': { assignments: [] },
   'POST /v1/orgs/:orgId/members/:membershipId/overrides': { permissionKey: 'inventory.product.read', effect: 'DENY', reason: 'sweep test' },
   'POST /v1/orgs/:orgId/roles': { name: 'Sweep role', permissions: [] },
-  'PATCH /v1/orgs/:orgId/roles/:roleId': { name: 'Renamed by sweep' },
+  'PATCH /v1/orgs/:orgId/roles/:roleId': { version: 1, name: 'Renamed by sweep' },
   'POST /v1/orgs/:orgId/roles/:roleId/clone': { name: 'Cloned by sweep' },
   'POST /v1/orgs/:orgId/products': { sku: 'SWEEP-1', name: 'Sweep' },
   'PATCH /v1/orgs/:orgId/products/:productId': { version: 1, name: 'Renamed by sweep' },
@@ -96,13 +96,19 @@ const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/platform/support/conversations/:conversationId/read': { upToSeq: 0 },
 };
 
+/** Required query parameters, so validation passes and the authorization outcome is what is measured. */
+const SAMPLE_QUERIES: Record<string, string> = {
+  'DELETE /v1/orgs/:orgId/roles/:roleId': '?version=1',
+};
+const withQuery = (route: DiscoveredRoute, path: string) => path + (SAMPLE_QUERIES[`${route.method} ${route.path}`] ?? '');
+
 const TENANT_TABLES = [
   'organizations', 'organization_memberships', 'branches', 'organization_invitations', 'roles', 'role_permissions',
   'membership_roles', 'membership_permission_overrides', 'organization_subscriptions', 'products', 'stock_balances',
   'stock_movements', 'audit_events', 'product_categories', 'suppliers', 'supplier_products', 'organization_sequences', 'purchase_orders',
   'purchase_order_lines', 'purchase_order_events', 'goods_receipts', 'goods_receipt_lines', 'supplier_returns', 'supplier_return_lines',
   'stock_counts', 'stock_count_lines', 'stock_transfers', 'customers', 'cashier_sessions', 'sales', 'sale_lines', 'payments', 'refunds',
-  'sale_returns', 'sale_return_lines',
+  'sale_returns', 'sale_return_lines', 'role_permission_exclusions',
 ];
 
 describe('Authorization sweeps', () => {
@@ -128,6 +134,11 @@ describe('Authorization sweeps', () => {
     const override = await http(app).post(`/v1/orgs/${b.id}/members/${member.membershipId}/overrides`).set(bearer(b.owner))
       .send({ permissionKey: 'sales.sale.refund', effect: 'DENY', reason: 'seed' }).expect(201);
     const role = await http(app).post(`/v1/orgs/${b.id}/roles`).set(bearer(b.owner)).send({ name: 'B custom', permissions: ['inventory.product.read'] }).expect(201);
+    // A deliberate removal from a template role, so B also has a role permission exclusion.
+    const bViewer = (await http(app).get(`/v1/orgs/${b.id}/roles`).set(bearer(b.owner)).expect(200)).body
+      .find((r: { templateKey: string | null }) => r.templateKey === 'viewer') as { id: string; version: number; permissions: string[] };
+    await http(app).patch(`/v1/orgs/${b.id}/roles/${bViewer.id}`).set(bearer(b.owner))
+      .send({ version: bViewer.version, permissions: bViewer.permissions.filter((k) => k !== 'reports.operational.read') }).expect(200);
     const invitation = await http(app).post(`/v1/orgs/${b.id}/invitations`).set(bearer(b.owner)).send({ email: 'b-pending@example.test' }).expect(201);
     const category = await http(app).post(`/v1/orgs/${b.id}/product-categories`).set(bearer(b.owner)).send({ name: 'B category' }).expect(201);
     const supplier = await http(app).post(`/v1/orgs/${b.id}/suppliers`).set(bearer(b.owner)).send({ code: 'B-SUP', name: 'B supplier' }).expect(201);
@@ -160,7 +171,7 @@ describe('Authorization sweeps', () => {
 
   const sendWith = (route: DiscoveredRoute, path: string, user: { token: string }, extra: object) => {
     const verb = route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete';
-    return http(app)[verb](path).set(bearer(user)).send({ ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}), ...extra });
+    return http(app)[verb](withQuery(route, path)).set(bearer(user)).send({ ...(SAMPLE_BODIES[`${route.method} ${route.path}`] ?? {}), ...extra });
   };
 
   /** Event streams never end: the status line is the authorization outcome. */
@@ -195,7 +206,7 @@ describe('Authorization sweeps', () => {
     } else if (hasLines && (route.path.endsWith('/receipts') || route.path.endsWith('/returns'))) {
       body.lines = (body.lines as Record<string, unknown>[]).map((l) => ({ ...l, lineId: bIds.purchaseOrderId }));
     }
-    return http(app)[verb](path).set(bearer(user)).set('Idempotency-Key', `sweep-${randomUUID()}`).send(body);
+    return http(app)[verb](withQuery(route, path)).set(bearer(user)).set('Idempotency-Key', `sweep-${randomUUID()}`).send(body);
   };
 
   /** Fingerprint of everything organization B owns, read inside B's tenant context. */
@@ -259,6 +270,7 @@ describe('Authorization sweeps', () => {
       // Guard against a vacuous comparison: the fingerprint must actually contain B's data.
       expect(Number(after.products.split(':')[0])).toBeGreaterThan(0);
       expect(Number(after.audit_events.split(':')[0])).toBeGreaterThan(0);
+      expect(Number(after.role_permission_exclusions.split(':')[0])).toBeGreaterThan(0);
     });
 
     it("B's owner likewise cannot touch A", async () => {

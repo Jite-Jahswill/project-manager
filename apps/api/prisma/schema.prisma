@@ -466,6 +466,7 @@ model Permission {
   description String
 
   rolePermissions RolePermission[]
+  exclusions      RolePermissionExclusion[]
   overrides       MembershipPermissionOverride[]
 
   @@map("permissions")
@@ -483,11 +484,15 @@ model Role {
   /// Template version whose permissions this role has received (role-template-history.ts).
   /// NULL for custom and system roles, and for template roles created before versions were recorded (= version 1).
   templateVersion Int?     @map("template_version")
+  /// Optimistic concurrency: edits must name the version they were based on (incremented by every
+  /// change to the role or its permissions, including template sync grants).
+  version         Int      @default(1)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions  RolePermission[]
+  exclusions   RolePermissionExclusion[]
   assignments  MembershipRole[]
   invitations  OrganizationInvitation[]
 
@@ -504,6 +509,24 @@ model RoleTemplateState {
   syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)
 
   @@map("role_template_state")
+}
+
+/// Permissions an organization deliberately removed from one of its template roles. The role
+/// template sync never re-grants these (docs/architecture/10-organizations.md §10.6.1). Written
+/// and cleared by role edits; template roles only.
+model RolePermissionExclusion {
+  organizationId   String   @map("organization_id") @db.Uuid
+  roleId           String   @map("role_id") @db.Uuid
+  permissionKey    String   @map("permission_key")
+  excludedByUserId String?  @map("excluded_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionKey], references: [key])
+
+  @@id([roleId, permissionKey])
+  @@index([organizationId])
+  @@map("role_permission_exclusions")
 }
 
 model RolePermission {

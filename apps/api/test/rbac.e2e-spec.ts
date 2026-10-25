@@ -77,7 +77,7 @@ describe('Organization RBAC', () => {
     it('an org admin cannot create or edit a role with permissions they lack', async () => {
       await http(app).post(`/v1/orgs/${org.id}/roles`).set(bearer(admin)).send({ name: 'Payroll boss', permissions: ['hr.payroll.approve'] }).expect(403);
       const custom = await http(app).post(`/v1/orgs/${org.id}/roles`).set(bearer(admin)).send({ name: 'Shelf staff', permissions: ['inventory.product.read'] }).expect(201);
-      await http(app).patch(`/v1/orgs/${org.id}/roles/${custom.body.id}`).set(bearer(admin)).send({ permissions: ['inventory.product.read', 'hr.payroll.export'] }).expect(403);
+      await http(app).patch(`/v1/orgs/${org.id}/roles/${custom.body.id}`).set(bearer(admin)).send({ version: custom.body.version, permissions: ['inventory.product.read', 'hr.payroll.export'] }).expect(403);
     });
 
     it('an org admin cannot assign a role containing permissions they lack (including to themselves)', async () => {
@@ -103,8 +103,8 @@ describe('Organization RBAC', () => {
 
     it('the Owner role itself cannot be edited or deleted', async () => {
       const owner = await roleId(app, org, 'Owner');
-      await http(app).patch(`/v1/orgs/${org.id}/roles/${owner}`).set(bearer(org.owner)).send({ name: 'Boss' }).expect(403);
-      await http(app).delete(`/v1/orgs/${org.id}/roles/${owner}`).set(bearer(org.owner)).expect(403);
+      await http(app).patch(`/v1/orgs/${org.id}/roles/${owner}`).set(bearer(org.owner)).send({ version: 1, name: 'Boss' }).expect(403);
+      await http(app).delete(`/v1/orgs/${org.id}/roles/${owner}?version=1`).set(bearer(org.owner)).expect(403);
     });
 
     it('request bodies cannot smuggle extra authority fields', async () => {
@@ -125,7 +125,8 @@ describe('Organization RBAC', () => {
     const role = await http(app).post(`/v1/orgs/${org.id}/roles`).set(bearer(org.owner)).send({ name: 'Night shift', permissions: ['inventory.stock.read'] }).expect(201);
     const clone = await http(app).post(`/v1/orgs/${org.id}/roles/${role.body.id}/clone`).set(bearer(org.owner)).send({ name: 'Weekend shift' }).expect(201);
     expect(clone.body.permissions).toEqual(['inventory.stock.read']);
-    await http(app).delete(`/v1/orgs/${org.id}/roles/${clone.body.id}`).set(bearer(org.owner)).expect(204);
+    expect(clone.body.version).toBe(1);
+    await http(app).delete(`/v1/orgs/${org.id}/roles/${clone.body.id}?version=${clone.body.version}`).set(bearer(org.owner)).expect(204);
   });
 
   it('permission and role changes produce audit events with before/after values', async () => {

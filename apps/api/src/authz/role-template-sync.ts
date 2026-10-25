@@ -11,16 +11,17 @@ import { OWNER_TEMPLATE_KEY, ROLE_TEMPLATES } from './role-templates';
  * Rules, per template role (templateKey set, not a system role):
  * - Grant only what later template versions ADDED to the role's template, compared with
  *   the version the role has (NULL = version 1). Nothing is ever removed.
- * - Never grant a permission the organization explicitly removed from that role: the last
- *   audited change of that key on the role (organization.role.updated) was a removal. Such
- *   keys are withheld and reported.
+ * - Never grant a permission the organization deliberately removed from that role
+ *   (role_permission_exclusions, written by role edits). Such keys are withheld and reported.
  * - Custom roles, the Owner role, memberships, assignments and overrides are never touched.
  *   Renamed template roles still sync (identity is templateKey, which the API never changes).
  *   Deleted template roles are not recreated.
  *
  * Runs as the schema owner (the seed) under the app.template_sync policies, one transaction
  * per organization with the organization's template roles locked, so it is idempotent and
- * safe to run concurrently with itself and with role edits.
+ * safe to run concurrently with itself and with role edits. A grant increments the role's
+ * version, so an edit based on what the role looked like before the sync is refused (409)
+ * instead of silently removing the new permissions.
  */
 
 export type RolePlan =
@@ -33,8 +34,8 @@ export interface RolePlanInput {
   templateKey: string;
   templateVersion: number | null;
   current: readonly string[];
-  /** Keys whose last audited change on this role was a removal. */
-  explicitlyRemoved: ReadonlySet<string>;
+  /** Keys the organization deliberately removed from this role (role_permission_exclusions). */
+  excluded: ReadonlySet<string>;
 }
 
 const ORG_CATALOG: ReadonlySet<string> = new Set(PERMISSIONS.keys());
@@ -53,20 +54,9 @@ export function planRoleUpgrade(input: RolePlanInput, toVersion = ROLE_TEMPLATE_
   const introduced = target.filter((k) => !offered.has(k) && !held.has(k) && catalog.has(k));
   return {
     kind: 'upgrade', fromVersion, toVersion,
-    add: introduced.filter((k) => !input.explicitlyRemoved.has(k)).sort(),
-    withheld: introduced.filter((k) => input.explicitlyRemoved.has(k)).sort(),
+    add: introduced.filter((k) => !input.excluded.has(k)).sort(),
+    withheld: introduced.filter((k) => input.excluded.has(k)).sort(),
   };
-}
-
-/** Replays a role's permission edits (oldest first): the keys whose last change was a removal. */
-export function explicitlyRemovedKeys(edits: readonly { added?: unknown; removed?: unknown }[]): Set<string> {
-  const last = new Map<string, 'added' | 'removed'>();
-  const keys = (v: unknown) => (Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string') : []);
-  for (const e of edits) {
-    for (const k of keys(e.added)) last.set(k, 'added');
-    for (const k of keys(e.removed)) last.set(k, 'removed');
-  }
-  return new Set([...last].filter(([, change]) => change === 'removed').map(([k]) => k));
 }
 
 export interface RoleChange {
@@ -139,17 +129,14 @@ async function syncOrganization(tx: Prisma.TransactionClient, orgId: string, rep
   const ids = pending.map((r) => r.id);
   const perms = await tx.$queryRaw<{ role_id: string; permission_key: string }[]>`
     SELECT role_id, permission_key FROM role_permissions WHERE organization_id = ${orgId}::uuid AND role_id = ANY(${ids}::uuid[])`;
-  const edits = await tx.$queryRaw<{ resource_id: string; metadata: { added?: unknown; removed?: unknown } | null }[]>`
-    SELECT resource_id, metadata FROM audit_events
-    WHERE organization_id = ${orgId}::uuid AND resource_type = 'role' AND action = 'organization.role.updated'
-      AND resource_id = ANY(${ids}::text[])
-    ORDER BY occurred_at, id`;
+  const exclusions = await tx.$queryRaw<{ role_id: string; permission_key: string }[]>`
+    SELECT role_id, permission_key FROM role_permission_exclusions WHERE organization_id = ${orgId}::uuid AND role_id = ANY(${ids}::uuid[])`;
 
   for (const role of pending) {
     const current = perms.filter((p) => p.role_id === role.id).map((p) => p.permission_key).sort();
     const plan = planRoleUpgrade({
       templateKey: role.template_key, templateVersion: role.template_version, current,
-      explicitlyRemoved: explicitlyRemovedKeys(edits.filter((e) => e.resource_id === role.id).map((e) => e.metadata ?? {})),
+      excluded: new Set(exclusions.filter((e) => e.role_id === role.id).map((e) => e.permission_key)),
     });
     if (plan.kind === 'unknown_template') { report.unknownTemplates.push({ organizationId: orgId, roleId: role.id, templateKey: role.template_key }); continue; }
     if (plan.kind === 'ahead') { report.ahead.push({ organizationId: orgId, roleId: role.id, templateVersion: plan.templateVersion }); continue; }
@@ -171,7 +158,9 @@ async function syncOrganization(tx: Prisma.TransactionClient, orgId: string, rep
         ON CONFLICT DO NOTHING`;
     }
     await tx.$executeRaw`
-      UPDATE roles SET template_version = ${plan.toVersion}, updated_at = CASE WHEN ${plan.add.length > 0} THEN now() ELSE updated_at END
+      UPDATE roles SET template_version = ${plan.toVersion},
+        version = version + CASE WHEN ${plan.add.length > 0} THEN 1 ELSE 0 END,
+        updated_at = CASE WHEN ${plan.add.length > 0} THEN now() ELSE updated_at END
       WHERE id = ${role.id}::uuid`;
     if (plan.add.length || plan.withheld.length) {
       const metadata = JSON.stringify({ templateKey: role.template_key, fromVersion: plan.fromVersion, toVersion: plan.toVersion, added: plan.add, withheld: plan.withheld });
@@ -199,7 +188,7 @@ export function formatSyncReport(r: RoleTemplateSyncReport): string[] {
   ];
   for (const c of r.changes) {
     lines.push(`  org ${c.organizationId} role ${c.roleId} (${c.templateKey}, v${c.fromVersion}): +[${c.added.join(', ')}]`
-      + (c.withheld.length ? ` withheld (explicitly removed by the organization): [${c.withheld.join(', ')}]` : ''));
+      + (c.withheld.length ? ` withheld (removed by the organization): [${c.withheld.join(', ')}]` : ''));
   }
   for (const m of r.missingRoles) lines.push(`  org ${m.organizationId}: template roles not present (not recreated): ${m.templateKeys.join(', ')}`);
   for (const u of r.unknownTemplates) lines.push(`  org ${u.organizationId} role ${u.roleId}: unknown template "${u.templateKey}" (left unchanged)`);

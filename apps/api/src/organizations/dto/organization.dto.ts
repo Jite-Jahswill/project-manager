@@ -48,9 +48,16 @@ export class CreateRoleDto {
 }
 
 export class UpdateRoleDto {
+  @ApiProperty({ description: 'The role version you edited (optimistic concurrency); a stale version gets 409 version_conflict' })
+  @IsInt() @Min(1) version!: number;
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(1, 80) name?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({ each: true }) permissions?: string[];
+}
+
+export class DeleteRoleQuery {
+  @ApiProperty({ description: 'The role version you saw (optimistic concurrency); a stale version gets 409 version_conflict' })
+  @Type(() => Number) @IsInt() @Min(1) version!: number;
 }
 
 export class CloneRoleDto {

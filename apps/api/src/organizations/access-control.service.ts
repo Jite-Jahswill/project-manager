@@ -24,6 +24,9 @@ const RESEND_INTERVAL_MS = 60_000;
 
 type RoleWithPermissions = { id: string; name: string; isSystem: boolean; templateKey: string | null; permissions: { permissionKey: string }[] };
 
+const roleVersionConflict = (current: number) =>
+  Errors.conflict('version_conflict', `The role changed (current version ${current}); reload and retry`);
+
 const isOwnerRole = (r: { isSystem: boolean; templateKey: string | null }) => r.isSystem && r.templateKey === OWNER_TEMPLATE_KEY;
 
 /**
@@ -412,7 +415,7 @@ export class AccessControlService {
     return this.db.inOrg(access, async (tx) => {
       const roles = await tx.role.findMany({
         select: {
-          id: true, name: true, description: true, isSystem: true, templateKey: true,
+          id: true, name: true, description: true, isSystem: true, templateKey: true, version: true,
           permissions: { select: { permissionKey: true } }, _count: { select: { assignments: true } },
         },
         orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
@@ -420,7 +423,7 @@ export class AccessControlService {
       return roles.map((r) => {
         const permissions = r.permissions.map((p) => p.permissionKey).sort();
         return {
-          id: r.id, name: r.name, description: r.description, isSystem: r.isSystem, templateKey: r.templateKey,
+          id: r.id, name: r.name, description: r.description, isSystem: r.isSystem, templateKey: r.templateKey, version: r.version,
           permissions: isOwnerRole(r) ? ['*'] : permissions,
           notAppliedAtBranch: isOwnerRole(r) ? [] : notAppliedAtBranch(permissions),
           assignmentCount: r._count.assignments,
@@ -442,6 +445,8 @@ export class AccessControlService {
       const actor = await this.lockAndReload(tx, access, 'organization.role.manage');
       const role = await this.loadRole(tx, roleId, { forUpdate: true });
       if (role.isSystem) throw Errors.forbidden('System roles cannot be modified');
+      // Checked under the row lock: of two edits based on the same version, exactly one succeeds.
+      if (role.version !== dto.version) throw roleVersionConflict(role.version);
       const before = role.permissions.map((p) => p.permissionKey).sort();
       if (dto.name && dto.name.trim() !== role.name) await this.assertRoleNameFree(tx, dto.name);
 
@@ -454,16 +459,30 @@ export class AccessControlService {
         assertCanDelegate(actor, [...added, ...removed]);
         if (removed.length) await tx.rolePermission.deleteMany({ where: { roleId, permissionKey: { in: removed } } });
         if (added.length) await tx.rolePermission.createMany({ data: added.map((permissionKey) => ({ organizationId: actor.organizationId, roleId, permissionKey })) });
+        // Template roles: a removal is a deliberate customization the template sync must never undo;
+        // adding the permission back withdraws it (docs/architecture/10-organizations.md §10.6.1).
+        if (role.templateKey) {
+          if (removed.length) {
+            await tx.rolePermissionExclusion.createMany({
+              data: removed.map((permissionKey) => ({ organizationId: actor.organizationId, roleId, permissionKey, excludedByUserId: actor.userId })),
+              skipDuplicates: true,
+            });
+          }
+          if (added.length) await tx.rolePermissionExclusion.deleteMany({ where: { roleId, permissionKey: { in: added } } });
+        }
       }
       const updated = await tx.role.update({
         where: { id: roleId },
-        data: { ...(dto.name ? { name: dto.name.trim() } : {}), ...(dto.description !== undefined ? { description: dto.description } : {}) },
+        data: {
+          ...(dto.name ? { name: dto.name.trim() } : {}), ...(dto.description !== undefined ? { description: dto.description } : {}),
+          version: { increment: 1 },
+        },
       });
       await this.audit.record(tx, {
         action: 'organization.role.updated', resourceType: 'role', resourceId: roleId, organizationId: actor.organizationId,
         actorUserId: actor.userId,
-        before: { name: role.name, description: role.description, permissions: before },
-        after: { name: updated.name, description: updated.description, permissions: next ?? before },
+        before: { name: role.name, description: role.description, permissions: before, version: role.version },
+        after: { name: updated.name, description: updated.description, permissions: next ?? before, version: updated.version },
         metadata: { added, removed },
       }, meta);
       return { ...updated, permissions: next ?? before };
@@ -479,11 +498,12 @@ export class AccessControlService {
     });
   }
 
-  deleteRole(access: EffectiveAccess, roleId: string, meta: RequestMeta) {
+  deleteRole(access: EffectiveAccess, roleId: string, version: number, meta: RequestMeta) {
     return this.db.inOrg(access, async (tx) => {
       const actor = await this.lockAndReload(tx, access, 'organization.role.manage');
       const role = await this.loadRole(tx, roleId, { forUpdate: true });
       if (role.isSystem) throw Errors.forbidden('System roles cannot be deleted');
+      if (role.version !== version) throw roleVersionConflict(role.version);
       assertCanDelegate(actor, role.permissions.map((p) => p.permissionKey));
       const [assigned, invited] = await Promise.all([
         tx.membershipRole.count({ where: { roleId } }),
@@ -493,7 +513,7 @@ export class AccessControlService {
       await tx.role.delete({ where: { id: roleId } });
       await this.audit.record(tx, {
         action: 'organization.role.deleted', resourceType: 'role', resourceId: roleId, organizationId: actor.organizationId,
-        actorUserId: actor.userId, before: { name: role.name, permissions: role.permissions.map((p) => p.permissionKey) },
+        actorUserId: actor.userId, before: { name: role.name, permissions: role.permissions.map((p) => p.permissionKey), version: role.version },
       }, meta);
     });
   }
@@ -566,11 +586,11 @@ export class AccessControlService {
    * forUpdate locks the role row first, so permission edits serialize with each other and with
    * the role template sync (role-template-sync.ts), which locks the same rows.
    */
-  private async loadRole(tx: Tx, roleId: string, opts: { forUpdate?: boolean } = {}): Promise<RoleWithPermissions & { description: string | null }> {
+  private async loadRole(tx: Tx, roleId: string, opts: { forUpdate?: boolean } = {}): Promise<RoleWithPermissions & { description: string | null; version: number }> {
     if (opts.forUpdate) await tx.$queryRaw`SELECT 1 FROM roles WHERE id = ${roleId}::uuid FOR UPDATE`;
     const role = await tx.role.findUnique({
       where: { id: roleId },
-      select: { id: true, name: true, description: true, isSystem: true, templateKey: true, permissions: { select: { permissionKey: true } } },
+      select: { id: true, name: true, description: true, isSystem: true, templateKey: true, version: true, permissions: { select: { permissionKey: true } } },
     });
     if (!role) throw Errors.notFound('Role');
     return role;

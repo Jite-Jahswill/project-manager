@@ -89,8 +89,9 @@ describe('PostgreSQL row-level security (runtime role)', () => {
     // exactly these policies, all keyed on its scope. None deletes; none covers other tables.
     const syncPolicies = res.rows.filter((p) => p.roles.includes('ventidoc_migrator'));
     expect(syncPolicies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual([
-      'audit_events.template_sync_insert:INSERT', 'audit_events.template_sync_select:SELECT',
+      'audit_events.template_sync_insert:INSERT',
       'organizations.template_sync_select:SELECT',
+      'role_permission_exclusions.template_sync_select:SELECT',
       'role_permissions.template_sync_insert:INSERT', 'role_permissions.template_sync_select:SELECT',
       'roles.template_sync_select:SELECT', 'roles.template_sync_update:UPDATE',
     ]);
