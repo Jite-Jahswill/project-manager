@@ -2,8 +2,12 @@ import { ALL_PERMISSION_KEYS, PermissionKey } from './permission-registry';
 
 /**
  * Starter roles copied into every new organization. After creation they are
- * ordinary, editable roles owned by that organization; changing a template here
- * does not modify existing organizations.
+ * ordinary, editable roles owned by that organization (identified by templateKey).
+ *
+ * Templates are versioned (role-template-history.ts). Changing one here requires a new
+ * history snapshot; `pnpm api db:seed` then grants existing organizations' template roles
+ * only what the new version ADDED, never what an organization explicitly removed, and
+ * never removes anything (role-template-sync.ts).
  *
  * The Owner role is the exception: it is a locked system role whose holders have
  * every permission (see permission-evaluator.ts), so it stores no permission rows.

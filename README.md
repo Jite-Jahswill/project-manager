@@ -21,7 +21,7 @@ pnpm install                      # also generates the Prisma client
 pnpm infra:up                     # Postgres + Redis; first start creates the DB roles
 
 pnpm api db:migrate               # apply migrations as ventidoc_migrator
-pnpm api db:seed                  # sync permission catalogs and plans (no users, no passwords)
+pnpm api db:seed                  # sync permission catalogs, plans and existing organizations' role templates (no users, no passwords)
 pnpm api build && pnpm api start  # http://localhost:3000, OpenAPI UI at /docs
 ```
 

@@ -5,6 +5,7 @@ import { Errors } from '../common/errors';
 import type { RequestMeta } from '../common/request-context';
 import { TenantDb, Tx } from '../database/tenant-db.service';
 import { EffectiveAccess, effectivePermissionKeys } from '../authz/permission-evaluator';
+import { ROLE_TEMPLATE_VERSION } from '../authz/role-template-history';
 import { OWNER_TEMPLATE_KEY, ROLE_TEMPLATES } from '../authz/role-templates';
 import { EntitlementService } from '../subscriptions/entitlement.service';
 import { DEFAULT_PLAN_CODE, ENTITLEMENTS, TRIAL_DAYS } from '../subscriptions/entitlements';
@@ -78,7 +79,9 @@ export class OrganizationsService {
         data: { organizationId: orgId, name: 'Owner', description: 'Full control, including ownership transfer.', isSystem: true, templateKey: OWNER_TEMPLATE_KEY },
       });
       for (const t of ROLE_TEMPLATES) {
-        const role = await tx.role.create({ data: { organizationId: orgId, name: t.name, description: t.description, templateKey: t.key } });
+        const role = await tx.role.create({
+          data: { organizationId: orgId, name: t.name, description: t.description, templateKey: t.key, templateVersion: ROLE_TEMPLATE_VERSION },
+        });
         await tx.rolePermission.createMany({
           data: t.permissions.map((permissionKey) => ({ organizationId: orgId, roleId: role.id, permissionKey })),
         });

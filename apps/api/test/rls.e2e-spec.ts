@@ -83,8 +83,22 @@ describe('PostgreSQL row-level security (runtime role)', () => {
 
   it('policy lint: every policy on a tenant table is bound to the app role and keyed on the tenant context', async () => {
     const res = await pool.query(`
-      SELECT tablename, policyname, roles::text[] AS roles, coalesce(qual, '') AS qual, coalesce(with_check, '') AS with_check
+      SELECT tablename, policyname, cmd, roles::text[] AS roles, coalesce(qual, '') AS qual, coalesce(with_check, '') AS with_check
       FROM pg_policies WHERE schemaname = 'public'`);
+    // The role template sync (schema owner, docs/architecture/10-organizations.md §10.6) has
+    // exactly these policies, all keyed on its scope. None deletes; none covers other tables.
+    const syncPolicies = res.rows.filter((p) => p.roles.includes('ventidoc_migrator'));
+    expect(syncPolicies.map((p) => `${p.tablename}.${p.policyname}:${p.cmd}`).sort()).toEqual([
+      'audit_events.template_sync_insert:INSERT', 'audit_events.template_sync_select:SELECT',
+      'organizations.template_sync_select:SELECT',
+      'role_permissions.template_sync_insert:INSERT', 'role_permissions.template_sync_select:SELECT',
+      'roles.template_sync_select:SELECT', 'roles.template_sync_update:UPDATE',
+    ]);
+    for (const p of syncPolicies) {
+      expect({ policy: `${p.tablename}.${p.policyname}`, roles: p.roles, keyed: /app_template_sync_scope\(\)/.test(`${p.qual} ${p.with_check}`) })
+        .toEqual({ policy: `${p.tablename}.${p.policyname}`, roles: ['ventidoc_migrator'], keyed: true });
+    }
+    res.rows = res.rows.filter((p) => !p.roles.includes('ventidoc_migrator'));
     // User-owned tables that carry organization_id only as context (support conversations):
     // the organization's tenant context must grant nothing, so they have their own, stricter rule below.
     const USER_OWNED = new Set(['support_conversations']);

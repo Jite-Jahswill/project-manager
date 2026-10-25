@@ -472,16 +472,19 @@ model Permission {
 }
 
 model Role {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  name           String
-  description    String?
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  name            String
+  description     String?
   /// System roles (Owner) cannot be edited or deleted.
-  isSystem       Boolean  @default(false) @map("is_system")
+  isSystem        Boolean  @default(false) @map("is_system")
   /// The starter template this role was created from, if any.
-  templateKey    String?  @map("template_key")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  templateKey     String?  @map("template_key")
+  /// Template version whose permissions this role has received (role-template-history.ts).
+  /// NULL for custom and system roles, and for template roles created before versions were recorded (= version 1).
+  templateVersion Int?     @map("template_version")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions  RolePermission[]
@@ -491,6 +494,16 @@ model Role {
   @@unique([organizationId, name])
   @@unique([id, organizationId])
   @@map("roles")
+}
+
+/// Singleton (id = 1): the role template version every existing organization has been synced to.
+/// Written by the seed (syncRoleTemplates); the API refuses to start while it is behind the code.
+model RoleTemplateState {
+  id       Int      @id @default(1) @db.SmallInt
+  version  Int
+  syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz(3)
+
+  @@map("role_template_state")
 }
 
 model RolePermission {

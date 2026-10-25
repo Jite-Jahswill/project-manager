@@ -440,7 +440,7 @@ export class AccessControlService {
     const next = dto.permissions ? this.validatePermissionKeys(dto.permissions) : undefined;
     return this.db.inOrg(access, async (tx) => {
       const actor = await this.lockAndReload(tx, access, 'organization.role.manage');
-      const role = await this.loadRole(tx, roleId);
+      const role = await this.loadRole(tx, roleId, { forUpdate: true });
       if (role.isSystem) throw Errors.forbidden('System roles cannot be modified');
       const before = role.permissions.map((p) => p.permissionKey).sort();
       if (dto.name && dto.name.trim() !== role.name) await this.assertRoleNameFree(tx, dto.name);
@@ -482,7 +482,7 @@ export class AccessControlService {
   deleteRole(access: EffectiveAccess, roleId: string, meta: RequestMeta) {
     return this.db.inOrg(access, async (tx) => {
       const actor = await this.lockAndReload(tx, access, 'organization.role.manage');
-      const role = await this.loadRole(tx, roleId);
+      const role = await this.loadRole(tx, roleId, { forUpdate: true });
       if (role.isSystem) throw Errors.forbidden('System roles cannot be deleted');
       assertCanDelegate(actor, role.permissions.map((p) => p.permissionKey));
       const [assigned, invited] = await Promise.all([
@@ -562,7 +562,12 @@ export class AccessControlService {
   }
 
   /** RLS makes another organization's role invisible, so a foreign ID is simply "not found". */
-  private async loadRole(tx: Tx, roleId: string): Promise<RoleWithPermissions & { description: string | null }> {
+  /**
+   * forUpdate locks the role row first, so permission edits serialize with each other and with
+   * the role template sync (role-template-sync.ts), which locks the same rows.
+   */
+  private async loadRole(tx: Tx, roleId: string, opts: { forUpdate?: boolean } = {}): Promise<RoleWithPermissions & { description: string | null }> {
+    if (opts.forUpdate) await tx.$queryRaw`SELECT 1 FROM roles WHERE id = ${roleId}::uuid FOR UPDATE`;
     const role = await tx.role.findUnique({
       where: { id: roleId },
       select: { id: true, name: true, description: true, isSystem: true, templateKey: true, permissions: { select: { permissionKey: true } } },

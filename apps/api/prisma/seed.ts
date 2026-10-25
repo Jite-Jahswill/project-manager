@@ -3,6 +3,9 @@
  * migration (pnpm api db:seed). Connects as the migrator role because the app
  * role has read-only access to the permission catalogs.
  *
+ * Also brings existing organizations' template roles up to the current role
+ * template version (additive only; see src/authz/role-template-sync.ts).
+ *
  * Creates no users and no credentials.
  */
 import 'dotenv/config';
@@ -12,13 +15,14 @@ import { describeKey, PERMISSIONS } from '../src/authz/permission-registry';
 import { PLATFORM_PERMISSIONS, PLATFORM_ROLE_TEMPLATES, SUPER_ADMIN_ROLE_NAME } from '../src/authz/platform-permission-registry';
 import { PLAN_SEEDS } from '../src/subscriptions/entitlements';
 import { TEMPLATE_DEFINITIONS } from '../src/email/templates';
+import { formatSyncReport, RoleTemplateSyncReport, syncRoleTemplates } from '../src/authz/role-template-sync';
 
 export interface SeedOptions {
   /** Development/test only: bootstrap a LOG or CAPTURE provider, active, with sending on. Ignored in production. */
   devEmailProvider?: 'LOG' | 'CAPTURE';
 }
 
-export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise<void> {
+export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise<RoleTemplateSyncReport> {
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   try {
     for (const p of PERMISSIONS.values()) {
@@ -78,6 +82,11 @@ export async function seed(databaseUrl: string, opts: SeedOptions = {}): Promise
     }
 
     await seedEmail(prisma, opts);
+
+    // Existing organizations' template roles converge on the current role template version
+    // (additive, audited, idempotent; docs/architecture/10-organizations.md §10.6). Last, so it
+    // sees the complete permission catalog.
+    return await syncRoleTemplates(prisma);
   } finally {
     await prisma.$disconnect();
   }
@@ -118,7 +127,10 @@ if (require.main === module) {
   const url = process.env.MIGRATION_DATABASE_URL;
   if (!url) throw new Error('MIGRATION_DATABASE_URL is required');
   seed(url)
-    .then(() => console.log('Seed complete.'))
+    .then((report) => {
+      for (const line of formatSyncReport(report)) console.log(line);
+      console.log('Seed complete.');
+    })
     .catch((e: unknown) => {
       console.error(e);
       process.exit(1);

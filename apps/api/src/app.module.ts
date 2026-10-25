@@ -5,6 +5,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthzModule } from './authz/authz.module';
 import { PERMISSIONS } from './authz/permission-registry';
+import { ROLE_TEMPLATE_VERSION } from './authz/role-template-history';
 import { DatabaseModule } from './database/database.module';
 import { PrismaService } from './database/prisma.service';
 import { HealthController } from './health.controller';
@@ -50,11 +51,19 @@ class ConfigModule {}
 export class AppModule implements OnApplicationBootstrap {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Refuse to serve if the permission catalog in the database is behind the code. */
+  /**
+   * Refuse to serve if the permission catalog in the database is behind the code, or if
+   * existing organizations' template roles have not been synced to the current role
+   * template version (docs/architecture/10-organizations.md §10.6).
+   */
   async onApplicationBootstrap(): Promise<void> {
     const rows = await this.prisma.permission.findMany({ select: { key: true } });
     const inDb = new Set(rows.map((r) => r.key));
     const missing = [...PERMISSIONS.keys()].filter((k) => !inDb.has(k));
     if (missing.length) throw new Error(`Permission catalog out of date (missing ${missing.join(', ')}). Run: pnpm api db:seed`);
+    const state = await this.prisma.roleTemplateState.findUnique({ where: { id: 1 } });
+    if (!state || state.version < ROLE_TEMPLATE_VERSION) {
+      throw new Error(`Organization role templates not synced (database: ${state?.version ?? 'never'}, code: ${ROLE_TEMPLATE_VERSION}). Run: pnpm api db:seed`);
+    }
   }
 }

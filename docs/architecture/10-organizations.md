@@ -75,3 +75,36 @@ Emails go through the transactional outbox (the token is encrypted at rest and w
 | `GET /v1/permissions` | authenticated | The organization permission catalog and role templates (no platform permissions) |
 | `GET /v1/orgs/:orgId/roles` | `organization.role.read` | System and custom roles, permissions, assignment counts |
 | `POST /v1/orgs/:orgId/roles`, `PATCH …/:roleId`, `POST …/:roleId/clone`, `DELETE …/:roleId` | `organization.role.manage` | Custom roles. Delegation applies to every permission added or removed. System roles cannot be changed, cloned or deleted. Roles in use (by members or pending invitations) cannot be deleted |
+
+### 10.6.1 Template versions and existing organizations
+
+Every new organization gets an Owner role (system, locked; holds every permission without stored rows) and one role per template in `src/authz/role-templates.ts`. Those template roles are ordinary roles of the organization: administrators may rename them, change their permissions or delete them. A role's **identity** as a template role is `template_key` (set at creation; the API never changes it, and clones and custom roles never have one), not its name.
+
+Templates are **versioned**. `src/authz/role-template-history.ts` keeps a frozen, full snapshot per version; `ROLE_TEMPLATE_VERSION` is the newest. `roles.template_version` records which version's permissions a template role has received:
+
+| Version | Shipped with | Added to templates |
+|---|---|---|
+| 1 | stage 1 to phase 3 | (baseline) |
+| 2 | phase 4: inventory and purchasing | stock counts, categories, cost prices, purchase-order read/submit, supplier returns, purchasing reports |
+| 3 | phase 5: sales and point of sale | cashier sessions, voids, returns and restocking, sales reports |
+
+New organizations are created at the current version. Template roles created before versions were recorded have `template_version` NULL and are treated as **version 1**.
+
+**Sync.** `pnpm api db:seed` (required after every migration) runs `syncRoleTemplates()`; `pnpm api roles:sync-templates [--dry-run]` runs only the sync, or previews it. For each organization, in its own transaction, it locks the organization's template roles and, for each one below the current version:
+
+- **Grants what later versions added** to that role's template, compared with the role's version. Only keys in the organization permission catalog are granted (platform permissions are a separate table and a foreign key keeps them out of `role_permissions`).
+- **Never grants a key the organization explicitly removed** from that role. The evidence is the audit log: if the last `organization.role.updated` change of that key on that role was a removal, the key is *withheld* and reported.
+- **Never removes anything.** No template version has removed a permission from a template (a unit test enforces this). A future removal would need its own, explicit migration path.
+- **Records the version** and writes one `organization.role.template_upgraded` audit event (actor `SYSTEM`) per role that gained or withheld permissions, with before, after, added and withheld.
+- **Leaves alone**: custom roles (including clones), the Owner role, membership role assignments, permission overrides (GRANT/DENY keep their precedence: a DENY still beats a newly granted role permission), roles from an unknown template, and roles at a newer version than the running code (both reported). Deleted template roles are not recreated (reported as missing).
+- Suspended organizations are synced too; suspension is enforced at access time.
+
+The policy is therefore **selective reconciliation**: an organization's customizations win (its additions stay, its removals stay removed, its names stay), and only permissions it has never been offered are added.
+
+**Safety and concurrency.** The seed connects as the schema owner, which forced RLS binds as well. Narrow policies `TO ventidoc_migrator`, active only while the transaction sets `app.template_sync = 'on'` (`app_template_sync_scope()`), let it read organizations, template roles, their permissions and role-edit audit events; update template roles; insert permissions into template roles only; and write its own audit events. There is no delete or update policy on `role_permissions`, so the sync cannot remove a permission even by mistake. The runtime role gains nothing from the setting. Role edits (`PATCH`/`DELETE …/roles/:roleId`) lock the role row first, like the sync, so the two serialize. A second, concurrent sync waits and then finds the roles at the current version. Running the sync again changes nothing.
+
+`PATCH …/roles/:roleId` replaces the role's whole permission set and has no version check. An administrator who submits a set computed before a sync removes the newly granted permissions; that removal is audited like any other and is respected by later syncs. Clients should reload a role before editing it.
+
+**Enforcement.** The seed records the synced version in `role_template_state`. The API refuses to start while that is behind `ROLE_TEMPLATE_VERSION` (like the permission catalog check), so a deployment cannot serve new code against organizations whose roles were not synced.
+
+**Changing a template:** edit `ROLE_TEMPLATES`, append a snapshot equal to it to `ROLE_TEMPLATE_HISTORY` (a unit test fails until you do), deploy, run `pnpm api db:seed`.

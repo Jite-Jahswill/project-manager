@@ -20,6 +20,7 @@
     "postinstall": "prisma generate",
     "docs:rbac": "tsx scripts/generate-rbac-matrix.ts",
     "mfa:reencrypt": "tsx src/cli/mfa-reencrypt.ts",
+    "roles:sync-templates": "tsx src/cli/sync-role-templates.ts",
     "worker": "node dist/worker.js",
     "worker:dev": "nest start --entryFile worker --watch"
   },
