@@ -1,11 +1,11 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { AuditService } from '../audit/audit.service';
 import { ApiError, Errors } from '../common/errors';
 import type { RequestMeta } from '../common/request-context';
 import { TenantDb } from '../database/tenant-db.service';
-import { AttachmentStorage } from './attachment-storage';
+import { AttachmentObjects } from '../storage/attachment-objects.service';
 import { AttachmentRejected, MAX_ATTACHMENT_BYTES, sanitizeFileName, validateAttachment } from './attachments';
 import { staffCanSee } from './support-access';
 import { SupportService, Viewer } from './support.service';
@@ -31,11 +31,9 @@ const tooLarge = () => new ApiError(HttpStatus.PAYLOAD_TOO_LARGE, 'attachment_to
 
 @Injectable()
 export class SupportAttachmentsService {
-  private readonly logger = new Logger('SupportAttachments');
-
   constructor(
     private readonly db: TenantDb,
-    private readonly storage: AttachmentStorage,
+    private readonly objects: AttachmentObjects,
     private readonly audit: AuditService,
     private readonly support: SupportService,
   ) {}
@@ -59,34 +57,37 @@ export class SupportAttachmentsService {
     // Server-generated key only: nothing from the client reaches the storage path.
     const storageKey = `support/${conversation.id}/${id}`;
     const fileName = sanitizeFileName(rawName);
-    await this.storage.put(storageKey, data);
-    try {
-      return await this.db.asUser(viewer.userId, async (tx) => {
-        const row = await tx.supportAttachment.create({
-          data: {
-            id, conversationId: conversation.id, uploaderUserId: viewer.userId, uploaderKind: viewer.kind === 'customer' ? 'CUSTOMER' : 'STAFF',
-            storageKey, fileName, contentType, sizeBytes: data.length, sha256: createHash('sha256').update(data).digest('hex'),
-          },
-          select: { id: true, fileName: true, contentType: true, sizeBytes: true, createdAt: true },
-        });
-        await this.audit.record(tx, {
-          action: viewer.kind === 'staff' ? 'platform.support.attachment.uploaded' : 'support.attachment.uploaded',
-          resourceType: 'support_attachment', resourceId: id, actorType: viewer.kind === 'staff' ? 'PLATFORM_ADMIN' : 'USER',
-          actorUserId: viewer.userId, metadata: { conversationId: conversation.id, contentType, sizeBytes: data.length },
-        }, meta);
-        return row;
+    const sha256 = createHash('sha256').update(data).digest('hex');
+    // The object row (UPLOADING) commits with the attachment row before any bytes are written,
+    // so an interrupted upload is always found and cleaned up (docs/security/attachments.md §3).
+    const row = await this.db.asUser(viewer.userId, async (tx) => {
+      await this.objects.register(tx, { id, domain: 'support', storageKey, contentType, data, sha256 });
+      const created = await tx.supportAttachment.create({
+        data: {
+          id, conversationId: conversation.id, uploaderUserId: viewer.userId, uploaderKind: viewer.kind === 'customer' ? 'CUSTOMER' : 'STAFF',
+          storageKey, fileName, contentType, sizeBytes: data.length, sha256,
+        },
+        select: { id: true, fileName: true, contentType: true, sizeBytes: true, createdAt: true },
       });
-    } catch (e) {
-      await this.storage.remove(storageKey).catch(() => this.logger.warn(JSON.stringify({ event: 'support.attachment_orphan', attachmentId: id })));
-      throw e;
-    }
+      await this.audit.record(tx, {
+        action: viewer.kind === 'staff' ? 'platform.support.attachment.uploaded' : 'support.attachment.uploaded',
+        resourceType: 'support_attachment', resourceId: id, actorType: viewer.kind === 'staff' ? 'PLATFORM_ADMIN' : 'USER',
+        actorUserId: viewer.userId, metadata: { conversationId: conversation.id, contentType, sizeBytes: data.length },
+      }, meta);
+      return created;
+    });
+    const scanStatus = await this.objects.storeAndScan(id, storageKey, data, sha256);
+    return { ...row, scanStatus };
   }
 
   async download(viewer: Viewer, attachmentId: string, meta: RequestMeta) {
     const a = await this.db.asUser(viewer.userId, async (tx) => {
       const row = await tx.supportAttachment.findUnique({
         where: { id: attachmentId },
-        include: { conversation: { select: { customerUserId: true, assigneeUserId: true } } },
+        include: {
+          conversation: { select: { customerUserId: true, assigneeUserId: true } },
+          object: { select: { id: true, state: true, backend: true, storageKey: true, sha256: true, sizeBytes: true } },
+        },
       });
       if (!row) throw Errors.notFound('Attachment');
       const allowed = viewer.kind === 'customer'
@@ -101,13 +102,8 @@ export class SupportAttachmentsService {
       }
       return row;
     });
-    let data: Buffer;
-    try {
-      data = await this.storage.get(a.storageKey);
-    } catch {
-      this.logger.warn(JSON.stringify({ event: 'support.attachment_missing', attachmentId: a.id }));
-      throw Errors.notFound('Attachment');
-    }
+    // Served only when scanned CLEAN, and only if the bytes still match the recorded SHA-256.
+    const data = await this.objects.readVerified(a.object);
     return { fileName: a.fileName, contentType: a.contentType, data };
   }
 }

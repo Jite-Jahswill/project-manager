@@ -5,7 +5,7 @@ import { PrismaService } from './prisma.service';
 
 export type Tx = Prisma.TransactionClient;
 
-const CONTEXT_KEYS = ['app.org_id', 'app.user_id', 'app.platform_scope', 'app.invitation_token_hash', 'app.email_worker'] as const;
+const CONTEXT_KEYS = ['app.org_id', 'app.user_id', 'app.platform_scope', 'app.invitation_token_hash', 'app.email_worker', 'app.attachment_worker'] as const;
 type ContextKey = (typeof CONTEXT_KEYS)[number];
 
 interface TxOptions {
@@ -76,6 +76,14 @@ export class TenantDb {
    */
   asEmailWorker<T>(fn: (tx: Tx) => Promise<T>, opts: TxOptions = {}): Promise<T> {
     return this.run({ 'app.email_worker': 'on' }, fn, opts);
+  }
+
+  /**
+   * Attachment lifecycle scope (scan verdicts, storage moves, upload sweeps): only
+   * attachment_objects is visible and updatable here; no tenant, support or business table is.
+   */
+  asAttachmentWorker<T>(fn: (tx: Tx) => Promise<T>, opts: TxOptions = {}): Promise<T> {
+    return this.run({ 'app.attachment_worker': 'on' }, fn, opts);
   }
 
   private run<T>(settings: Partial<Record<ContextKey, string>>, fn: (tx: Tx) => Promise<T>, opts: TxOptions): Promise<T> {

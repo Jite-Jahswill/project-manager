@@ -148,13 +148,13 @@ All report routes require `finance.report.read` (organization-wide, RESTRICTED).
 
 ## 13.5 Attachments
 
-Expense attachments use the same private storage abstraction as support (`AttachmentStorage`):
+Expense attachments use the same private storage, malware scanning and delivery as support ([attachments.md](../security/attachments.md), Phase 7):
 - **Storage:** bytes stay out of PostgreSQL, under server-generated keys `finance/<expense>/<attachment>`. No public or permanent URLs exist, and storage keys never appear in responses.
 - **Upload:** raw body, at most 10 MB. The type is detected from the content and must be PNG, JPEG, GIF, WebP, PDF or UTF-8 text (wrong type 415, empty 400). File names are sanitized.
 - **Limits:** at most 10 attachments per expense, and only while the expense is DRAFT or SUBMITTED. A database trigger checks the status as well.
 - **Authorization:** the expense is checked before any bytes are examined or stored. Downloads go through an authorized request, are audited, and are sent with `nosniff`, a sandboxing CSP and `no-store`.
-- **No scanning:** there is no malware scanning and no EXIF removal.
-- **Production blocker:** only the local-disk development driver exists, so production mode is refused until private object storage with short-lived authorized downloads is added (config `productionBlockers`).
+- **Scanning:** every file is scanned by ClamAV and served only when CLEAN (`scanStatus` in upload responses and in the expense detail). Infected files are deleted and blocked; abandoned and blocked uploads don't count towards the 10-file limit. EXIF is not stripped.
+- **Storage:** private S3-compatible bucket; downloads are streamed by the API after authorization and verified against the recorded SHA-256. Production stays refused until the bucket and scanner are configured and verified (config `productionBlockers`).
 
 Uploads are rate-limited (`finance.upload.user`, 60/h).
 

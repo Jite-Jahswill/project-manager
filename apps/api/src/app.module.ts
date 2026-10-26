@@ -13,6 +13,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
 import { SalesModule } from './sales/sales.module';
 import { FinanceModule } from './finance/finance.module';
+import { StorageModule } from './storage/storage.module';
 import { EmailModule } from './email/email.module';
 import { AuthDbModule } from './auth/auth-db.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -45,6 +46,7 @@ class ConfigModule {}
     PurchasingModule,
     SalesModule,
     FinanceModule,
+    StorageModule,
     PlatformModule,
     SupportModule,
   ],

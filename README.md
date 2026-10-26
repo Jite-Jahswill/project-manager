@@ -18,10 +18,11 @@ Requirements: Node ≥ 22, pnpm 10, Docker.
 cp .env.example .env              # then replace every CHANGE_ME (openssl rand -base64 48)
 ln -sf ../../.env apps/api/.env   # the API, Prisma and tests read apps/api/.env
 pnpm install                      # also generates the Prisma client
-pnpm infra:up                     # Postgres + Redis; first start creates the DB roles
+pnpm infra:up                     # Postgres, Redis, S3-compatible store, ClamAV (first start: DB roles, ~2 min ClamAV signatures)
 
 pnpm api db:migrate               # apply migrations as ventidoc_migrator
 pnpm api db:seed                  # sync permission catalogs, plans and existing organizations' role templates (no users, no passwords)
+pnpm api storage:init             # development: create the attachment bucket, check ClamAV
 pnpm api build && pnpm api start  # http://localhost:3000, OpenAPI UI at /docs
 ```
 
@@ -61,6 +62,8 @@ Inventory (catalogue, stock ledger, counts, transfers), suppliers and purchase o
 Sales and point of sale (customers, cashier sessions, sales posted through the stock ledger, manual payments, refunds, returns and exchanges): [docs/architecture/12-sales.md](docs/architecture/12-sales.md).
 
 Finance (expense categories, expenses with approval and attachments, operational cash movements, per-currency summaries and bounded CSV exports): [docs/architecture/13-finance.md](docs/architecture/13-finance.md).
+
+Attachments (support and finance): private S3-compatible storage, ClamAV malware scanning, verified authenticated downloads, interrupted-upload cleanup and local-disk migration: [docs/security/attachments.md](docs/security/attachments.md).
 
 Customer support (conversations, assignment, internal notes, real-time events, attachments): [docs/architecture/09-support.md](docs/architecture/09-support.md) and [docs/security/support.md](docs/security/support.md). Development attachments are stored under `apps/api/.data/` (git-ignored).
 

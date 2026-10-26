@@ -35,7 +35,16 @@ delete process.env.TRUSTED_PROXIES;
 process.env.EMAIL_WORKER_MODE = 'inline';
 process.env.EMAIL_WORKER_POLL_MS = '50';
 delete process.env.EMAIL_BOOTSTRAP_DEV_PROVIDER;
-// Support: attachments in a throwaway directory; streams re-check sessions quickly.
-process.env.SUPPORT_STORAGE_DIR = mkdtempSync(join(tmpdir(), 'ventidoc-support-'));
+// Attachments: the real S3-compatible store (its own test bucket) and the real ClamAV scanner,
+// as configured in .env (docs/security/attachments.md). Suites drive the background worker
+// explicitly (AttachmentObjects.runOnce) instead of a timer. The local directory is throwaway.
+const testBucket = process.env.TEST_S3_BUCKET;
+if (!testBucket || !/-test$/.test(testBucket)) throw new Error('TEST_S3_BUCKET must be set and end with "-test" (tests write and delete objects)');
+process.env.S3_BUCKET = testBucket;
+process.env.ATTACHMENT_STORAGE_DRIVER = 's3';
+process.env.MALWARE_SCANNER = 'clamav';
+process.env.ATTACHMENT_WORKER_MODE = 'off';
+process.env.ATTACHMENT_LOCAL_DIR = mkdtempSync(join(tmpdir(), 'ventidoc-attachments-'));
+// Support: streams re-check sessions quickly.
 process.env.SUPPORT_STREAM_REVALIDATE_MS = '200';
 process.env.SUPPORT_STREAM_HEARTBEAT_MS = '1000';

@@ -21,10 +21,13 @@
     "docs:rbac": "tsx scripts/generate-rbac-matrix.ts",
     "mfa:reencrypt": "tsx src/cli/mfa-reencrypt.ts",
     "roles:sync-templates": "tsx src/cli/sync-role-templates.ts",
+    "attachments:migrate-storage": "node dist/cli/migrate-attachment-storage.js",
+    "storage:init": "tsx src/cli/storage-init.ts",
     "worker": "node dist/worker.js",
     "worker:dev": "nest start --entryFile worker --watch"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1149.0",
     "@nestjs/common": "11.2.7",
     "@nestjs/core": "11.2.7",
     "@nestjs/jwt": "^11.0.2",

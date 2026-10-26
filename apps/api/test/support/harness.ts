@@ -36,7 +36,7 @@ export const pools = {
 };
 
 const DATA_TABLES = [
-  'cash_movements', 'expense_attachments', 'expense_events', 'expenses', 'expense_categories',
+  'attachment_objects', 'cash_movements', 'expense_attachments', 'expense_events', 'expenses', 'expense_categories',
   'stock_movements', 'stock_balances', 'products', 'audit_events', 'organization_subscriptions',
   'membership_permission_overrides', 'membership_roles', 'role_permission_exclusions', 'role_permissions', 'organization_invitations', 'roles',
   'branches', 'organization_memberships', 'organizations', 'platform_admin_roles', 'platform_admins',

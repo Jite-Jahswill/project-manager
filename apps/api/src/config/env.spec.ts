@@ -19,7 +19,36 @@ describe('config validation', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: undefined })).toThrow(/NODE_ENV is required/);
     expect(() => loadConfig({ ...base, NODE_ENV: '' })).toThrow(/NODE_ENV is required/);
     for (const v of ['Production', 'prod', 'PRODUCTION', 'staging']) expect(() => loadConfig({ ...base, NODE_ENV: v })).toThrow(/Invalid NODE_ENV/);
-    expect(() => loadConfig({ ...base, SUPPORT_STORAGE_DRIVER: 's3' })).toThrow(/SUPPORT_STORAGE_DRIVER/);
+    expect(() => loadConfig({ ...base, SUPPORT_STORAGE_DRIVER: 'local' })).toThrow(/ATTACHMENT_STORAGE_DRIVER/);
+  });
+
+  it('validates attachment storage and scanner settings strictly', () => {
+    const s3 = { ...base, ATTACHMENT_STORAGE_DRIVER: 's3', S3_BUCKET: 'ventidoc-files', S3_REGION: 'eu-west-1' };
+    expect(loadConfig(s3).storage.s3).toMatchObject({ bucket: 'ventidoc-files', region: 'eu-west-1', endpoint: null, accessKeyId: null, serverSideEncryption: 'none' });
+    expect(() => loadConfig({ ...base, ATTACHMENT_STORAGE_DRIVER: 'gcs' })).toThrow(/ATTACHMENT_STORAGE_DRIVER/);
+    expect(() => loadConfig({ ...base, ATTACHMENT_STORAGE_DRIVER: 's3' })).toThrow(/S3_BUCKET/);
+    expect(() => loadConfig({ ...s3, S3_BUCKET: 'Bad_Bucket' })).toThrow(/S3_BUCKET/);
+    expect(() => loadConfig({ ...s3, S3_ACCESS_KEY_ID: 'only-one' })).toThrow(/both/);
+    expect(() => loadConfig({ ...s3, S3_ACCESS_KEY_ID: 'CHANGE_ME', S3_SECRET_ACCESS_KEY: 'CHANGE_ME' })).toThrow(/CHANGE_ME/);
+    expect(() => loadConfig({ ...s3, S3_ENDPOINT: 'https://user:pw@s3.example.com' })).toThrow(/S3_ENDPOINT/);
+    expect(() => loadConfig({ ...s3, S3_ENDPOINT: 'https://s3.example.com/bucket?x=1' })).toThrow(/S3_ENDPOINT/);
+    expect(() => loadConfig({ ...s3, S3_SSE: 'aws:kms' })).toThrow(/S3_SSE_KMS_KEY_ID/);
+    expect(() => loadConfig({ ...s3, S3_FORCE_PATH_STYLE: 'yes' })).toThrow(/S3_FORCE_PATH_STYLE/);
+    expect(() => loadConfig({ ...base, MALWARE_SCANNER: 'virustotal' })).toThrow(/MALWARE_SCANNER/);
+    expect(() => loadConfig({ ...base, ATTACHMENT_WORKER_MODE: 'cron' })).toThrow(/ATTACHMENT_WORKER_MODE/);
+    expect(() => loadConfig({ ...base, CLAMAV_HOST: 'evil host; rm' })).toThrow(/CLAMAV_HOST/);
+    expect(loadConfig({ ...base, MALWARE_SCANNER: 'clamav' }).storage.clamav).toEqual({ host: '127.0.0.1', port: 3310, timeoutMs: 30_000 });
+  });
+
+  it('production blockers name each missing attachment control, from the actual configuration', () => {
+    const blockers = (env: Record<string, string>) => { try { loadConfig({ ...base, NODE_ENV: 'production', REDIS_URL: 'rediss://:pw@redis.internal:6380', ...env }); return ''; } catch (e) { return (e as Error).message; } };
+    const weak = blockers({});
+    expect(weak).toMatch(/ATTACHMENT_STORAGE_DRIVER=s3/);
+    expect(weak).toMatch(/MALWARE_SCANNER=clamav/);
+    const strong = blockers({ ATTACHMENT_STORAGE_DRIVER: 's3', S3_BUCKET: 'vd-prod', S3_REGION: 'eu-west-1', S3_SSE: 'aws:kms', S3_SSE_KMS_KEY_ID: 'alias/vd', MALWARE_SCANNER: 'clamav' });
+    expect(strong).not.toMatch(/ATTACHMENT_STORAGE_DRIVER=s3|MALWARE_SCANNER=clamav|S3_SSE must/);
+    expect(strong).toMatch(/bucket must be verified private/);
+    expect(blockers({ ATTACHMENT_STORAGE_DRIVER: 's3', S3_BUCKET: 'vd-prod', S3_REGION: 'eu-west-1', S3_ENDPOINT: 'http://minio.internal:9000' })).toMatch(/S3_ENDPOINT must use https/);
   });
 
   it('accepts a valid development config', () => {
@@ -97,10 +126,19 @@ describe('config validation', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/not supported yet/);
   });
   it('keeps the standing production blockers even for an otherwise production-ready configuration', () => {
-    const blockers = productionBlockers(loadConfig({ ...base, REDIS_URL: 'rediss://app:strong-password@redis.internal:6380' }));
-    for (const topic of [/recovery approvers/, /secret manager\/KMS.*backup and rotation/, /hosting, HA/, /sending domain must be verified/, /bounce\/complaint ingestion/, /support and expense attachments need private object storage/]) {
+    // Production-ready storage: a private, encrypted S3 bucket over https, and ClamAV scanning.
+    const ready = {
+      ...base, REDIS_URL: 'rediss://app:strong-password@redis.internal:6380', ATTACHMENT_STORAGE_DRIVER: 's3', S3_BUCKET: 'vd-prod',
+      S3_REGION: 'eu-west-1', S3_SSE: 'aws:kms', S3_SSE_KMS_KEY_ID: 'alias/ventidoc-attachments', MALWARE_SCANNER: 'clamav',
+    };
+    const blockers = productionBlockers(loadConfig(ready));
+    for (const topic of [/recovery approvers/, /secret manager\/KMS.*backup and rotation/, /hosting, HA/, /sending domain must be verified/, /bounce\/complaint ingestion/, /bucket must be verified private/]) {
       expect(blockers.some((b) => topic.test(b))).toBe(true);
     }
     expect(blockers).toHaveLength(6);
+    // Without them, each missing control is its own blocker.
+    expect(productionBlockers(loadConfig({ ...base, REDIS_URL: ready.REDIS_URL }))).toEqual(expect.arrayContaining([
+      expect.stringMatching(/ATTACHMENT_STORAGE_DRIVER=s3/), expect.stringMatching(/MALWARE_SCANNER=clamav/),
+    ]));
   });
 });

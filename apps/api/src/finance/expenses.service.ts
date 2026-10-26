@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { decodeCursor, encodeCursor } from '../common/cursor';
@@ -10,7 +10,7 @@ import { Prisma } from '../generated/prisma/client';
 import { idempotencyReused, requireIdempotencyKey } from '../inventory/ledger';
 import { fmtMinor } from '../inventory/quantity';
 import { EntitlementService } from '../subscriptions/entitlement.service';
-import { AttachmentStorage } from '../support/attachment-storage';
+import { AttachmentObjects } from '../storage/attachment-objects.service';
 import { AttachmentRejected, sanitizeFileName, validateAttachment } from '../support/attachments';
 import type {
   CancelExpenseDto, CreateExpenseCategoryDto, CreateExpenseDto, ExpenseReasonDto, ExpenseVersionDto, ListExpensesQuery, UpdateExpenseCategoryDto,
@@ -42,13 +42,11 @@ const normalizeName = (name: string) => name.trim().replace(/\s+/g, ' ').toLower
  */
 @Injectable()
 export class ExpensesService {
-  private readonly logger = new Logger('Expenses');
-
   constructor(
     private readonly db: TenantDb,
     private readonly audit: AuditService,
     private readonly entitlements: EntitlementService,
-    private readonly storage: AttachmentStorage,
+    private readonly objects: AttachmentObjects,
   ) {}
 
   // ---------------------------------------------------------------- categories
@@ -153,7 +151,10 @@ export class ExpensesService {
         include: {
           category: { select: { id: true, name: true } },
           events: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
-          attachments: { select: { id: true, fileName: true, contentType: true, sizeBytes: true, uploadedByUserId: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+          attachments: {
+            select: { id: true, fileName: true, contentType: true, sizeBytes: true, uploadedByUserId: true, createdAt: true, object: { select: { state: true } } },
+            orderBy: { createdAt: 'asc' },
+          },
           correctedBy: { select: { id: true, number: true, status: true } },
         },
       });
@@ -161,7 +162,7 @@ export class ExpensesService {
       return {
         ...expenseView(e),
         events: e.events.map((ev) => ({ type: ev.type, fromStatus: ev.fromStatus, toStatus: ev.toStatus, actorUserId: ev.actorUserId, reason: ev.reason, createdAt: ev.createdAt })),
-        attachments: e.attachments,
+        attachments: e.attachments.map(({ object, ...a }) => ({ ...a, scanStatus: object.state })),
         correctedBy: e.correctedBy,
       };
     });
@@ -303,11 +304,10 @@ export class ExpensesService {
   async uploadAttachment(access: EffectiveAccess, expenseId: string, data: Buffer, declaredType: string | undefined, rawName: string | undefined, meta: RequestMeta) {
     // Authorize before looking at or storing the bytes: a caller who may not see the expense learns nothing.
     const target = await this.db.inOrg(access, async (tx) => {
-      const e = await tx.expense.findUnique({ where: { id: expenseId }, select: { id: true, status: true, branchId: true, createdByUserId: true, _count: { select: { attachments: true } } } });
+      const e = await tx.expense.findUnique({ where: { id: expenseId }, select: { id: true, status: true, branchId: true, createdByUserId: true } });
       if (!e || !this.mayRead(access, e)) throw Errors.notFound('Expense');
       if (e.createdByUserId !== access.userId || !can(access, 'finance.expense.create', e.branchId ?? undefined)) throw Errors.forbidden('Only the expense creator can attach files');
       if (e.status !== 'DRAFT' && e.status !== 'SUBMITTED') throw wrongStatus(e.status, 'given attachments');
-      if (e._count.attachments >= MAX_ATTACHMENTS_PER_EXPENSE) throw Errors.conflict('too_many_attachments', `An expense may have at most ${MAX_ATTACHMENTS_PER_EXPENSE} attachments`);
       return e;
     });
     let contentType: string;
@@ -322,53 +322,51 @@ export class ExpensesService {
     // Server-generated key only: nothing from the client reaches the storage path.
     const storageKey = `finance/${target.id}/${id}`;
     const fileName = sanitizeFileName(rawName);
-    await this.storage.put(storageKey, data);
-    try {
-      return await this.db.inOrg(access, async (tx) => {
-        await this.entitlements.assertWritable(tx, access.organizationId);
-        // Serializes with transitions and with other uploads (the count limit holds under concurrency).
-        const e = await this.lock(tx, access, expenseId);
-        if (e.status !== 'DRAFT' && e.status !== 'SUBMITTED') throw wrongStatus(e.status, 'given attachments');
-        if ((await tx.expenseAttachment.count({ where: { expenseId } })) >= MAX_ATTACHMENTS_PER_EXPENSE) {
-          throw Errors.conflict('too_many_attachments', `An expense may have at most ${MAX_ATTACHMENTS_PER_EXPENSE} attachments`);
-        }
-        const row = await tx.expenseAttachment.create({
-          data: {
-            id, organizationId: access.organizationId, expenseId, storageKey, fileName, contentType, sizeBytes: data.length,
-            sha256: createHash('sha256').update(data).digest('hex'), uploadedByUserId: access.userId,
-          },
-          select: { id: true, fileName: true, contentType: true, sizeBytes: true, uploadedByUserId: true, createdAt: true },
-        });
-        await this.event(tx, access, expenseId, 'attachment_added', null, null, null, { attachmentId: id, contentType, sizeBytes: data.length });
-        await this.audit.record(tx, {
-          action: 'finance.expense.attachment.uploaded', resourceType: 'expense_attachment', resourceId: id, organizationId: access.organizationId,
-          branchId: e.branch_id, actorUserId: access.userId, metadata: { expenseId, contentType, sizeBytes: data.length },
-        }, meta);
-        return row;
+    const sha256 = createHash('sha256').update(data).digest('hex');
+    // The object row (UPLOADING) commits with the attachment row before any bytes are written,
+    // so an interrupted upload is always found and cleaned up (docs/security/attachments.md §3).
+    const row = await this.db.inOrg(access, async (tx) => {
+      await this.entitlements.assertWritable(tx, access.organizationId);
+      // Serializes with transitions and with other uploads (the count limit holds under concurrency).
+      const e = await this.lock(tx, access, expenseId);
+      if (e.status !== 'DRAFT' && e.status !== 'SUBMITTED') throw wrongStatus(e.status, 'given attachments');
+      // Abandoned and blocked uploads do not count: the creator may replace them.
+      const live = await tx.expenseAttachment.count({ where: { expenseId, object: { state: { notIn: ['ABANDONED', 'INFECTED'] } } } });
+      if (live >= MAX_ATTACHMENTS_PER_EXPENSE) throw Errors.conflict('too_many_attachments', `An expense may have at most ${MAX_ATTACHMENTS_PER_EXPENSE} attachments`);
+      await this.objects.register(tx, { id, domain: 'finance', storageKey, contentType, data, sha256 });
+      const created = await tx.expenseAttachment.create({
+        data: { id, organizationId: access.organizationId, expenseId, storageKey, fileName, contentType, sizeBytes: data.length, sha256, uploadedByUserId: access.userId },
+        select: { id: true, fileName: true, contentType: true, sizeBytes: true, uploadedByUserId: true, createdAt: true },
       });
-    } catch (err) {
-      await this.storage.remove(storageKey).catch(() => this.logger.warn(JSON.stringify({ event: 'finance.attachment_orphan', attachmentId: id })));
-      throw err;
-    }
+      await this.event(tx, access, expenseId, 'attachment_added', null, null, null, { attachmentId: id, contentType, sizeBytes: data.length });
+      await this.audit.record(tx, {
+        action: 'finance.expense.attachment.uploaded', resourceType: 'expense_attachment', resourceId: id, organizationId: access.organizationId,
+        branchId: e.branch_id, actorUserId: access.userId, metadata: { expenseId, contentType, sizeBytes: data.length },
+      }, meta);
+      return created;
+    });
+    const scanStatus = await this.objects.storeAndScan(id, storageKey, data, sha256);
+    return { ...row, scanStatus };
   }
 
   async downloadAttachment(access: EffectiveAccess, attachmentId: string, meta: RequestMeta) {
     const a = await this.db.inOrg(access, async (tx) => {
-      const row = await tx.expenseAttachment.findUnique({ where: { id: attachmentId }, include: { expense: { select: { id: true, branchId: true, createdByUserId: true } } } });
+      const row = await tx.expenseAttachment.findUnique({
+        where: { id: attachmentId },
+        include: {
+          expense: { select: { id: true, branchId: true, createdByUserId: true } },
+          object: { select: { id: true, state: true, backend: true, storageKey: true, sha256: true, sizeBytes: true } },
+        },
+      });
       if (!row || !this.mayRead(access, row.expense)) throw Errors.notFound('Attachment');
-      await this.audit.record(tx, {
-        action: 'finance.expense.attachment.downloaded', resourceType: 'expense_attachment', resourceId: row.id, organizationId: access.organizationId,
-        branchId: row.expense.branchId, actorUserId: access.userId, metadata: { expenseId: row.expenseId },
-      }, meta);
       return row;
     });
-    let data: Buffer;
-    try {
-      data = await this.storage.get(a.storageKey);
-    } catch {
-      this.logger.warn(JSON.stringify({ event: 'finance.attachment_missing', attachmentId: a.id }));
-      throw Errors.notFound('Attachment');
-    }
+    // Served only when scanned CLEAN, and only if the bytes still match the recorded SHA-256.
+    const data = await this.objects.readVerified(a.object);
+    await this.db.inOrg(access, (tx) => this.audit.record(tx, {
+      action: 'finance.expense.attachment.downloaded', resourceType: 'expense_attachment', resourceId: a.id, organizationId: access.organizationId,
+      branchId: a.expense.branchId, actorUserId: access.userId, metadata: { expenseId: a.expenseId },
+    }, meta));
     return { fileName: a.fileName, contentType: a.contentType, data };
   }
 

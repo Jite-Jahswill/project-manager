@@ -4,14 +4,14 @@
  * Real PostgreSQL and Redis (docs/architecture/09-support.md, docs/security/support.md).
  */
 import { INestApplication } from '@nestjs/common';
-import { existsSync, readdirSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
-import { join } from 'node:path';
 import { PoolClient } from 'pg';
+import { loadConfig } from '../src/config/env';
 import { PrismaService } from '../src/database/prisma.service';
 import { EmailWorker } from '../src/email/email-worker.service';
 import { canTransition, SUPPORT_STATUSES } from '../src/support/lifecycle';
 import { SupportRealtimeService } from '../src/support/support-realtime.service';
+import { S3ObjectStore } from '../src/storage/s3-object-store';
 import {
   bearer, createOrg, createTestApp, enableMfa, http, login, mailsTo, PASSWORD, pools, resetDatabase, signUp, TestUser,
 } from './support/harness';
@@ -576,11 +576,15 @@ describe('Customer support', () => {
       expect((await up(customerA, Buffer.from('<html></html>'), 'text/html')).status).toBe(415);
       expect((await up(customerA, Buffer.alloc(10 * 1024 * 1024 + 1, 0x41), 'text/plain')).status).toBe(413);
       const ok = await up(customerA, PNG, 'image/png', encodeURIComponent('../../screenshot é.png')).expect(201);
-      expect(ok.body).toEqual({ id: expect.any(String), fileName: 'screenshot é.png', contentType: 'image/png', sizeBytes: PNG.length, createdAt: expect.any(String) });
+      expect(ok.body).toEqual({ id: expect.any(String), fileName: 'screenshot é.png', contentType: 'image/png', sizeBytes: PNG.length, createdAt: expect.any(String), scanStatus: 'CLEAN' });
       expect(JSON.stringify(ok.body)).not.toContain('support/');
-      // On disk under the configured root, at a server-generated key.
-      const dir = join(process.env.SUPPORT_STORAGE_DIR!, 'support', c.id);
-      expect(existsSync(dir) && readdirSync(dir)).toEqual([ok.body.id]);
+      // In the private S3 bucket at a server-generated key, byte for byte.
+      const store = new S3ObjectStore(loadConfig().storage.s3!);
+      try {
+        expect(Buffer.compare(await store.get(`support/${c.id}/${ok.body.id}`), PNG)).toBe(0);
+      } finally {
+        store.destroy();
+      }
       // Unsent: the uploader can fetch it; nobody else on the customer side.
       const dl = await cust(customerA).get(`/attachments/${ok.body.id}/content`).expect(200);
       expect(dl.headers['content-type']).toBe('image/png');

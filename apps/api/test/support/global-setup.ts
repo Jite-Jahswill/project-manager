@@ -15,6 +15,24 @@ export default async function globalSetup(): Promise<void> {
   } finally {
     redis.disconnect();
   }
+  // Attachment storage and malware scanning must be real too (docker compose: objectstore, clamav).
+  const { loadConfig } = await import('../../src/config/env');
+  const { S3ObjectStore } = await import('../../src/storage/s3-object-store');
+  const { ClamAvScanner } = await import('../../src/storage/malware-scanner');
+  const config = loadConfig();
+  const store = new S3ObjectStore(config.storage.s3!);
+  try {
+    await store.ensureBucket();
+  } catch (e) {
+    throw new Error(`BLOCKED: the S3-compatible test store (S3_ENDPOINT) is unavailable: ${(e as Error).message}. Start it with \`pnpm infra:up\`.`);
+  } finally {
+    store.destroy();
+  }
+  try {
+    await new ClamAvScanner(config.storage.clamav!).scan(Buffer.from('ventidoc test setup probe'));
+  } catch (e) {
+    throw new Error(`BLOCKED: the ClamAV test scanner (CLAMAV_HOST:CLAMAV_PORT) is unavailable: ${(e as Error).message}. Start it with \`pnpm infra:up\`.`);
+  }
   const cwd = resolve(__dirname, '../..');
   execFileSync('npx', ['prisma', 'migrate', 'deploy'], { cwd, env: process.env, stdio: ['ignore', 'ignore', 'inherit'] });
   const { seed } = await import('../../prisma/seed');

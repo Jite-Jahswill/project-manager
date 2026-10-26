@@ -233,12 +233,14 @@ export class SupportService {
       });
       const attachmentIds = [...new Set(dto.attachmentIds ?? [])];
       if (attachmentIds.length) {
+        // Only stored uploads, scanned clean or awaiting their scan (never uploading, abandoned,
+        // infected or unscannable ones); they are served only once CLEAN.
         const linked = await tx.supportAttachment.updateMany({
-          where: { id: { in: attachmentIds }, conversationId: c.id, uploaderUserId: viewer.userId, messageId: null },
+          where: { id: { in: attachmentIds }, conversationId: c.id, uploaderUserId: viewer.userId, messageId: null, object: { state: { in: ['PENDING_SCAN', 'CLEAN'] } } },
           data: { messageId: message.id },
         });
         if (linked.count !== attachmentIds.length) {
-          throw Errors.badRequest('invalid_attachments', 'Attachments must be your own, unsent uploads to this conversation');
+          throw Errors.badRequest('invalid_attachments', 'Attachments must be your own, unsent, successfully uploaded files in this conversation');
         }
       }
       if (viewer.kind === 'staff') await this.upsertMarker(tx, c.id, viewer.userId, seq);

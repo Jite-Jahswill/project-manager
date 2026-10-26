@@ -49,6 +49,18 @@ jobs:
       TEST_DATABASE_URL: postgresql://ventidoc_app:ci-app@127.0.0.1:5434/ventidoc_test
       TEST_MIGRATION_DATABASE_URL: postgresql://ventidoc_migrator:ci-migrator@127.0.0.1:5434/ventidoc_test
       TEST_AUTH_DATABASE_URL: postgresql://ventidoc_auth:ci-auth@127.0.0.1:5434/ventidoc_test
+      # Attachments: S3-compatible store and ClamAV, started below (docs/security/attachments.md).
+      ATTACHMENT_STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://127.0.0.1:8333
+      S3_REGION: us-east-1
+      S3_BUCKET: ventidoc-ci
+      TEST_S3_BUCKET: ventidoc-test
+      S3_ACCESS_KEY_ID: ci-only-object-store
+      S3_SECRET_ACCESS_KEY: ci-only-object-store-secret
+      S3_FORCE_PATH_STYLE: "true"
+      MALWARE_SCANNER: clamav
+      CLAMAV_HOST: 127.0.0.1
+      CLAMAV_PORT: "3310"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -64,6 +76,15 @@ jobs:
           docker run -d --name redis -p 127.0.0.1:6380:6379 redis:7-alpine redis-server --requirepass ci-redis
           for i in $(seq 1 30); do docker exec redis redis-cli -a ci-redis --no-auth-warning ping | grep -q PONG && break; sleep 1; done
           docker exec redis redis-cli -a ci-redis --no-auth-warning ping
+      - name: Start the object store and ClamAV (loopback only)
+        run: |
+          docker run -d --name objectstore -p 127.0.0.1:8333:8333 -e S3_ACCESS_KEY_ID -e S3_SECRET_ACCESS_KEY --entrypoint /bin/sh \
+            chrislusf/seaweedfs:3.97@sha256:bb05d66d2963b1cc48073190781c3dd29e2c4c88a2ae2986bf58e38c86d89c6e -c \
+            'printf "{\"identities\":[{\"name\":\"ventidoc\",\"credentials\":[{\"accessKey\":\"%s\",\"secretKey\":\"%s\"}],\"actions\":[\"Read\",\"Write\",\"List\",\"Tagging\",\"Admin\"]}]}" "$S3_ACCESS_KEY_ID" "$S3_SECRET_ACCESS_KEY" > /tmp/s3.json && exec weed server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=64 -volume.max=100 -s3 -s3.port=8333 -s3.config=/tmp/s3.json'
+          docker run -d --name clamav -p 127.0.0.1:3310:3310 clamav/clamav-debian:1.4@sha256:03a2f641117f0a8c908bac65a63c5e1e4695badc52a340c9d30397d7cebb9154
+          for i in $(seq 1 60); do nc -z 127.0.0.1 8333 && break; sleep 2; done
+          for i in $(seq 1 90); do docker exec clamav clamdscan --ping 3 >/dev/null 2>&1 && break; sleep 5; done
+          docker exec clamav clamdscan --ping 3
       - run: pnpm api typecheck
       - run: pnpm api lint
       - run: pnpm api build

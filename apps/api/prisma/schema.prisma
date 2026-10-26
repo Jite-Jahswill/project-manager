@@ -1263,6 +1263,8 @@ model SupportAttachment {
   conversation SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
   message      SupportMessage?     @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Restrict)
   uploader     User                @relation("SupportUploader", fields: [uploaderUserId], references: [id], onDelete: Restrict)
+  /// Storage location, integrity and malware-scan state (shared with expense attachments).
+  object       AttachmentObject    @relation("SupportAttachmentObject", fields: [id], references: [id], onDelete: Restrict)
 
   @@index([conversationId])
   @@index([messageId])
@@ -1985,7 +1987,9 @@ model ExpenseAttachment {
   uploadedByUserId String   @map("uploaded_by_user_id") @db.Uuid
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  expense Expense @relation(fields: [expenseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  expense Expense          @relation(fields: [expenseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  /// Storage location, integrity and malware-scan state (shared with support attachments).
+  object  AttachmentObject @relation("ExpenseAttachmentObject", fields: [id], references: [id], onDelete: Restrict)
 
   @@index([expenseId])
   @@map("expense_attachments")
@@ -2023,4 +2027,55 @@ model CashMovement {
   @@index([organizationId, branchId, createdAt])
   @@index([sessionId])
   @@map("cash_movements")
+}
+
+// ===========================================================================
+// Attachment objects: one lifecycle for every stored file (docs/security/attachments.md)
+// ===========================================================================
+
+/// UPLOADING -> PENDING_SCAN -> CLEAN | INFECTED | SCAN_FAILED; UPLOADING -> ABANDONED.
+/// Only CLEAN objects are ever served.
+enum AttachmentObjectState {
+  UPLOADING
+  PENDING_SCAN
+  CLEAN
+  INFECTED
+  SCAN_FAILED
+  ABANDONED
+}
+
+enum StorageBackend {
+  LOCAL
+  S3
+}
+
+/// The stored bytes behind a support or expense attachment (same id). Holds no tenant content.
+model AttachmentObject {
+  id              String                @id @db.Uuid
+  /// support | finance
+  domain          String
+  storageKey      String                @unique @map("storage_key")
+  backend         StorageBackend
+  state           AttachmentObjectState @default(UPLOADING)
+  contentType     String                @map("content_type")
+  sizeBytes       Int                   @map("size_bytes")
+  sha256          String                @db.Char(64)
+  scanAttempts    Int                   @default(0) @map("scan_attempts")
+  nextScanAt      DateTime?             @map("next_scan_at") @db.Timestamptz(3)
+  leaseUntil      DateTime?             @map("lease_until") @db.Timestamptz(3)
+  scannedAt       DateTime?             @map("scanned_at") @db.Timestamptz(3)
+  /// e.g. "ClamAV 1.4.3/27800": engine and signature database that gave the verdict.
+  scanEngine      String?               @map("scan_engine")
+  /// Malware signature name when INFECTED.
+  scanSignature   String?               @map("scan_signature")
+  /// When the bytes were removed from storage (INFECTED, ABANDONED).
+  objectDeletedAt DateTime?             @map("object_deleted_at") @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  supportAttachment SupportAttachment? @relation("SupportAttachmentObject")
+  expenseAttachment ExpenseAttachment? @relation("ExpenseAttachmentObject")
+
+  @@index([state, nextScanAt])
+  @@map("attachment_objects")
 }

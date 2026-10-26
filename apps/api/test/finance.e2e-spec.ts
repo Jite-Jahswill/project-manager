@@ -321,7 +321,7 @@ describe('Finance: expenses, cash movements and summaries (phase 6)', () => {
     it('the creator attaches allow-listed files to an open expense; readers download them privately', async () => {
       const e = await newExpense(manager, { branchId: org.mainBranchId });
       const up = (await as(manager).upload(`/expenses/${e.id}/attachments`, PDF, 'application/pdf', 'invoice%20Oct.pdf').expect(201)).body;
-      expect(up).toEqual({ id: expect.any(String), fileName: 'invoice Oct.pdf', contentType: 'application/pdf', sizeBytes: PDF.length, uploadedByUserId: manager.userId, createdAt: expect.any(String) });
+      expect(up).toEqual({ id: expect.any(String), fileName: 'invoice Oct.pdf', contentType: 'application/pdf', sizeBytes: PDF.length, uploadedByUserId: manager.userId, createdAt: expect.any(String), scanStatus: 'CLEAN' });
       expect(JSON.stringify(up)).not.toMatch(/finance\/|storage/);
       await as(manager).upload(`/expenses/${e.id}/attachments`, PNG, 'image/png').expect(201);
       expect((await as(manager).upload(`/expenses/${e.id}/attachments`, Buffer.from('MZ\x90\x00binary'), 'application/pdf')).status).toBe(415);

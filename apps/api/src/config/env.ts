@@ -39,15 +39,44 @@ export interface AppConfig {
   emailWorkerPollMs: number;
   emailWorkerLeaseMs: number;
   emailWorkerBatch: number;
-  /** Support attachments: only the development/test local-disk driver exists (docs/security/support.md §6). */
-  supportStorageDriver: 'local';
-  /** Absolute directory for the local driver; outside any served path. */
-  supportStorageDir: string;
+  /** Support and expense attachments (docs/security/attachments.md). */
+  storage: StorageConfig;
   /** Redis pub/sub channel for support real-time events (not durable; history is in PostgreSQL). */
   supportEventsChannel: string;
   supportStreamHeartbeatMs: number;
   /** How often an open event stream re-checks its session and permissions. */
   supportStreamRevalidateMs: number;
+}
+
+export interface S3Config {
+  /** Unset: AWS's regional endpoint. Set for S3-compatible services (R2, MinIO, SeaweedFS, ...). */
+  endpoint: string | null;
+  region: string;
+  bucket: string;
+  /** Both or neither: unset uses the SDK's default chain (instance/task role, AWS_* variables). */
+  accessKeyId: string | null;
+  secretAccessKey: string | null;
+  forcePathStyle: boolean;
+  serverSideEncryption: 'none' | 'AES256' | 'aws:kms';
+  kmsKeyId: string | null;
+}
+
+export interface StorageConfig {
+  /** Where new attachments are written. Objects already stored keep their backend until migrated. */
+  driver: 'local' | 's3';
+  /** Absolute directory of the local driver (development, tests, and legacy objects awaiting migration). */
+  localDir: string;
+  s3: S3Config | null;
+  /** clamav: clamd over TCP (INSTREAM). none: nothing is scanned, so nothing is ever served. */
+  scanner: 'clamav' | 'none';
+  clamav: { host: string; port: number; timeoutMs: number } | null;
+  /** inline: the API process also runs the scan/sweep worker; external: `pnpm api worker`; off: none. */
+  workerMode: 'inline' | 'external' | 'off';
+  workerPollMs: number;
+  /** An upload still UPLOADING after this long was interrupted: its object (if any) is removed. */
+  uploadTtlMs: number;
+  /** A file the scanner could not scan this many times becomes SCAN_FAILED (never served). */
+  scanMaxAttempts: number;
 }
 
 function required(env: NodeJS.ProcessEnv, key: string): string {
@@ -62,6 +91,8 @@ const REMOVED_VARIABLES: Record<string, string> = {
   MAIL_TRANSPORT: 'the platform email configuration (docs/security/email.md); development providers are bootstrapped by EMAIL_BOOTSTRAP_DEV_PROVIDER',
   MAIL_FROM: 'sender identities in the platform email configuration (docs/security/email.md)',
   AUTH_RATE_LIMIT_PER_MINUTE: 'RATE_LIMIT_OVERRIDES (per-policy limits)',
+  SUPPORT_STORAGE_DRIVER: 'ATTACHMENT_STORAGE_DRIVER (local | s3; docs/security/attachments.md)',
+  SUPPORT_STORAGE_DIR: 'ATTACHMENT_LOCAL_DIR (same meaning; existing files stay where they are)',
 };
 
 function int(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
@@ -114,8 +145,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const rateLimitKeyPrefix = env.RATE_LIMIT_KEY_PREFIX ?? 'vd';
   if (!/^[a-z0-9_-]{1,32}$/.test(rateLimitKeyPrefix)) throw new Error('RATE_LIMIT_KEY_PREFIX must match [a-z0-9_-]{1,32}');
 
-  const supportStorageDriver = (env.SUPPORT_STORAGE_DRIVER ?? 'local') as AppConfig['supportStorageDriver'];
-  if (supportStorageDriver !== 'local') throw new Error('SUPPORT_STORAGE_DRIVER must be "local" (the only driver implemented; see docs/security/support.md)');
+  const storage = loadStorageConfig(env);
   const supportEventsChannel = env.SUPPORT_EVENTS_CHANNEL ?? 'ventidoc:support:events';
   if (!/^[A-Za-z0-9:_-]{1,64}$/.test(supportEventsChannel)) throw new Error('SUPPORT_EVENTS_CHANNEL must match [A-Za-z0-9:_-]{1,64}');
 
@@ -143,8 +173,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     emailWorkerPollMs: int(env, 'EMAIL_WORKER_POLL_MS', 1000),
     emailWorkerLeaseMs: int(env, 'EMAIL_WORKER_LEASE_MS', 60_000),
     emailWorkerBatch: int(env, 'EMAIL_WORKER_BATCH', 10),
-    supportStorageDriver,
-    supportStorageDir: resolvePath(env.SUPPORT_STORAGE_DIR ?? '.data/support-attachments'),
+    storage,
     supportEventsChannel,
     supportStreamHeartbeatMs: int(env, 'SUPPORT_STREAM_HEARTBEAT_MS', 25_000),
     supportStreamRevalidateMs: int(env, 'SUPPORT_STREAM_REVALIDATE_MS', 30_000),
@@ -154,6 +183,57 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Production mode is not supported yet:\n- ${productionBlockers(config).join('\n- ')}`);
   }
   return config;
+}
+
+function loadStorageConfig(env: NodeJS.ProcessEnv): StorageConfig {
+  const driver = (env.ATTACHMENT_STORAGE_DRIVER ?? 'local') as StorageConfig['driver'];
+  if (!['local', 's3'].includes(driver)) throw new Error('ATTACHMENT_STORAGE_DRIVER must be "local" or "s3"');
+  const s3 = driver === 's3' || env.S3_BUCKET ? loadS3Config(env) : null;
+  const scanner = (env.MALWARE_SCANNER ?? 'none') as StorageConfig['scanner'];
+  if (!['clamav', 'none'].includes(scanner)) throw new Error('MALWARE_SCANNER must be "clamav" or "none"');
+  const clamHost = env.CLAMAV_HOST ?? '127.0.0.1';
+  if (!/^[A-Za-z0-9.-]{1,253}$/.test(clamHost)) throw new Error('CLAMAV_HOST must be a host name or IPv4 address');
+  const workerMode = (env.ATTACHMENT_WORKER_MODE ?? 'inline') as StorageConfig['workerMode'];
+  if (!['inline', 'external', 'off'].includes(workerMode)) throw new Error('ATTACHMENT_WORKER_MODE must be inline, external or off');
+  const scanMaxAttempts = int(env, 'ATTACHMENT_SCAN_MAX_ATTEMPTS', 10);
+  if (scanMaxAttempts > 100) throw new Error('ATTACHMENT_SCAN_MAX_ATTEMPTS must be at most 100');
+  return {
+    driver,
+    localDir: resolvePath(env.ATTACHMENT_LOCAL_DIR ?? '.data/support-attachments'),
+    s3,
+    scanner,
+    clamav: scanner === 'clamav' ? { host: clamHost, port: int(env, 'CLAMAV_PORT', 3310), timeoutMs: int(env, 'CLAMAV_TIMEOUT_MS', 30_000) } : null,
+    workerMode,
+    workerPollMs: int(env, 'ATTACHMENT_WORKER_POLL_MS', 5_000),
+    uploadTtlMs: int(env, 'ATTACHMENT_UPLOAD_TTL_MS', 15 * 60_000),
+    scanMaxAttempts,
+  };
+}
+
+function loadS3Config(env: NodeJS.ProcessEnv): S3Config {
+  const bucket = required(env, 'S3_BUCKET');
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error('S3_BUCKET is not a valid bucket name');
+  const region = required(env, 'S3_REGION');
+  if (!/^[a-z0-9-]{2,32}$/.test(region)) throw new Error('S3_REGION must look like eu-west-1 (or "auto")');
+  let endpoint: string | null = null;
+  if (env.S3_ENDPOINT) {
+    const u = new URL(env.S3_ENDPOINT);
+    if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password || u.search || (u.pathname !== '/' && u.pathname !== '')) {
+      throw new Error('S3_ENDPOINT must be an http(s) origin without credentials, path or query');
+    }
+    endpoint = u.origin;
+  }
+  const accessKeyId = env.S3_ACCESS_KEY_ID || null;
+  const secretAccessKey = env.S3_SECRET_ACCESS_KEY || null;
+  if (!!accessKeyId !== !!secretAccessKey) throw new Error('Set both S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, or neither (default credential chain)');
+  if ([accessKeyId, secretAccessKey].some((v) => v && /CHANGE_ME/.test(v))) throw new Error('S3 credentials must be replaced (CHANGE_ME)');
+  const forcePathStyle = (env.S3_FORCE_PATH_STYLE ?? 'false') === 'true';
+  if (!['true', 'false'].includes(env.S3_FORCE_PATH_STYLE ?? 'false')) throw new Error('S3_FORCE_PATH_STYLE must be true or false');
+  const sse = (env.S3_SSE ?? 'none') as S3Config['serverSideEncryption'];
+  if (!['none', 'AES256', 'aws:kms'].includes(sse)) throw new Error('S3_SSE must be none, AES256 or aws:kms');
+  const kmsKeyId = env.S3_SSE_KMS_KEY_ID || null;
+  if (sse === 'aws:kms' && !kmsKeyId) throw new Error('S3_SSE=aws:kms requires S3_SSE_KMS_KEY_ID');
+  return { endpoint, region, bucket, accessKeyId, secretAccessKey, forcePathStyle, serverSideEncryption: sse, kmsKeyId };
 }
 
 /**
@@ -167,8 +247,14 @@ export function productionBlockers(config: AppConfig): string[] {
     'hosting, HA PostgreSQL/Redis, backups and monitoring are not yet selected and validated (docs/operations/hosting.md)',
     'the sending domain must be verified with the provider and production delivery tested end to end (docs/security/email.md §8)',
     'bounce/complaint ingestion (signed provider webhooks feeding suppressions) is not implemented (docs/security/email.md)',
-    'support and expense attachments need private object storage with short-lived authorized downloads; only the local-disk development driver exists (docs/security/support.md §6, docs/architecture/13-finance.md §5)',
+    'the attachment bucket must be verified private in the target account (Block Public Access on, no public policy or ACLs), with versioning or backups aligned with database backups, and ClamAV signature updates must be monitored (docs/security/attachments.md §8)',
   ];
+  const st = config.storage;
+  if (st.driver !== 's3' || !st.s3) problems.push('attachments must be stored in private object storage: ATTACHMENT_STORAGE_DRIVER=s3 (docs/security/attachments.md)');
+  if (st.s3?.endpoint && !st.s3.endpoint.startsWith('https://')) problems.push('S3_ENDPOINT must use https');
+  if (st.s3 && st.s3.serverSideEncryption === 'none') problems.push('S3_SSE must enable server-side encryption (AES256 or aws:kms)');
+  if (st.scanner !== 'clamav') problems.push('attachments must be malware-scanned: MALWARE_SCANNER=clamav (docs/security/attachments.md)');
+  if (st.workerMode === 'off') problems.push('ATTACHMENT_WORKER_MODE must be inline or external (scan retries and upload cleanup)');
   for (const [id, k] of config.emailKeyRing.keys) {
     if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`EMAIL_SECRET_KEYS key "${id}" is a disposable CI/example value`);
   }
