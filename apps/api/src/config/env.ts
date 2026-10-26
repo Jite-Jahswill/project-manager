@@ -73,7 +73,10 @@ function int(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const nodeEnv = (env.NODE_ENV ?? 'development') as AppConfig['nodeEnv'];
+  // Required, not defaulted: a deployment that forgets NODE_ENV must not quietly run in development
+  // mode (local-disk attachments, development email providers) instead of being refused.
+  if (!env.NODE_ENV) throw new Error('NODE_ENV is required: development, test or production');
+  const nodeEnv = env.NODE_ENV as AppConfig['nodeEnv'];
   if (!['development', 'test', 'production'].includes(nodeEnv)) throw new Error(`Invalid NODE_ENV ${nodeEnv}`);
 
   const jwtAccessSecret = required(env, 'JWT_ACCESS_SECRET');

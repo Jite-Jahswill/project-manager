@@ -25,7 +25,7 @@ pnpm api db:seed                  # sync permission catalogs, plans and existing
 pnpm api build && pnpm api start  # http://localhost:3000, OpenAPI UI at /docs
 ```
 
-Development mail is printed to the API log by the email worker (development LOG provider). Open the verification link from there. The API **refuses to start with `NODE_ENV=production`** until a real mail transport, Redis-backed rate limiting and MFA exist.
+Development mail is printed to the API log by the email worker (development LOG provider). Open the verification link from there. The API **refuses to start with `NODE_ENV=production`** until a real mail transport, Redis-backed rate limiting and MFA exist. `NODE_ENV` is required (`development`, `test` or `production`): the API does not start without it.
 
 > `pnpm api dev` uses `nest start --watch`. Don't run the API with `tsx`: esbuild doesn't emit decorator metadata, so dependency injection fails.
 

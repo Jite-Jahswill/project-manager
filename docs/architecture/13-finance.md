@@ -1,6 +1,6 @@
 # 13. Finance: expenses, cash movements and summaries (Phase 6)
 
-Code: `src/finance/`. Migration `20261030090000_finance`. Tests: `test/finance.e2e-spec.ts`, `src/finance/finance-common.spec.ts`, the authorization sweeps (`test/authorization-matrix.e2e-spec.ts`, which seed and fingerprint every finance table), RLS (generated over all tenant tables) and the role-template tests (template version 4).
+Code: `src/finance/`. Migrations `20261030090000_finance` and `20261031090000_finance_hardening` (Phase 6 audit). Tests: `test/finance.e2e-spec.ts`, `src/finance/finance-common.spec.ts`, the authorization sweeps (`test/authorization-matrix.e2e-spec.ts`, which seed and fingerprint every finance table), RLS (generated over all tenant tables) and the role-template tests (template version 4).
 
 All routes are under `/v1/orgs/:orgId` and follow [10-organizations.md §10.1](10-organizations.md):
 - membership plus permission;
@@ -96,6 +96,8 @@ A CHECK ties each type to its direction.
   - the session fixes the currency (`currency_mismatch`);
   - cash taken out may not exceed what the drawer should hold (`insufficient_drawer_cash`);
   - the session row is locked `FOR UPDATE`, so concurrent movements and closing serialize: of two payouts that each fit but together do not, exactly one is accepted;
+  - cash payments and cash refunds (Phase 5 paths) lock the session `FOR SHARE`, so they never land in a session after closing has computed its expected cash, and a payout's check always sees every committed payment and refund. A database trigger refuses any payment or refund into a session that is not OPEN at the sale's branch;
+  - cash refunds are not limited by the drawer (Phase 5 behavior): a refund larger than the drawer holds shows up as a variance at close;
   - a database trigger re-checks that the session is open, at the same branch and in the same currency.
 - **Branch-level movements.** Movements without a session are branch-level operational records. They don't affect any drawer.
 - **Postings.** Postings are append-only and idempotent per `Idempotency-Key`.
@@ -115,7 +117,7 @@ All report routes require `finance.report.read` (organization-wide, RESTRICTED).
 | `GET /finance/summary?from&to&branchId` | Per currency: expenses, sales, payments, refunds, cash; returns (currency-free); `definitions`; `limitations` |
 | `GET /finance/expense-summary?from&to&branchId&groupBy=category\|status\|branch\|month` | Per group and currency: approved, pending, by status |
 | `GET /finance/cash-session-summary?from&to&branchId` | Closed sessions per currency (expected, declared, variance, short/over counts); sessions still open |
-| `GET /finance/exports/expenses?from&to&branchId` · `GET /finance/exports/cash-movements?…` | CSV (rate limit `finance.export.user`, 20/h) |
+| `GET /finance/exports/expenses?from&to&branchId` · `GET /finance/exports/cash-movements?…` | CSV (rate limit `finance.export.user`, 20/h). Also requires reading those records **organization-wide**: `finance.expense.read`, `finance.expense.approve` or `finance.expense.void` for expenses; `finance.cash.read` or `finance.cash.record` for cash movements. An export never contains what the caller could not list |
 
 `from` and `to` are required (`YYYY-MM-DD`, real dates, `to` ≥ `from`, at most 366 days: `invalid_date`, `invalid_period`, `period_too_long`). An unknown `branchId` gets 404. Every figure is a PostgreSQL aggregate under the caller's RLS context. No unbounded history is loaded.
 
@@ -134,6 +136,7 @@ All report routes require `finance.report.read` (organization-wide, RESTRICTED).
 | `returns` | Returns accepted in the period, by status. Returns carry no money of their own |
 | `cash.in` / `cash.out` / `netMinor` | Cash movements recorded in the period, reversals included in their own direction (a reversed movement nets to zero) |
 | `derived.paymentsLessRefundsMinor` | `payments.confirmed − refunds` for the period: money collected net of money returned. **Not revenue, not profit** |
+| current status | Figures reflect each record's status now. Voiding an approved expense (or a sale) later moves it from approved (or gross) to VOIDED **for its own period**; the record, its history and audit trail are kept, and a correction is a new expense counted under its own occurredOn. Re-running a past period after a void therefore shows the void |
 
 **Not produced:** net revenue, profit, tax, cost of goods sold, cash-on-hand balances. The data does not support them accurately.
 
@@ -183,6 +186,26 @@ The existing `finance.*` keys are reused. Phase 6 adds the following, with role 
 - **Grants.** The runtime role has SELECT/INSERT/UPDATE on categories and expenses, and only SELECT/INSERT on events, attachments and cash movements. It has no DELETE anywhere.
 - **Constraints and triggers.** CHECKs cover amounts (1 to 10^15), currency format, number formats, reasons, references (no card numbers), idempotency keys, status-field consistency and self-decisions. Triggers enforce transitions, immutability, attachment status, cash-session state and reversal mirroring, plus append-only enforcement.
 - **Protected index.** The partial unique index `expenses_one_live_correction` is listed in the migration guard.
+- **Actors are bound to the acting user** (`app_current_user_id()`, the identity RLS already trusts):
+  - expense creators, submitters, deciders, cancellers and voiders, expense event actors, attachment uploaders and cash-movement recorders must be the user of the transaction's tenant context;
+  - only the creator edits a draft, submits it (CHECK `expenses_submitter_is_creator`) or attaches files;
+  - an unsubmitted draft records no submitter.
+
+  The service enforces all of this too; the database is the backstop if application code is wrong.
+
+**Enforced by PostgreSQL:**
+- transitions, immutability of submitted content and decisions, and the server-managed version;
+- reasons, status and field consistency, and actor binding;
+- no self-decision and no self-void;
+- corrections naming a voided expense, and one live correction;
+- attachments only on open expenses;
+- append-only events, attachments and cash movements;
+- session state, branch and currency for cash events, and reversal mirroring.
+
+**Enforced only by the API:**
+- which permission a decision needs (approve, void, create), and branch visibility;
+- version matching against the client's copy (the database bumps versions but cannot know what the client saw);
+- the drawer-cover rule (it needs the expected-cash computation under the session lock).
 - **Migration safety.** The migration only creates objects (no existing row is touched), so it takes no long locks. Its rollback is a forward migration, as everywhere in this repository.
 
 ## 13.8 Limitations and future phases

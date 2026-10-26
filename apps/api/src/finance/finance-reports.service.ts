@@ -3,7 +3,7 @@ import { AuditService } from '../audit/audit.service';
 import { ApiError, Errors } from '../common/errors';
 import type { RequestMeta } from '../common/request-context';
 import { TenantDb, Tx } from '../database/tenant-db.service';
-import type { EffectiveAccess } from '../authz/permission-evaluator';
+import { can, type EffectiveAccess } from '../authz/permission-evaluator';
 import type { ExpenseSummaryQuery, ExportKind, FinancePeriodQuery } from './dto/finance.dto';
 import { csvRow, fmtDate, MAX_EXPORT_ROWS, parsePeriod, type Period } from './finance-common';
 
@@ -18,6 +18,7 @@ export const METRIC_DEFINITIONS = {
   'expenses.approved': 'Expenses with status APPROVED and occurredOn in the period. VOIDED, REJECTED, CANCELLED, SUBMITTED and DRAFT expenses are excluded.',
   'expenses.pending': 'Expenses with status SUBMITTED (awaiting a decision) and occurredOn in the period.',
   'expenses.byStatus': 'Count and amount per status, informational. Only APPROVED counts as an expense incurred.',
+  'current status': 'Figures reflect each record\'s status now. Voiding an approved expense (or a sale) later moves it from approved (or gross) to VOIDED for its own period; the record, its history and audit trail are kept, and a correction is a new expense counted under its own occurredOn.',
   'sales.gross': 'Sum of totalMinor of COMPLETED sales created in the period: server-priced line totals. The schema has no discounts or taxes, so none are deducted or added. VOIDED sales are excluded (reported separately).',
   'payments.confirmed': 'Payments with status CONFIRMED, by confirmation time (confirmedAt) in the period, by method. Manual staff attestation; nothing is verified with a bank or card processor.',
   'payments.pending': 'Payments with status PENDING recorded in the period (not money received).',
@@ -189,8 +190,16 @@ export class FinanceReportsService {
     });
   }
 
-  /** CSV export, refused (not truncated) above MAX_EXPORT_ROWS rows; audited. */
+  /**
+   * CSV export, refused (not truncated) above MAX_EXPORT_ROWS rows; audited. An export contains
+   * every record of the period, so besides finance.report.export it requires reading those
+   * records organization-wide: an export never shows what the caller could not list.
+   */
   async export(access: EffectiveAccess, kind: ExportKind, q: FinancePeriodQuery, meta: RequestMeta): Promise<{ fileName: string; csv: string; rows: number }> {
+    const readsAll = kind === 'expenses'
+      ? ['finance.expense.read', 'finance.expense.approve', 'finance.expense.void'].some((k) => can(access, k))
+      : ['finance.cash.read', 'finance.cash.record'].some((k) => can(access, k));
+    if (!readsAll) throw Errors.forbidden(`Exporting ${kind} requires reading them organization-wide`);
     const p = parsePeriod(q.from, q.to);
     const branch = q.branchId ?? null;
     return this.db.inOrg(access, async (tx) => {

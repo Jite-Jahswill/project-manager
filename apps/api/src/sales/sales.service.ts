@@ -127,6 +127,19 @@ export class SalesService {
     return can(access, 'sales.session.supervise', s.branchId) || (s.cashierUserId === access.userId && can(access, 'sales.session.manage', s.branchId));
   }
 
+  /**
+   * The caller's OPEN session at the branch, locked FOR SHARE until commit: cash payments and
+   * refunds may run side by side, but closing the session and finance cash movements (both FOR
+   * UPDATE) wait for them, so every cash event is either in the session's expected cash at close
+   * or refused (the session is re-read under the lock: one closed meanwhile is not found).
+   */
+  private async lockOwnOpenSession(tx: Tx, access: EffectiveAccess, branchId: string): Promise<{ id: string } | null> {
+    const [s] = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM cashier_sessions
+      WHERE branch_id = ${branchId}::uuid AND cashier_user_id = ${access.userId}::uuid AND status = 'OPEN' FOR SHARE`;
+    return s ?? null;
+  }
+
   /** See session-cash.ts: the one definition of a drawer's expected cash. */
   private expectedCash(tx: Tx, sessionId: string, float: bigint): Promise<bigint> {
     return sessionExpectedCash(tx, sessionId, float);
@@ -294,7 +307,7 @@ export class SalesService {
       if (amount > outstanding) throw Errors.conflict('overpayment', `Only ${outstanding} remains to be paid`);
       let sessionId: string | null = null;
       if (dto.method === 'CASH') {
-        const session = await tx.cashierSession.findFirst({ where: { branchId: sale.branch_id, cashierUserId: access.userId, status: 'OPEN' }, select: { id: true } });
+        const session = await this.lockOwnOpenSession(tx, access, sale.branch_id);
         if (!session) throw Errors.conflict('no_open_session', 'Cash must go into your open cashier session at this branch');
         sessionId = session.id;
       }
@@ -372,7 +385,7 @@ export class SalesService {
       }
       let sessionId: string | null = null;
       if (p.method === 'CASH') {
-        const session = await tx.cashierSession.findFirst({ where: { branchId: p.branchId, cashierUserId: access.userId, status: 'OPEN' }, select: { id: true } });
+        const session = await this.lockOwnOpenSession(tx, access, p.branchId);
         if (!session) throw Errors.conflict('no_open_session', 'Cash refunds come out of your open cashier session at this branch');
         sessionId = session.id;
       }

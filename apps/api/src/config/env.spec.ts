@@ -15,6 +15,13 @@ const base = {
 };
 
 describe('config validation', () => {
+  it('requires an explicit, exact NODE_ENV (no silent development default)', () => {
+    expect(() => loadConfig({ ...base, NODE_ENV: undefined })).toThrow(/NODE_ENV is required/);
+    expect(() => loadConfig({ ...base, NODE_ENV: '' })).toThrow(/NODE_ENV is required/);
+    for (const v of ['Production', 'prod', 'PRODUCTION', 'staging']) expect(() => loadConfig({ ...base, NODE_ENV: v })).toThrow(/Invalid NODE_ENV/);
+    expect(() => loadConfig({ ...base, SUPPORT_STORAGE_DRIVER: 's3' })).toThrow(/SUPPORT_STORAGE_DRIVER/);
+  });
+
   it('accepts a valid development config', () => {
     expect(loadConfig(base).port).toBe(3000);
   });

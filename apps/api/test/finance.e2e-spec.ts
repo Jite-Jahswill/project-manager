@@ -7,6 +7,7 @@
 import { INestApplication } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { addMember, bearer, createOrg, createTestApp, http, pools, resetDatabase, setPlan, signUp, TestOrg, TestUser } from './support/harness';
+import { waitFor } from './support/tcp-proxy';
 import { snapshot } from './support/templates';
 
 jest.setTimeout(240_000);
@@ -45,12 +46,13 @@ describe('Finance: expenses, cash movements and summaries (phase 6)', () => {
     upload: (p: string, data: Buffer, type: string, name = 'receipt') =>
       http(app).post(`/v1/orgs/${o.id}${p}`).set(bearer(u)).set('Content-Type', type).set('X-File-Name', name).send(data),
   });
-  async function sql<T>(fn: (c: PoolClient) => Promise<T>, o: TestOrg = org, commit = false): Promise<T> {
+  /** Direct SQL as the runtime role, in the tenant context of `o`, acting as `userId` (default: the owner). */
+  async function sql<T>(fn: (c: PoolClient) => Promise<T>, o: TestOrg = org, commit = false, userId = o.owner.userId): Promise<T> {
     const pool = pools.app();
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
-      await c.query("SELECT set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)", [o.id, o.owner.userId]);
+      await c.query("SELECT set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)", [o.id, userId]);
       const out = await fn(c);
       if (commit) await c.query('COMMIT');
       return out;
@@ -182,8 +184,9 @@ describe('Finance: expenses, cash movements and summaries (phase 6)', () => {
         return (await as(org.owner).post(`/expenses/${e.id}/submit`, { version: e.version }).expect(200)).body as Expense;
       })();
       await as(org.owner).post(`/expenses/${ownerExpense.id}/approve`, { version: ownerExpense.version }).expect(403);
+      // Acting as the creator, recording the creator as decider: the self-decision CHECK refuses it.
       await expect(sql((c) => c.query(
-        "UPDATE expenses SET status = 'APPROVED', decided_by_user_id = created_by_user_id, decided_at = now() WHERE id = $1", [own.id])))
+        "UPDATE expenses SET status = 'APPROVED', decided_by_user_id = created_by_user_id, decided_at = now() WHERE id = $1", [own.id]), org, false, accountant.userId))
         .rejects.toThrow(/expenses_no_self_decision/);
       // A refused transition leaves no trace: same version, no event.
       const after = (await as(accountant).get(`/expenses/${own.id}`).expect(200)).body;
@@ -573,6 +576,144 @@ describe('Finance: expenses, cash movements and summaries (phase 6)', () => {
       const res = await as(big.owner, big).get(`/finance/exports/expenses?from=${today}&to=${today}`);
       expect({ status: res.status, code: res.body.code }).toEqual({ status: 422, code: 'export_too_large' });
       expect((await sql(async (c) => (await c.query("SELECT count(*)::int AS n FROM audit_events WHERE action = 'finance.export.generated'")).rows[0].n, big))).toBe(0);
+    });
+  });
+
+  describe('audit hardening (phase 6.1)', () => {
+    let till: Member;
+    let item: string;
+    const sell = async (u: Member, minor: string) => {
+      const sale = (await as(u).post(`/branches/${org.mainBranchId}/sales`, { lines: [{ productId: item, quantity: '1' }] }, key('hs')).expect(201)).body.sale;
+      expect(sale.totalMinor).toBe('100');
+      return { sale, pay: () => as(u).post(`/sales/${sale.id}/payments`, { method: 'CASH', amountMinor: minor }, key('hp')) };
+    };
+    /** Stored expected cash of every closed session equals a recomputation from its cash events (no event after close). */
+    const closedSessionsReconcile = () => sql(async (c) => (await c.query(`
+      SELECT s.id, s.expected_cash_minor::text AS stored,
+        (s.opening_float_minor
+          + coalesce((SELECT sum(amount_minor) FROM payments WHERE session_id = s.id AND method = 'CASH' AND status = 'CONFIRMED'), 0)
+          - coalesce((SELECT sum(amount_minor) FROM refunds WHERE session_id = s.id AND method = 'CASH'), 0)
+          + coalesce((SELECT sum(amount_minor) FROM cash_movements WHERE session_id = s.id AND direction = 'IN'), 0)
+          - coalesce((SELECT sum(amount_minor) FROM cash_movements WHERE session_id = s.id AND direction = 'OUT'), 0))::text AS recomputed
+      FROM cashier_sessions s WHERE s.status = 'CLOSED'`)).rows);
+    const lockWaiters = () => sql(async (c) => (await c.query(
+      "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%cashier_sessions%'")).rows[0].n as number);
+
+    beforeAll(async () => {
+      till = await addMember(app, org, 'fin-till', 'Cashier', org.mainBranchId);
+      item = (await as(org.owner).post('/products', { sku: key('SKU'), name: 'Candle', sellingPriceMinor: '100' }).expect(201)).body.id;
+      await as(org.owner).post(`/branches/${org.mainBranchId}/stock/opening-balances`, { productId: item, quantity: '500', reason: 'opening' }).expect(201);
+    });
+
+    it('a cash payment takes the session lock: it waits while the session is being closed', async () => {
+      const session = (await as(till).post(`/branches/${org.mainBranchId}/cashier-sessions`, { openingFloatMinor: '0' }).expect(201)).body;
+      const { pay } = await sell(till, '100');
+      // Hold the session row as closing does (FOR UPDATE), in a separate transaction.
+      const pool = pools.app();
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query("SELECT set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)", [org.id, org.owner.userId]);
+        await holder.query('SELECT id FROM cashier_sessions WHERE id = $1 FOR UPDATE', [session.id]);
+        const pending = pay();
+        const settled = pending.then((r) => r);
+        await waitFor(async () => (await lockWaiters()) >= 1, 15_000);
+        await holder.query('ROLLBACK');
+        expect((await settled).status).toBe(201);
+      } finally {
+        holder.release();
+        await pool.end();
+      }
+      const s = (await as(till).get(`/cashier-sessions/${session.id}`).expect(200)).body;
+      await as(till).post(`/cashier-sessions/${session.id}/close`, { version: s.version, declaredCashMinor: '100' }).expect(200);
+    });
+
+    it('closing racing cash payments: every payment is either counted in the close or refused', async () => {
+      for (let round = 0; round < 4; round++) {
+        const session = (await as(till).post(`/branches/${org.mainBranchId}/cashier-sessions`, { openingFloatMinor: '500' }).expect(201)).body;
+        const pays = await Promise.all([sell(till, '100'), sell(till, '100'), sell(till, '100')]);
+        const [close, ...payments] = await Promise.all([
+          as(manager).post(`/cashier-sessions/${session.id}/close`, { version: session.version, declaredCashMinor: '500' }),
+          ...pays.map((p) => p.pay()),
+        ]);
+        expect(close.status).toBe(200);
+        const accepted = payments.filter((r) => r.status === 201).length;
+        for (const r of payments.filter((x) => x.status !== 201)) expect({ status: r.status, code: r.body.code }).toEqual({ status: 409, code: 'no_open_session' });
+        expect(close.body.expectedCashMinor).toBe(String(500 + 100 * accepted));
+      }
+      for (const row of await closedSessionsReconcile()) expect({ id: row.id, stored: row.stored }).toEqual({ id: row.id, stored: row.recomputed });
+    });
+
+    it('the database refuses cash payments and refunds into a closed session', async () => {
+      const closed = (await sql(async (c) => (await c.query("SELECT id FROM cashier_sessions WHERE status = 'CLOSED' AND cashier_user_id = $1 LIMIT 1", [till.userId])).rows[0]));
+      const payment = (await sql(async (c) => (await c.query("SELECT id, sale_id FROM payments WHERE status = 'CONFIRMED' AND method = 'CASH' AND session_id = $1 LIMIT 1", [closed.id])).rows[0]));
+      await expect(sql((c) => c.query(
+        `INSERT INTO payments (organization_id, sale_id, branch_id, session_id, method, amount_minor, idempotency_key, recorded_by_user_id)
+         VALUES ($1, $2, $3, $4, 'CASH', 1, 'late-cash-key-1', $5)`, [org.id, payment.sale_id, org.mainBranchId, closed.id, till.userId]), org, false, till.userId))
+        .rejects.toThrow(/session is not open/);
+      await expect(sql((c) => c.query(
+        `INSERT INTO refunds (organization_id, sale_id, payment_id, session_id, method, amount_minor, reason, idempotency_key, actor_user_id)
+         VALUES ($1, $2, $3, $4, 'CASH', 1, 'late refund', 'late-refund-key-1', $5)`, [org.id, payment.sale_id, payment.id, closed.id, till.userId]), org, false, till.userId))
+        .rejects.toThrow(/session is not open/);
+    });
+
+    it('exports never show records the caller could not list', async () => {
+      await as(org.owner).post('/roles', { name: 'Export only', permissions: ['finance.report.export'] }).expect(201);
+      await as(org.owner).post('/roles', { name: 'Expense exporter', permissions: ['finance.report.export', 'finance.expense.read'] }).expect(201);
+      const exportOnly = await addMember(app, org, 'fin-export-only', 'Export only');
+      const expenseExporter = await addMember(app, org, 'fin-expense-exporter', 'Expense exporter');
+      const branchReader = await addMember(app, org, 'fin-branch-exporter', 'Expense exporter', org.mainBranchId);
+      for (const kind of ['expenses', 'cash-movements']) await as(exportOnly).get(`/finance/exports/${kind}?from=${today}&to=${today}`).expect(403);
+      await as(expenseExporter).get(`/finance/exports/expenses?from=${today}&to=${today}`).expect(200);
+      await as(expenseExporter).get(`/finance/exports/cash-movements?from=${today}&to=${today}`).expect(403);
+      // Branch-limited read is not organization-wide: no export.
+      await as(branchReader).get(`/finance/exports/expenses?from=${today}&to=${today}`).expect(403);
+      const audited = await audits('finance.export.generated');
+      expect(audited.filter((a) => [exportOnly.userId, branchReader.userId].includes(a.actor_user_id))).toEqual([]);
+    });
+
+    it('actor columns must name the acting user (the database checks it)', async () => {
+      const draft = await newExpense(accountant);
+      // Somebody else editing the creator's draft.
+      await expect(sql((c) => c.query("UPDATE expenses SET description = 'tampered' WHERE id = $1", [draft.id]), org, false, approver.userId))
+        .rejects.toThrow(/only the creator edits a draft/);
+      // A submission recorded for someone other than the acting user, or by someone other than the creator.
+      await expect(sql((c) => c.query("UPDATE expenses SET status = 'SUBMITTED', submitted_by_user_id = $2, submitted_at = now() WHERE id = $1", [draft.id, accountant.userId]), org, false, approver.userId))
+        .rejects.toThrow(/acting user/);
+      await expect(sql((c) => c.query("UPDATE expenses SET status = 'SUBMITTED', submitted_by_user_id = $2, submitted_at = now() WHERE id = $1", [draft.id, approver.userId]), org, false, approver.userId))
+        .rejects.toThrow(/expenses_submitter_is_creator/);
+      const sub = await submitted(accountant);
+      // A decision attributed to the approver but written by someone else.
+      await expect(sql((c) => c.query("UPDATE expenses SET status = 'APPROVED', decided_by_user_id = $2, decided_at = now() WHERE id = $1", [sub.id, approver.userId]), org, false, manager.userId))
+        .rejects.toThrow(/acting user/);
+      await expect(sql((c) => c.query(
+        `INSERT INTO expenses (organization_id, category_id, number, amount_minor, currency, description, occurred_on, created_by_user_id, idempotency_key, updated_at)
+         VALUES ($1, $2, 'E-900001', 1, 'USD', 'spoofed', $3::date, $4, 'spoofed-creator-key', now())`, [org.id, rent, today, accountant.userId]), org, false, manager.userId))
+        .rejects.toThrow(/created_by_user_id must be the acting user/);
+      await expect(sql((c) => c.query(
+        "INSERT INTO expense_events (organization_id, expense_id, type, actor_user_id) VALUES ($1, $2, 'approved', $3)", [org.id, sub.id, approver.userId]), org, false, manager.userId))
+        .rejects.toThrow(/actor_user_id must be the acting user/);
+      await expect(sql((c) => c.query(
+        `INSERT INTO cash_movements (organization_id, branch_id, number, type, direction, amount_minor, currency, reason, recorded_by_user_id, idempotency_key)
+         VALUES ($1, $2, 'C-900001', 'PAID_IN', 'IN', 1, 'USD', 'spoofed recorder', $3, 'spoofed-recorder-key')`, [org.id, org.mainBranchId, accountant.userId]), org, false, manager.userId))
+        .rejects.toThrow(/recorded_by_user_id must be the acting user/);
+      // The real paths are unaffected.
+      const ok = (await as(approver).post(`/expenses/${sub.id}/approve`, { version: sub.version }).expect(200)).body;
+      expect(ok.decidedByUserId).toBe(approver.userId);
+    });
+
+    it('voiding moves an amount from approved to VOIDED for its own period; nothing is lost', async () => {
+      const day = dayOffset(-2);
+      const totals = async () => (await as(accountant).get(`/finance/summary?from=${day}&to=${day}`).expect(200)).body.currencies
+        .find((c: { currency: string }) => c.currency === 'JPY')?.expenses ?? { approved: { amountMinor: '0' }, byStatus: { VOIDED: { amountMinor: '0' } } };
+      const a = await approved(manager, { branchId: org.mainBranchId, amountMinor: '5000', currency: 'JPY', occurredOn: day, description: 'JPY taxi' });
+      const before = await totals();
+      expect(before.approved.amountMinor).toBe('5000');
+      await as(approver).post(`/expenses/${a.id}/void`, { version: a.version, reason: 'Duplicate of another claim' }).expect(200);
+      const after = await totals();
+      expect({ approved: after.approved.amountMinor, voided: after.byStatus.VOIDED.amountMinor }).toEqual({ approved: '0', voided: '5000' });
+      const definitions = (await as(accountant).get(`/finance/summary?from=${day}&to=${day}`).expect(200)).body.definitions;
+      expect(definitions['current status']).toMatch(/status now/);
     });
   });
 
