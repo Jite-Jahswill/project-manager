@@ -20,6 +20,8 @@ jest.setTimeout(240_000);
 
 type Member = TestUser & { membershipId: string };
 
+/** The current template version: legacy roles converge on it. */
+const CUR = ROLE_TEMPLATE_VERSION;
 const snap = (version: number, key: string) => [...(templateSnapshot(version)?.templates[key] ?? [])].sort();
 const union = (...lists: readonly string[][]) => [...new Set(lists.flat())].sort();
 const minus = (a: readonly string[], b: readonly string[]) => a.filter((k) => !b.includes(k)).sort();
@@ -184,12 +186,12 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       report = await seed(process.env.TEST_MIGRATION_DATABASE_URL as string, { devEmailProvider: 'CAPTURE' });
     });
 
-    it('1. grants each untouched legacy template role exactly what template versions 2 and 3 added', async () => {
+    it('1. grants each untouched legacy template role exactly what later template versions added', async () => {
       for (const key of ['org_admin', 'branch_manager', 'inventory_manager', 'accountant', 'auditor', 'sales_rep', 'hr_manager', 'payroll_officer']) {
-        expect({ key, perms: await permsOf(L, key) }).toEqual({ key, perms: snap(3, key) });
-        expect({ key, perms: await permsOf(S, key) }).toEqual({ key, perms: snap(3, key) });
+        expect({ key, perms: await permsOf(L, key) }).toEqual({ key, perms: snap(CUR, key) });
+        expect({ key, perms: await permsOf(S, key) }).toEqual({ key, perms: snap(CUR, key) });
       }
-      for (const r of (await rolesOf(L)).filter((x) => x.template_key && !x.is_system)) expect({ role: r.name, v: r.template_version }).toEqual({ role: r.name, v: 3 });
+      for (const r of (await rolesOf(L)).filter((x) => x.template_key && !x.is_system)) expect({ role: r.name, v: r.template_version }).toEqual({ role: r.name, v: CUR });
       expect(report.toVersion).toBe(ROLE_TEMPLATE_VERSION);
     });
 
@@ -197,17 +199,17 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       // The v1 permission the organization removed stays removed; the cashier gets the v3 additions.
       expect(await permsOf(L, 'cashier')).toEqual(union(minus(snap(1, 'cashier'), ['sales.customer.read']), ['sales.return.accept', 'sales.session.manage']));
       // An added permission stays; the v2 additions arrive.
-      expect(await permsOf(L, 'storekeeper')).toEqual(union(snap(3, 'storekeeper'), ['reports.operational.read']));
+      expect(await permsOf(L, 'storekeeper')).toEqual(union(snap(CUR, 'storekeeper'), ['reports.operational.read']));
       // Renamed: still the viewer template (identity is the template key), name kept.
       const viewer = (await rolesOf(L)).find((r) => r.template_key === 'viewer')!;
-      expect({ name: viewer.name, v: viewer.template_version, perms: viewer.permissions }).toEqual({ name: 'Guest viewer', v: 3, perms: snap(3, 'viewer') });
+      expect({ name: viewer.name, v: viewer.template_version, perms: viewer.permissions }).toEqual({ name: 'Guest viewer', v: CUR, perms: snap(CUR, 'viewer') });
       // Deleted: not recreated, and reported.
       expect((await rolesOf(L)).some((r) => r.template_key === 'logistics_officer')).toBe(false);
       expect(report.missingRoles).toContainEqual({ organizationId: L.id, templateKeys: ['logistics_officer'] });
       // A v2 permission the organization explicitly removed is withheld (audited), the rest is granted.
-      expect(await permsOf(M, 'accountant')).toEqual(union(minus(snap(2, 'accountant'), ['inventory.cost.read']), ['sales.report.read']));
+      expect(await permsOf(M, 'accountant')).toEqual(minus(snap(CUR, 'accountant'), ['inventory.cost.read']));
       const change = report.changes.find((c) => c.organizationId === M.id && c.templateKey === 'accountant');
-      expect(change).toMatchObject({ fromVersion: 1, added: ['sales.report.read'], withheld: ['inventory.cost.read'] });
+      expect(change).toMatchObject({ fromVersion: 1, added: minus(snap(CUR, 'accountant'), snap(2, 'accountant')), withheld: ['inventory.cost.read'] });
     });
 
     it('5+6. custom roles, assignments, overrides and memberships are unchanged', async () => {
@@ -285,7 +287,7 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       expect({ v: viewer.template_version, perms: viewer.permissions }).toEqual({ v: 99, perms: snap(2, 'viewer') });
       expect(report.ahead).toContainEqual({ organizationId: M.id, roleId: viewer.id, templateVersion: 99 });
       // A suspended organization converges too (suspension is enforced at access time, not by stale roles).
-      expect(await permsOf(S, 'cashier')).toEqual(snap(3, 'cashier'));
+      expect(await permsOf(S, 'cashier')).toEqual(snap(CUR, 'cashier'));
     });
 
     it('every grant is audited as a SYSTEM change with before, after and what was withheld', async () => {
@@ -294,7 +296,7 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       const entry = audits.find((a) => a.resource_id === cashierRole.id);
       expect(entry).toMatchObject({
         actor_type: 'SYSTEM', actor_user_id: null,
-        metadata: { templateKey: 'cashier', fromVersion: 1, toVersion: 3, added: ['sales.return.accept', 'sales.session.manage'], withheld: [] },
+        metadata: { templateKey: 'cashier', fromVersion: 1, toVersion: CUR, added: ['sales.return.accept', 'sales.session.manage'], withheld: [] },
       });
       expect(audits.length).toBe(report.changes.filter((c) => c.organizationId === L.id).length);
       const state = await migrator.roleTemplateState.findUnique({ where: { id: 1 } });
@@ -325,7 +327,7 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       } finally {
         await Promise.all(clients.map((c) => c.$disconnect()));
       }
-      for (const key of ['org_admin', 'cashier', 'accountant', 'storekeeper']) expect({ key, perms: await permsOf(C, key) }).toEqual({ key, perms: snap(3, key) });
+      for (const key of ['org_admin', 'cashier', 'accountant', 'storekeeper']) expect({ key, perms: await permsOf(C, key) }).toEqual({ key, perms: snap(CUR, key) });
       const dupes = await sql(ctx(C), async (c) => (await c.query('SELECT role_id, permission_key, count(*)::int AS n FROM role_permissions GROUP BY 1, 2 HAVING count(*) > 1')).rows);
       expect(dupes).toEqual([]);
     });
@@ -351,7 +353,7 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       } else {
         // Sync first: it bumped the version, so the stale edit was refused and changed nothing.
         expect({ status: edit.status, code: edit.body.code }).toEqual({ status: 409, code: 'version_conflict' });
-        expect(after.permissions).toEqual(snap(3, 'cashier'));
+        expect(after.permissions).toEqual(snap(CUR, 'cashier'));
         expect(exclusions).toEqual([]);
         expect(after.version).toBe(2);
       }
@@ -363,7 +365,7 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       const loaded = (await rolesOf(E)).find((r) => r.template_key === 'cashier')!; // what the screen showed before the sync
       await syncRoleTemplates(migrator);
       const synced = (await rolesOf(E)).find((r) => r.template_key === 'cashier')!;
-      expect({ perms: synced.permissions, version: synced.version }).toEqual({ perms: snap(3, 'cashier'), version: loaded.version + 1 });
+      expect({ perms: synced.permissions, version: synced.version }).toEqual({ perms: snap(CUR, 'cashier'), version: loaded.version + 1 });
       const stale = await as(E, E.owner).patch(`/roles/${loaded.id}`, { version: loaded.version, permissions: snap(1, 'cashier') });
       expect({ status: stale.status, body: stale.body }).toEqual({
         status: 409, body: expect.objectContaining({ code: 'version_conflict', message: `The role changed (current version ${synced.version}); reload and retry` }),
@@ -371,19 +373,19 @@ describe('Role template sync for existing organizations (phase 5.1)', () => {
       expect(JSON.stringify(stale.body)).not.toMatch(/sales\.|Cashier/);
       expect((await rolesOf(E)).find((r) => r.id === loaded.id)).toEqual(synced);
       // Reload and retry: a deliberate removal of a template permission is recorded as an exclusion...
-      await as(E, E.owner).patch(`/roles/${loaded.id}`, { version: synced.version, permissions: minus(snap(3, 'cashier'), ['sales.session.manage']) }).expect(200);
+      await as(E, E.owner).patch(`/roles/${loaded.id}`, { version: synced.version, permissions: minus(snap(CUR, 'cashier'), ['sales.session.manage']) }).expect(200);
       // ...which a later template upgrade respects (simulated by putting the role back on version 1).
       await sql(ctx(E), (c) => c.query('UPDATE roles SET template_version = 1 WHERE id = $1', [loaded.id]), true);
       const later = await syncRoleTemplates(migrator);
       expect(later.changes.find((c) => c.roleId === loaded.id)).toMatchObject({ added: [], withheld: ['sales.session.manage'] });
-      expect(await permsOf(E, 'cashier')).toEqual(minus(snap(3, 'cashier'), ['sales.session.manage']));
+      expect(await permsOf(E, 'cashier')).toEqual(minus(snap(CUR, 'cashier'), ['sales.session.manage']));
     });
 
     it('10. a newly created organization starts at the same baseline and needs no sync', async () => {
       N = await createOrg(app, await signUp(app, 'tpl-n-owner'), 'tpl-new');
       const roles = await rolesOf(N);
       for (const r of roles.filter((x) => x.template_key && !x.is_system)) {
-        expect({ key: r.template_key, v: r.template_version, perms: r.permissions }).toEqual({ key: r.template_key, v: 3, perms: snap(3, r.template_key!) });
+        expect({ key: r.template_key, v: r.template_version, perms: r.permissions }).toEqual({ key: r.template_key, v: CUR, perms: snap(CUR, r.template_key!) });
       }
       // Same baseline as an upgraded, untouched legacy role.
       expect(await permsOf(N, 'auditor')).toEqual(await permsOf(L, 'auditor'));

@@ -64,6 +64,17 @@ const SAMPLE_BODIES: Record<string, object> = {
   'POST /v1/orgs/:orgId/branches/:branchId/cashier-sessions': { openingFloatMinor: '0' },
   'POST /v1/orgs/:orgId/cashier-sessions/:sessionId/close': { version: 1, declaredCashMinor: '0' },
   'POST /v1/orgs/:orgId/branches/:branchId/sales': { lines: [{ quantity: '1' }] },
+  'POST /v1/orgs/:orgId/expense-categories': { name: 'Sweep category' },
+  'PATCH /v1/orgs/:orgId/expense-categories/:expenseCategoryId': { version: 1, name: 'Sweep rename' },
+  'POST /v1/orgs/:orgId/expenses': { categoryId: '00000000-0000-4000-8000-000000000000', amountMinor: '1', description: 'sweep', occurredOn: '2026-01-01' },
+  'PATCH /v1/orgs/:orgId/expenses/:expenseId': { version: 1, description: 'sweep edit' },
+  'POST /v1/orgs/:orgId/expenses/:expenseId/submit': { version: 1 },
+  'POST /v1/orgs/:orgId/expenses/:expenseId/approve': { version: 2 },
+  'POST /v1/orgs/:orgId/expenses/:expenseId/reject': { version: 2, reason: 'sweep reject' },
+  'POST /v1/orgs/:orgId/expenses/:expenseId/cancel': { version: 2 },
+  'POST /v1/orgs/:orgId/expenses/:expenseId/void': { version: 2, reason: 'sweep void' },
+  'POST /v1/orgs/:orgId/branches/:branchId/cash-movements': { type: 'PAID_IN', amountMinor: '1', reason: 'sweep cash' },
+  'POST /v1/orgs/:orgId/cash-movements/:cashMovementId/reverse': { reason: 'sweep reversal' },
   'POST /v1/orgs/:orgId/sales/:saleId/void': { version: 1, reason: 'sweep void' },
   'POST /v1/orgs/:orgId/sales/:saleId/payments': { method: 'CASH', amountMinor: '1' },
   'POST /v1/orgs/:orgId/payments/:paymentId/confirm': { version: 1 },
@@ -109,6 +120,7 @@ const TENANT_TABLES = [
   'purchase_order_lines', 'purchase_order_events', 'goods_receipts', 'goods_receipt_lines', 'supplier_returns', 'supplier_return_lines',
   'stock_counts', 'stock_count_lines', 'stock_transfers', 'customers', 'cashier_sessions', 'sales', 'sale_lines', 'payments', 'refunds',
   'sale_returns', 'sale_return_lines', 'role_permission_exclusions',
+  'expense_categories', 'expenses', 'expense_events', 'expense_attachments', 'cash_movements',
 ];
 
 describe('Authorization sweeps', () => {
@@ -159,12 +171,23 @@ describe('Authorization sweeps', () => {
     const ret = await http(app).post(`/v1/orgs/${b.id}/sales/${sale.body.sale.id}/returns`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-return-1')
       .send({ reason: 'seed return', lines: [{ saleLineId: sale.body.sale.lines[0].id, quantity: '1', disposition: 'RESALEABLE' }] }).expect(201);
     const moves = await http(app).get(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/stock/movements`).set(bearer(b.owner)).expect(200);
+    // Finance: a category, a submitted expense with an attachment, and cash paid into B's open session.
+    const expenseCategory = await http(app).post(`/v1/orgs/${b.id}/expense-categories`).set(bearer(b.owner)).send({ name: 'B rent' }).expect(201);
+    const expense = await http(app).post(`/v1/orgs/${b.id}/expenses`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-expense-1')
+      .send({ categoryId: expenseCategory.body.id, amountMinor: '25000', description: 'B secret rent', occurredOn: '2026-10-01', branchId: b.mainBranchId }).expect(201);
+    const attachment = await http(app).post(`/v1/orgs/${b.id}/expenses/${expense.body.expense.id}/attachments`).set(bearer(b.owner))
+      .set('Content-Type', 'text/plain').set('X-File-Name', 'b-receipt.txt').send(Buffer.from('B secret receipt')).expect(201);
+    await http(app).post(`/v1/orgs/${b.id}/expenses/${expense.body.expense.id}/submit`).set(bearer(b.owner)).send({ version: expense.body.expense.version }).expect(200);
+    const cashMovement = await http(app).post(`/v1/orgs/${b.id}/branches/${b.mainBranchId}/cash-movements`).set(bearer(b.owner)).set('Idempotency-Key', 'b-seed-cash-1')
+      .send({ type: 'PAID_IN', amountMinor: '5000', reason: 'B petty cash funding', sessionId: session.body.id }).expect(201);
     bIds = {
       orgId: b.id, branchId: b.mainBranchId, productId: product.body.id, membershipId: member.membershipId,
       overrideId: override.body.id, roleId: role.body.id, invitationId: invitation.body.id, organizationId: b.id,
       categoryId: category.body.id, supplierId: supplier.body.id, purchaseOrderId: po.body.id, countId: count.body.count.id,
       movementId: moves.body.items[0].id, customerId: customer.body.id, sessionId: session.body.id, saleId: sale.body.sale.id,
       paymentId: payment.body.payment.id, returnId: ret.body.return.id, saleLineId: sale.body.sale.lines[0].id,
+      expenseCategoryId: expenseCategory.body.id, expenseId: expense.body.expense.id, expenseAttachmentId: attachment.body.id,
+      cashMovementId: cashMovement.body.movement.id,
     };
   });
   afterAll(() => app.close());
@@ -271,6 +294,7 @@ describe('Authorization sweeps', () => {
       expect(Number(after.products.split(':')[0])).toBeGreaterThan(0);
       expect(Number(after.audit_events.split(':')[0])).toBeGreaterThan(0);
       expect(Number(after.role_permission_exclusions.split(':')[0])).toBeGreaterThan(0);
+      for (const t of ['expenses', 'expense_attachments', 'cash_movements']) expect({ t, rows: Number(after[t].split(':')[0]) > 0 }).toEqual({ t, rows: true });
     });
 
     it("B's owner likewise cannot touch A", async () => {

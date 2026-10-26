@@ -138,6 +138,8 @@ Paths that send mail, verify a password, or create invitations all fail closed.
 | `support.conversation.user` | user | 10 / 1 h | closed | `POST /v1/support/conversations` |
 | `support.message.user` | user | 60 / 5 min | open | support messages, staff replies and notes |
 | `support.upload.user` | user | 30 / 1 h | closed | support attachment uploads ([support.md §7](support.md)) |
+| `finance.upload.user` | user | 60 / 1 h | closed | expense attachment uploads ([13-finance.md §13.5](../architecture/13-finance.md)) |
+| `finance.export.user` | user | 20 / 1 h | closed | finance CSV exports ([13-finance.md §13.4](../architecture/13-finance.md)) |
 
 ## 4. Configuration
 

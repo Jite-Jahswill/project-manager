@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 const PROTECTED_INDEXES = [
   'membership_roles_unique_assignment', 'membership_overrides_unique', 'mfa_recovery_one_open_per_target', 'email_templates_one_active_per_key',
-  'organization_invitations_one_open_per_email', 'cashier_sessions_one_open',
+  'organization_invitations_one_open_per_email', 'cashier_sessions_one_open', 'expenses_one_live_correction',
 ];
 const ALLOWED_DIFF = PROTECTED_INDEXES.map((name) => `DROP INDEX "${name}";`);
 

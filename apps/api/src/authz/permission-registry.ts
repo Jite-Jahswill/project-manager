@@ -96,10 +96,17 @@ const definitions = [
   { key: 'logistics.shipment.manage', scope: B, sensitivity: S, description: 'Dispatch and update shipments' },
 
   // Finance
-  { key: 'finance.report.read', scope: O, sensitivity: R, description: 'View financial reports' },
-  { key: 'finance.expense.create', scope: B, sensitivity: S, description: 'Record expenses' },
-  { key: 'finance.expense.approve', scope: O, sensitivity: R, description: 'Approve expenses' },
-  { key: 'finance.ledger.reconcile', scope: O, sensitivity: R, description: 'Reconcile accounts' },
+  { key: 'finance.report.read', scope: O, sensitivity: R, description: 'View financial summaries (expenses, sales, refunds, cash movements, cashier sessions)' },
+  { key: 'finance.report.export', scope: O, sensitivity: R, description: 'Export expense and cash-movement records (bounded, audited)' },
+  { key: 'finance.expense.read', scope: B, sensitivity: S, description: "View expenses and their attachments (creators always see their own)" },
+  { key: 'finance.expense.create', scope: B, sensitivity: S, description: 'Create, edit, submit and cancel your own expenses' },
+  { key: 'finance.expense.approve', scope: O, sensitivity: R, description: "Approve or reject submitted expenses (never your own)" },
+  { key: 'finance.expense.void', scope: O, sensitivity: R, description: 'Void an approved expense (explicit, audited correction; never your own)' },
+  { key: 'finance.category.manage', scope: O, sensitivity: S, description: 'Create, rename and archive expense categories' },
+  { key: 'finance.cash.read', scope: B, sensitivity: S, description: 'View recorded cash movements' },
+  { key: 'finance.cash.record', scope: B, sensitivity: S, description: 'Record operational cash movements (paid in/out, drops, bank deposits and withdrawals)' },
+  { key: 'finance.cash.reverse', scope: B, sensitivity: R, description: 'Reverse a recorded cash movement (audited; the original is kept)' },
+  { key: 'finance.ledger.reconcile', scope: O, sensitivity: R, description: 'Reconcile accounts (reserved: no ledger or bank reconciliation exists yet)' },
 
   // HR & payroll
   { key: 'hr.employee.read', scope: O, sensitivity: S, branchAssignable: true, description: 'View the employee directory (no salary, bank or private data)' },

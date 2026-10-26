@@ -91,7 +91,7 @@ describe('config validation', () => {
   });
   it('keeps the standing production blockers even for an otherwise production-ready configuration', () => {
     const blockers = productionBlockers(loadConfig({ ...base, REDIS_URL: 'rediss://app:strong-password@redis.internal:6380' }));
-    for (const topic of [/recovery approvers/, /secret manager\/KMS.*backup and rotation/, /hosting, HA/, /sending domain must be verified/, /bounce\/complaint ingestion/, /support attachments need private object storage/]) {
+    for (const topic of [/recovery approvers/, /secret manager\/KMS.*backup and rotation/, /hosting, HA/, /sending domain must be verified/, /bounce\/complaint ingestion/, /support and expense attachments need private object storage/]) {
       expect(blockers.some((b) => topic.test(b))).toBe(true);
     }
     expect(blockers).toHaveLength(6);

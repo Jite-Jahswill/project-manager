@@ -244,6 +244,90 @@ export const ROLE_TEMPLATE_HISTORY: readonly RoleTemplateSnapshot[] = [
       ],
     },
   },
+  {
+    version: 4,
+    introducedIn: 'phase 6, finance and expense management',
+    templates: {
+      org_admin: [
+        'finance.cash.read', 'finance.cash.record', 'finance.cash.reverse', 'finance.category.manage',
+        'finance.expense.approve', 'finance.expense.create', 'finance.expense.read', 'finance.expense.void',
+        'finance.ledger.reconcile', 'finance.report.export', 'finance.report.read', 'hr.employee.manage',
+        'hr.employee.read', 'hr.payroll.read', 'inventory.category.manage', 'inventory.cost.read',
+        'inventory.product.archive', 'inventory.product.create', 'inventory.product.read',
+        'inventory.product.update', 'inventory.stock.adjust', 'inventory.stock.approve_adjustment',
+        'inventory.stock.count', 'inventory.stock.read', 'inventory.stock.transfer', 'logistics.shipment.manage',
+        'logistics.shipment.read', 'organization.branch.manage', 'organization.branch.read',
+        'organization.member.manage', 'organization.member.read', 'organization.role.manage',
+        'organization.role.read', 'organization.settings.manage', 'organization.settings.read',
+        'organization.subscription.read', 'purchasing.order.approve', 'purchasing.order.create',
+        'purchasing.order.read', 'purchasing.order.receive', 'purchasing.order.submit', 'purchasing.report.read',
+        'purchasing.return.create', 'purchasing.supplier.manage', 'purchasing.supplier.read', 'reports.data.export',
+        'reports.operational.read', 'sales.customer.manage', 'sales.customer.read', 'sales.payment.confirm',
+        'sales.report.read', 'sales.return.accept', 'sales.return.restock', 'sales.sale.create', 'sales.sale.read',
+        'sales.sale.refund', 'sales.sale.void', 'sales.session.manage', 'sales.session.supervise',
+        'security.audit.read',
+      ],
+      branch_manager: [
+        'finance.cash.read', 'finance.cash.record', 'finance.expense.create', 'finance.expense.read',
+        'hr.employee.read', 'inventory.product.read', 'inventory.stock.adjust', 'inventory.stock.approve_adjustment',
+        'inventory.stock.count', 'inventory.stock.read', 'inventory.stock.transfer', 'logistics.shipment.read',
+        'organization.branch.read', 'organization.member.read', 'purchasing.order.approve',
+        'purchasing.order.create', 'purchasing.order.read', 'purchasing.order.receive', 'purchasing.order.submit',
+        'purchasing.return.create', 'purchasing.supplier.read', 'reports.operational.read', 'sales.customer.read',
+        'sales.payment.confirm', 'sales.return.accept', 'sales.return.restock', 'sales.sale.create',
+        'sales.sale.read', 'sales.sale.refund', 'sales.sale.void', 'sales.session.manage', 'sales.session.supervise',
+      ],
+      inventory_manager: [
+        'inventory.category.manage', 'inventory.cost.read', 'inventory.product.archive', 'inventory.product.create',
+        'inventory.product.read', 'inventory.product.update', 'inventory.stock.adjust',
+        'inventory.stock.approve_adjustment', 'inventory.stock.count', 'inventory.stock.read',
+        'inventory.stock.transfer', 'organization.branch.read', 'purchasing.order.create', 'purchasing.order.read',
+        'purchasing.order.receive', 'purchasing.order.submit', 'purchasing.report.read', 'purchasing.return.create',
+        'purchasing.supplier.manage', 'purchasing.supplier.read', 'reports.operational.read',
+      ],
+      storekeeper: [
+        'inventory.product.read', 'inventory.stock.adjust', 'inventory.stock.count', 'inventory.stock.read',
+        'purchasing.order.read', 'purchasing.order.receive',
+      ],
+      cashier: [
+        'inventory.product.read', 'inventory.stock.read', 'sales.customer.read', 'sales.payment.confirm',
+        'sales.return.accept', 'sales.sale.create', 'sales.sale.read', 'sales.session.manage',
+      ],
+      sales_rep: [
+        'inventory.product.read', 'inventory.stock.read', 'sales.customer.manage', 'sales.customer.read',
+        'sales.sale.create', 'sales.sale.read', 'sales.session.manage',
+      ],
+      accountant: [
+        'finance.cash.read', 'finance.cash.reverse', 'finance.category.manage', 'finance.expense.approve',
+        'finance.expense.create', 'finance.expense.read', 'finance.expense.void', 'finance.ledger.reconcile',
+        'finance.report.export', 'finance.report.read', 'inventory.cost.read', 'inventory.product.read',
+        'organization.branch.read', 'purchasing.order.read', 'purchasing.report.read', 'purchasing.supplier.read',
+        'reports.operational.read', 'sales.report.read', 'sales.sale.read',
+      ],
+      hr_manager: [
+        'hr.employee.manage', 'hr.employee.read', 'hr.employee.read_sensitive', 'hr.payroll.read',
+        'organization.member.read',
+      ],
+      payroll_officer: [
+        'hr.employee.read', 'hr.employee.read_sensitive', 'hr.payroll.prepare', 'hr.payroll.read',
+      ],
+      auditor: [
+        'finance.cash.read', 'finance.expense.read', 'finance.report.read', 'inventory.cost.read',
+        'inventory.product.read', 'inventory.stock.read', 'organization.branch.read', 'organization.member.read',
+        'organization.role.read', 'organization.settings.read', 'purchasing.order.read', 'purchasing.report.read',
+        'purchasing.supplier.read', 'reports.operational.read', 'sales.report.read', 'sales.sale.read',
+        'security.audit.read',
+      ],
+      logistics_officer: [
+        'inventory.product.read', 'inventory.stock.read', 'inventory.stock.transfer', 'logistics.shipment.manage',
+        'logistics.shipment.read',
+      ],
+      viewer: [
+        'inventory.product.read', 'inventory.stock.read', 'organization.branch.read', 'reports.operational.read',
+        'sales.sale.read',
+      ],
+    },
+  },
 ];
 
 /** The template version that ROLE_TEMPLATES currently defines. */

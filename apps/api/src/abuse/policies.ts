@@ -60,6 +60,8 @@ export const DEFAULT_POLICIES = {
   'support.conversation.user': { limit: 10, periodMs: H, onRedisFailure: 'closed' },
   'support.message.user': { limit: 60, periodMs: 5 * M, onRedisFailure: 'open' },
   'support.upload.user': { limit: 30, periodMs: H, onRedisFailure: 'closed' },
+  'finance.upload.user': { limit: 60, periodMs: H, onRedisFailure: 'closed' },
+  'finance.export.user': { limit: 20, periodMs: H, onRedisFailure: 'closed' },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export type PolicyName = keyof typeof DEFAULT_POLICIES;

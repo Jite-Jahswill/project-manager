@@ -345,6 +345,8 @@ model Organization {
   products             Product[]
   supportConversations SupportConversation[]
   productCategories    ProductCategory[]
+  expenseCategories    ExpenseCategory[]
+  expenses             Expense[]
 
   @@map("organizations")
 }
@@ -409,6 +411,9 @@ model Branch {
   cashierSessions CashierSession[]
   sales           Sale[]
   saleReturns     SaleReturn[]
+
+  expenses      Expense[]
+  cashMovements CashMovement[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId])
@@ -1633,10 +1638,11 @@ model CashierSession {
   closeNote         String?              @map("close_note")
   version           Int                  @default(1)
 
-  branch   Branch    @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sales    Sale[]
-  payments Payment[]
-  refunds  Refund[]
+  branch        Branch         @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sales         Sale[]
+  payments      Payment[]
+  refunds       Refund[]
+  cashMovements CashMovement[]
 
   @@unique([id, organizationId])
   @@index([organizationId, branchId, status])
@@ -1840,4 +1846,181 @@ model SaleReturnLine {
 
   @@unique([returnId, saleLineId])
   @@map("sale_return_lines")
+}
+
+// ===========================================================================
+// Finance: expenses and operational cash movements (docs/architecture/13-finance.md)
+// ===========================================================================
+
+enum ExpenseCategoryStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// DRAFT -> SUBMITTED -> APPROVED | REJECTED; DRAFT/SUBMITTED -> CANCELLED; APPROVED -> VOIDED.
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+  VOIDED
+}
+
+enum CashMovementType {
+  PAID_IN
+  PAID_OUT
+  CASH_DROP
+  BANK_DEPOSIT
+  BANK_WITHDRAWAL
+  REVERSAL
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+model ExpenseCategory {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String                @map("organization_id") @db.Uuid
+  name            String
+  /// lower(trim(collapsed spaces)): unique per organization.
+  normalizedName  String                @map("normalized_name")
+  description     String?
+  status          ExpenseCategoryStatus @default(ACTIVE)
+  version         Int                   @default(1)
+  createdByUserId String                @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  expenses     Expense[]
+
+  @@unique([organizationId, normalizedName])
+  @@unique([id, organizationId])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String        @map("organization_id") @db.Uuid
+  /// NULL: an organization-level expense (only org-wide permission holders see it).
+  branchId          String?       @map("branch_id") @db.Uuid
+  categoryId        String        @map("category_id") @db.Uuid
+  /// E-000001, per organization.
+  number            String
+  status            ExpenseStatus @default(DRAFT)
+  amountMinor       BigInt        @map("amount_minor")
+  currency          String        @db.Char(3)
+  description       String
+  reference         String?
+  /// Business date the expense was incurred (a calendar date; no time zone).
+  occurredOn        DateTime      @map("occurred_on") @db.Date
+  createdByUserId   String        @map("created_by_user_id") @db.Uuid
+  submittedByUserId String?       @map("submitted_by_user_id") @db.Uuid
+  submittedAt       DateTime?     @map("submitted_at") @db.Timestamptz(3)
+  decidedByUserId   String?       @map("decided_by_user_id") @db.Uuid
+  decidedAt         DateTime?     @map("decided_at") @db.Timestamptz(3)
+  rejectionReason   String?       @map("rejection_reason")
+  cancelledByUserId String?       @map("cancelled_by_user_id") @db.Uuid
+  cancelledAt       DateTime?     @map("cancelled_at") @db.Timestamptz(3)
+  cancelReason      String?       @map("cancel_reason")
+  voidedByUserId    String?       @map("voided_by_user_id") @db.Uuid
+  voidedAt          DateTime?     @map("voided_at") @db.Timestamptz(3)
+  voidReason        String?       @map("void_reason")
+  /// A replacement for a VOIDED expense (explicit correction).
+  correctsExpenseId String?       @map("corrects_expense_id") @db.Uuid
+  idempotencyKey    String        @map("idempotency_key")
+  version           Int           @default(1)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branch       Branch?             @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  category     ExpenseCategory     @relation(fields: [categoryId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  corrects     Expense?            @relation("ExpenseCorrection", fields: [correctsExpenseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  correctedBy  Expense[]           @relation("ExpenseCorrection")
+  events       ExpenseEvent[]
+  attachments  ExpenseAttachment[]
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, status, occurredOn])
+  @@index([organizationId, branchId, occurredOn])
+  @@index([organizationId, createdAt])
+  @@map("expenses")
+}
+
+/// Append-only lifecycle history of an expense.
+model ExpenseEvent {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  expenseId      String   @map("expense_id") @db.Uuid
+  type           String
+  fromStatus     String?  @map("from_status")
+  toStatus       String?  @map("to_status")
+  actorUserId    String   @map("actor_user_id") @db.Uuid
+  reason         String?
+  data           Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  expense Expense @relation(fields: [expenseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([expenseId, createdAt])
+  @@map("expense_events")
+}
+
+/// Receipt or invoice files. Bytes live in private storage (AttachmentStorage), never here.
+model ExpenseAttachment {
+  id               String   @id @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  expenseId        String   @map("expense_id") @db.Uuid
+  storageKey       String   @unique @map("storage_key")
+  fileName         String   @map("file_name")
+  contentType      String   @map("content_type")
+  sizeBytes        Int      @map("size_bytes")
+  sha256           String   @db.Char(64)
+  uploadedByUserId String   @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  expense Expense @relation(fields: [expenseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@index([expenseId])
+  @@map("expense_attachments")
+}
+
+/// Operational, non-sale cash movements (append-only). Sales and refunds are never recorded here.
+model CashMovement {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String           @map("organization_id") @db.Uuid
+  branchId         String           @map("branch_id") @db.Uuid
+  /// Set: the movement is in that cashier session's drawer (counts towards its expected cash).
+  sessionId        String?          @map("session_id") @db.Uuid
+  /// C-000001, per organization.
+  number           String
+  type             CashMovementType
+  direction        CashDirection
+  amountMinor      BigInt           @map("amount_minor")
+  currency         String           @db.Char(3)
+  reason           String
+  reference        String?
+  recordedByUserId String           @map("recorded_by_user_id") @db.Uuid
+  idempotencyKey   String           @map("idempotency_key")
+  /// Set on a REVERSAL: the movement it reverses (at most one reversal each).
+  reversesId       String?          @unique @map("reverses_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  branch     Branch          @relation(fields: [branchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  session    CashierSession? @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reverses   CashMovement?   @relation("CashReversal", fields: [reversesId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reversedBy CashMovement[]  @relation("CashReversal")
+
+  @@unique([organizationId, number])
+  @@unique([organizationId, idempotencyKey])
+  @@unique([id, organizationId])
+  @@index([organizationId, branchId, createdAt])
+  @@index([sessionId])
+  @@map("cash_movements")
 }

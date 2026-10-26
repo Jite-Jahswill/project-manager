@@ -164,7 +164,7 @@ export function productionBlockers(config: AppConfig): string[] {
     'hosting, HA PostgreSQL/Redis, backups and monitoring are not yet selected and validated (docs/operations/hosting.md)',
     'the sending domain must be verified with the provider and production delivery tested end to end (docs/security/email.md §8)',
     'bounce/complaint ingestion (signed provider webhooks feeding suppressions) is not implemented (docs/security/email.md)',
-    'support attachments need private object storage with short-lived authorized downloads; only the local-disk development driver exists (docs/security/support.md §6)',
+    'support and expense attachments need private object storage with short-lived authorized downloads; only the local-disk development driver exists (docs/security/support.md §6, docs/architecture/13-finance.md §5)',
   ];
   for (const [id, k] of config.emailKeyRing.keys) {
     if (/^ci-only|change_?me/i.test(k.toString('latin1'))) problems.push(`EMAIL_SECRET_KEYS key "${id}" is a disposable CI/example value`);

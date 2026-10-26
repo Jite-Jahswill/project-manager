@@ -44,6 +44,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'sales.sale.read', 'sales.sale.create', 'sales.sale.refund', 'sales.payment.confirm', 'sales.customer.read',
       'sales.sale.void', 'sales.session.manage', 'sales.session.supervise', 'sales.return.accept', 'sales.return.restock',
       'logistics.shipment.read', 'finance.expense.create', 'hr.employee.read', 'reports.operational.read',
+      'finance.expense.read', 'finance.cash.read', 'finance.cash.record',
     ],
   },
   {
@@ -90,6 +91,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'finance.expense.approve', 'finance.ledger.reconcile', 'reports.operational.read',
       'inventory.product.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
       'sales.report.read',
+      'finance.expense.read', 'finance.expense.void', 'finance.category.manage', 'finance.cash.read', 'finance.cash.reverse', 'finance.report.export',
     ],
   },
   {
@@ -112,7 +114,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'organization.settings.read', 'organization.branch.read', 'organization.member.read', 'organization.role.read',
       'security.audit.read', 'inventory.product.read', 'inventory.stock.read', 'sales.sale.read', 'finance.report.read',
       'reports.operational.read', 'inventory.cost.read', 'purchasing.supplier.read', 'purchasing.order.read', 'purchasing.report.read',
-      'sales.report.read',
+      'sales.report.read', 'finance.expense.read', 'finance.cash.read',
     ],
   },
   {

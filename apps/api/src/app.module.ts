@@ -12,6 +12,7 @@ import { HealthController } from './health.controller';
 import { InventoryModule } from './inventory/inventory.module';
 import { PurchasingModule } from './purchasing/purchasing.module';
 import { SalesModule } from './sales/sales.module';
+import { FinanceModule } from './finance/finance.module';
 import { EmailModule } from './email/email.module';
 import { AuthDbModule } from './auth/auth-db.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -43,6 +44,7 @@ class ConfigModule {}
     InventoryModule,
     PurchasingModule,
     SalesModule,
+    FinanceModule,
     PlatformModule,
     SupportModule,
   ],

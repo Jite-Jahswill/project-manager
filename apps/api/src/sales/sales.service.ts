@@ -9,6 +9,7 @@ import type { PermissionKey } from '../authz/permission-registry';
 import { Prisma } from '../generated/prisma/client';
 import { EntitlementService } from '../subscriptions/entitlement.service';
 import { DuplicatePosting, idempotencyReused, postMovements, requireIdempotencyKey } from '../inventory/ledger';
+import { sessionExpectedCash } from './session-cash';
 import { fmtMinor, fmtQty, lineTotalMinor, parseMinor, parseQuantity } from '../inventory/quantity';
 import { CustomersService } from './customers.service';
 import type {
@@ -126,12 +127,9 @@ export class SalesService {
     return can(access, 'sales.session.supervise', s.branchId) || (s.cashierUserId === access.userId && can(access, 'sales.session.manage', s.branchId));
   }
 
-  /** Opening float + confirmed cash payments − cash refunds recorded in the session. */
-  private async expectedCash(tx: Tx, sessionId: string, float: bigint): Promise<bigint> {
-    const [row] = await tx.$queryRaw<{ paid: string | null; refunded: string | null }[]>`
-      SELECT (SELECT sum(amount_minor) FROM payments WHERE session_id = ${sessionId}::uuid AND method = 'CASH' AND status = 'CONFIRMED')::text AS paid,
-             (SELECT sum(amount_minor) FROM refunds WHERE session_id = ${sessionId}::uuid AND method = 'CASH')::text AS refunded`;
-    return float + BigInt(row?.paid ?? '0') - BigInt(row?.refunded ?? '0');
+  /** See session-cash.ts: the one definition of a drawer's expected cash. */
+  private expectedCash(tx: Tx, sessionId: string, float: bigint): Promise<bigint> {
+    return sessionExpectedCash(tx, sessionId, float);
   }
 
   // ---------------------------------------------------------------- sales

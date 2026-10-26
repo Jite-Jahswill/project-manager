@@ -1,8 +1,9 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
+import type { AppConfig } from '../config/env';
 
 /**
- * Private object storage for support attachments. Bytes never go into PostgreSQL; the
+ * Private object storage for support and expense attachments. Bytes never go into PostgreSQL; the
  * database keeps metadata and the server-generated key. Downloads always go through an
  * authorized API request (no public or permanent URLs).
  *
@@ -16,8 +17,11 @@ export abstract class AttachmentStorage {
   abstract remove(key: string): Promise<void>;
 }
 
-/** Same shape the database CHECK enforces: support/<conversation uuid>/<attachment uuid>. */
-const KEY = /^support\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/;
+/**
+ * Same shapes the database CHECKs enforce: support/<conversation uuid>/<attachment uuid> and
+ * finance/<expense uuid>/<attachment uuid>.
+ */
+const KEY = /^(support|finance)\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/;
 
 export class LocalDiskAttachmentStorage extends AttachmentStorage {
   private readonly root: string;
@@ -49,4 +53,13 @@ export class LocalDiskAttachmentStorage extends AttachmentStorage {
   async remove(key: string): Promise<void> {
     await rm(this.pathFor(key), { force: true });
   }
+}
+
+/**
+ * The storage driver for this configuration. The local driver is for development and tests
+ * (production mode is refused until an object-storage driver exists; config productionBlockers).
+ */
+export function createAttachmentStorage(config: AppConfig): AttachmentStorage {
+  if (config.nodeEnv === 'production') throw new Error('The local attachment storage driver is not allowed in production');
+  return new LocalDiskAttachmentStorage(config.supportStorageDir);
 }

@@ -17,7 +17,7 @@ describe('role template history', () => {
 
   it('versions run 1..N without gaps, and the legacy baseline is version 1', () => {
     expect(ROLE_TEMPLATE_HISTORY.map((s) => s.version)).toEqual(ROLE_TEMPLATE_HISTORY.map((_, i) => i + 1));
-    expect(ROLE_TEMPLATE_VERSION).toBe(3);
+    expect(ROLE_TEMPLATE_VERSION).toBe(4);
     expect(LEGACY_TEMPLATE_VERSION).toBe(1);
   });
 
@@ -49,7 +49,9 @@ describe('role template history', () => {
         expect({ v: s.version, orgAdminHas: p, yes: s.templates.org_admin.includes(p) }).toEqual({ v: s.version, orgAdminHas: p, yes: false });
       }
       for (const p of ['sales.sale.refund', 'sales.sale.void', 'inventory.cost.read', 'purchasing.order.approve', 'purchasing.order.self_approve',
-        'inventory.stock.approve_adjustment', 'sales.session.supervise', 'sales.return.restock', 'sales.report.read']) {
+        'inventory.stock.approve_adjustment', 'sales.session.supervise', 'sales.return.restock', 'sales.report.read',
+        'finance.expense.read', 'finance.expense.approve', 'finance.expense.void', 'finance.report.read', 'finance.report.export',
+        'finance.cash.record', 'finance.cash.reverse', 'finance.category.manage']) {
         expect({ v: s.version, cashierHas: p, yes: s.templates.cashier.includes(p) }).toEqual({ v: s.version, cashierHas: p, yes: false });
       }
     }
@@ -57,17 +59,19 @@ describe('role template history', () => {
 });
 
 describe('planRoleUpgrade', () => {
-  it('a legacy (v1) cashier receives exactly what v2 and v3 added: open a session, accept returns', () => {
+  it('a legacy (v1) cashier receives exactly what later versions added: open a session, accept returns (no finance)', () => {
     expect(plan('cashier', null, v(1, 'cashier'))).toEqual({
-      kind: 'upgrade', fromVersion: 1, toVersion: 3, add: ['sales.return.accept', 'sales.session.manage'], withheld: [],
+      kind: 'upgrade', fromVersion: 1, toVersion: 4, add: ['sales.return.accept', 'sales.session.manage'], withheld: [],
     });
   });
 
-  it('a legacy organization administrator gets the phase 4 and 5 additions but not self-approval', () => {
+  it('a legacy organization administrator gets the phase 4, 5 and 6 additions but not self-approval', () => {
     const p = plan('org_admin', null, v(1, 'org_admin'));
     expect(p).toEqual({
-      kind: 'upgrade', fromVersion: 1, toVersion: 3, withheld: [],
+      kind: 'upgrade', fromVersion: 1, toVersion: 4, withheld: [],
       add: [
+        'finance.cash.read', 'finance.cash.record', 'finance.cash.reverse', 'finance.category.manage', 'finance.expense.read', 'finance.expense.void',
+        'finance.report.export',
         'inventory.category.manage', 'inventory.cost.read', 'inventory.stock.count', 'purchasing.order.read', 'purchasing.order.submit',
         'purchasing.report.read', 'purchasing.return.create', 'sales.report.read', 'sales.return.accept', 'sales.return.restock',
         'sales.sale.void', 'sales.session.manage', 'sales.session.supervise',
@@ -75,31 +79,38 @@ describe('planRoleUpgrade', () => {
     });
   });
 
-  it('a v2 role receives only the v3 additions', () => {
-    expect(plan('accountant', 2, v(2, 'accountant'))).toEqual({ kind: 'upgrade', fromVersion: 2, toVersion: 3, add: ['sales.report.read'], withheld: [] });
-    expect(plan('storekeeper', 2, v(2, 'storekeeper'))).toEqual({ kind: 'upgrade', fromVersion: 2, toVersion: 3, add: [], withheld: [] });
+  it('a v2 role receives only the v3 and v4 additions; a v3 role only the v4 (finance) additions', () => {
+    expect(plan('accountant', 2, v(2, 'accountant'))).toEqual({
+      kind: 'upgrade', fromVersion: 2, toVersion: 4, withheld: [],
+      add: ['finance.cash.read', 'finance.cash.reverse', 'finance.category.manage', 'finance.expense.read', 'finance.expense.void', 'finance.report.export', 'sales.report.read'],
+    });
+    expect(plan('storekeeper', 2, v(2, 'storekeeper'))).toEqual({ kind: 'upgrade', fromVersion: 2, toVersion: 4, add: [], withheld: [] });
+    expect(plan('branch_manager', 3, v(3, 'branch_manager'))).toEqual({
+      kind: 'upgrade', fromVersion: 3, toVersion: 4, add: ['finance.cash.read', 'finance.cash.record', 'finance.expense.read'], withheld: [],
+    });
+    expect(plan('cashier', 3, v(3, 'cashier'))).toEqual({ kind: 'upgrade', fromVersion: 3, toVersion: 4, add: [], withheld: [] });
   });
 
   it('keeps customizations: extra permissions stay, permissions removed from the v1 template are not re-added', () => {
     const custom = v(1, 'cashier').filter((k) => k !== 'sales.customer.read').concat('sales.sale.refund');
     expect(plan('cashier', null, custom)).toEqual({
-      kind: 'upgrade', fromVersion: 1, toVersion: 3, add: ['sales.return.accept', 'sales.session.manage'], withheld: [],
+      kind: 'upgrade', fromVersion: 1, toVersion: 4, add: ['sales.return.accept', 'sales.session.manage'], withheld: [],
     });
   });
 
   it('withholds a newly introduced permission the organization excluded', () => {
     expect(plan('cashier', null, v(1, 'cashier'), new Set(['sales.session.manage']))).toEqual({
-      kind: 'upgrade', fromVersion: 1, toVersion: 3, add: ['sales.return.accept'], withheld: ['sales.session.manage'],
+      kind: 'upgrade', fromVersion: 1, toVersion: 4, add: ['sales.return.accept'], withheld: ['sales.session.manage'],
     });
   });
 
   it('does not re-add what the role already holds', () => {
-    expect(plan('cashier', null, v(3, 'cashier'))).toEqual({ kind: 'upgrade', fromVersion: 1, toVersion: 3, add: [], withheld: [] });
+    expect(plan('cashier', null, v(4, 'cashier'))).toEqual({ kind: 'upgrade', fromVersion: 1, toVersion: 4, add: [], withheld: [] });
   });
 
   it('current, newer and unknown roles are left alone', () => {
-    expect(plan('cashier', 3, [])).toEqual({ kind: 'current' });
-    expect(plan('cashier', 4, [])).toEqual({ kind: 'ahead', templateVersion: 4 });
+    expect(plan('cashier', 4, [])).toEqual({ kind: 'current' });
+    expect(plan('cashier', 5, [])).toEqual({ kind: 'ahead', templateVersion: 5 });
     expect(plan('retired_template', null, [])).toEqual({ kind: 'unknown_template' });
     expect(plan('owner', null, [])).toEqual({ kind: 'unknown_template' });
   });

@@ -87,6 +87,7 @@ Templates are **versioned**. `src/authz/role-template-history.ts` keeps a frozen
 | 1 | stage 1 to phase 3 | (baseline) |
 | 2 | phase 4: inventory and purchasing | stock counts, categories, cost prices, purchase-order read/submit, supplier returns, purchasing reports |
 | 3 | phase 5: sales and point of sale | cashier sessions, voids, returns and restocking, sales reports |
+| 4 | phase 6: finance | expense reading, voiding and categories, cash movements and reversals, finance exports ([13-finance.md §13.6](13-finance.md#136-permissions)) |
 
 New organizations are created at the current version. Template roles created before versions were recorded have `template_version` NULL and are treated as **version 1**.
 

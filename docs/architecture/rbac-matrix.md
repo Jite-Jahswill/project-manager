@@ -60,8 +60,15 @@ Sensitivity **R** = restricted (payroll, finance, sensitive HR, audit, exports).
 | `logistics.shipment.read` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  | ● |  |
 | `logistics.shipment.manage` | B |  | ● | ● |  |  |  |  |  |  |  |  |  | ● |  |
 | `finance.report.read` | O | R | ● | ● |  |  |  |  |  | ● |  |  | ● |  |  |
+| `finance.report.export` | O | R | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
+| `finance.expense.read` | B |  | ● | ● | ● |  |  |  |  | ● |  |  | ● |  |  |
 | `finance.expense.create` | B |  | ● | ● | ● |  |  |  |  | ● |  |  |  |  |  |
 | `finance.expense.approve` | O | R | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
+| `finance.expense.void` | O | R | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
+| `finance.category.manage` | O |  | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
+| `finance.cash.read` | B |  | ● | ● | ● |  |  |  |  | ● |  |  | ● |  |  |
+| `finance.cash.record` | B |  | ● | ● | ● |  |  |  |  |  |  |  |  |  |  |
+| `finance.cash.reverse` | B | R | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
 | `finance.ledger.reconcile` | O | R | ● | ● |  |  |  |  |  | ● |  |  |  |  |  |
 | `hr.employee.read` | O+ |  | ● | ● | ● |  |  |  |  |  | ● | ● |  |  |  |
 | `hr.employee.read_sensitive` | O | R | ● |  |  |  |  |  |  |  | ● | ● |  |  |  |
